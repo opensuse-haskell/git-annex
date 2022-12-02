@@ -362,6 +362,7 @@ Executable git-annex
    securemem,
    crypto-api,
    cryptonite (>= 0.23),
+   blake3,
    memory,
    deepseq,
    split,
