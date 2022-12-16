@@ -288,6 +288,10 @@ Flag GitLfs
   Description: Build with git-lfs library (rather than vendored copy)
   Default: True
 
+Flag Blake3
+  Description: Enable blake3 support
+  Default: True
+
 source-repository head
   type: git
   location: git://git-annex.branchable.com/
@@ -362,7 +366,6 @@ Executable git-annex
    securemem,
    crypto-api,
    cryptonite (>= 0.23),
-   blake3,
    memory,
    deepseq,
    split,
@@ -571,6 +574,10 @@ Executable git-annex
       Build-Depends: dbus (>= 0.10.7), fdo-notify (>= 0.3)
       CPP-Options: -DWITH_DBUS -DWITH_DESKTOP_NOTIFY -DWITH_DBUS_NOTIFICATIONS
       Other-Modules: Utility.DBus
+
+  if flag(Blake3)
+    Build-Depends: blake3
+    CPP-Options: -DWITH_BLAKE3
 
   if flag(Pairing)
     Build-Depends: network-multicast, network-info
