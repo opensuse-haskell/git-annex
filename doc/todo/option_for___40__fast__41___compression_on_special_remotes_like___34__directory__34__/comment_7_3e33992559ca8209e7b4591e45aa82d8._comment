@@ -1,0 +1,30 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 7"""
+ date="2026-04-28T17:36:57Z"
+ content="""
+The external special remote protocol recently got a DELEGATE extension.
+That offers a possible alternative way to handle wanting to compress some
+files and not others.
+
+Suppose that special remotes can have compression enabled, or not, at
+initremote time. The compressor is also chosen then. Neither can be
+changed. And all files stored in the special remote are compressed.
+Very simple.
+
+In order to compress some files, but not others, an external special remote
+could pick which files to compress (based on extension say). It would
+delegate to two different special remote configurations, one with
+compression and one without.
+
+Similarly, if some files use one compressor and some files another one,
+it can delegate to different special remote configurations with the
+compressor it selects.
+
+Note that, with this approach, the external special remote needs to take
+care to always compress the same set of files with the same compressor.
+If it changes its mind retrieval will fail at checksum verification time.
+
+I'm not sold on this idea, but it's an interesting application of the
+DELEGATE extension.
+"""]]
