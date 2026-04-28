@@ -1,0 +1,13 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 1"""
+ date="2026-04-28T16:04:30Z"
+ content="""
+1. 20260408-noversionid is slop and I will not look at it
+2. effigies comment here <https://github.com/OpenNeuroOrg/openneuro/issues/3875#issuecomment-4209201798>
+   confirms that this is expected behavior of a repository that
+   started out without version IDs and got them turned on later,
+   back in 2019 when git-annex allowed doing that.
+
+Downprioritized appropriately.
+"""]]
