@@ -1,0 +1,18 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 3"""
+ date="2026-04-28T16:34:49Z"
+ content="""
+This is about importing from a directory, not from a special remote.
+
+I wonder if it's worth making changes to that,
+given plans to [[todo/remove_legacy_import_directory_interface]].
+
+One of the ways that might be accomplished would be to make the old
+interface still work but be reimplemented in terms of automatically setting
+up a directory special remote and importing from it. But importing symlinks
+from a special remote is also not supported, and is probably considerably
+harder, and/or more of a footbomb if multiple special remotes support it.
+
+(See also [[bugs/non-git-annex_symlinks_not_perserved_when_exporting_tree_via_rsync]]))
+"""]]
