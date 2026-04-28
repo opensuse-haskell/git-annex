@@ -1,0 +1,15 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 7"""
+ date="2026-04-28T16:45:57Z"
+ content="""
+`git-annex maxsize` got implemented a while ago. There are some preferred
+content expressions that take it into account, avoding using more than the
+maximum size when possible. Currently that is limited to balancing
+content amoung several repositories, and there is a rebalancing operation
+for situations where multiple writers have caused the maxsize to be
+exceeded.
+
+There might be room for other preferred content expressions using maxsize,
+but I feel that is enough to close this old todo!
+"""]]
