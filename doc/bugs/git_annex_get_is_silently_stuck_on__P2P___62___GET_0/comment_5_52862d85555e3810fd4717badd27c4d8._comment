@@ -1,0 +1,17 @@
+[[!comment format=mdwn
+ username="yarikoptic"
+ avatar="http://cdn.libravatar.org/avatar/f11e9c84cb18d26a1748c33b48c924b4"
+ subject="comment 5"
+ date="2026-04-28T12:06:32Z"
+ content="""
+FWIW, I guess could be closed -- can no longer  reproduce, git-annex 10.20241031-1~ndall+1 : `git annex copy --debug --to typhon --fast --not --in typhon` took super long to transfer everything but completed without errors. I do not think I have any system accessible to me with `/tmp` on NFS.  ATM it is
+
+```
+[bids@rolando 1076_spacetop.git] > df /tmp
+Filesystem     1K-blocks  Used Available Use% Mounted on
+/dev/sdb1      961102624 78224 912179920   1% /tmp
+[bids@rolando 1076_spacetop.git] > mount | grep /tmp
+/dev/sdb1 on /tmp type ext4 (rw,relatime,stripe=192,data=ordered)
+```
+
+"""]]
