@@ -1,0 +1,27 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 7"""
+ date="2026-05-06T12:56:10Z"
+ content="""
+`git pull` outputs its progress to stderr. So --json could leave that alone
+and a program wanting to parse it just consume stderr. Delimiters could
+be added to stderr around the `git pull` (with a separate option)
+to make it easier for a program to find and parse it.
+
+`git pull` also outputs some things to stdout. 
+In particular, that includes the `git merge` output when the merge is
+successful. It seems to me that could be put in the json object, eg:
+
+	{"command":"pull","output":["Updating 8a433d0..9d47770" ...
+
+While that will buffer it until the pull is complete. That seems ok;
+it's displayed by `git pull` after the usually more expensive
+network operation, so buffering it briefly wouldn't be too noticable if
+a json consumer chooses to show it to the user.
+
+Note that `git-annex pull` will pull from the remote a second time after
+transferring content to/from it. So the json will have 2 "command":"pull"
+records. And stderr may contain 2 delimited `git pull` stderrs.
+The --json consumer may find that surprising, and it doesn't always happen,
+which gets back to the original problem of the --json not being discoverable.
+"""]]

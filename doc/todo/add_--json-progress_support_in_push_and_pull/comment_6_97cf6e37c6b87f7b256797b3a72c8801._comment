@@ -1,0 +1,10 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 6"""
+ date="2026-05-06T12:42:20Z"
+ content="""
+> In the case where the git operation needs to prompt for a password, this would leave the user with a password prompt with no prior indication of what is being done. I don't think that's acceptable.
+
+`git pull` and `git push` over ssh prompt for the password (to /dev/tty)
+before outputing anything else. So I suppose it *is* acceptable.
+"""]]
