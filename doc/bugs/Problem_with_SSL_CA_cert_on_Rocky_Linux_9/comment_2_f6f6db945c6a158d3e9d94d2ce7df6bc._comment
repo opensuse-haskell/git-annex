@@ -1,0 +1,23 @@
+[[!comment format=mdwn
+ username="matrss"
+ avatar="http://cdn.libravatar.org/avatar/cd1c0b3be1af288012e49197918395f0"
+ subject="comment 2"
+ date="2026-05-06T10:21:54Z"
+ content="""
+The ca-certificates.crt file seems to be hardcoded in the git-annex-standalone package:
+
+[[!format sh \"\"\"
+$ grep -R ca-certificates.crt .
+grep: ./usr/lib/x86_64-linux-gnu/tls/x86_64: Warnung: rekursive Verzeichnisschleife
+grep: ./usr/lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v3: Warnung: rekursive Verzeichnisschleife
+grep: ./usr/lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v2: Warnung: rekursive Verzeichnisschleife
+grep: ./usr/lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v4: Warnung: rekursive Verzeichnisschleife
+grep: ./usr/lib/x86_64-linux-gnu/libcurl-gnutls.so.4: Übereinstimmungen in Binärdatei
+grep: ./usr/lib/x86_64-linux-gnu/libgnutls.so.30: Übereinstimmungen in Binärdatei
+grep: ./usr/lib/x86_64-linux-gnu/x86_64: Warnung: rekursive Verzeichnisschleife
+$ strings ./usr/lib/x86_64-linux-gnu/libcurl-gnutls.so.4 | grep ca-certificates
+/etc/ssl/certs/ca-certificates.crt
+$ strings ./usr/lib/x86_64-linux-gnu/libgnutls.so.30 | grep ca-certificates
+/etc/ssl/certs/ca-certificates.crt
+\"\"\"]]
+"""]]
