@@ -1,0 +1,26 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 8"""
+ date="2026-05-06T13:12:21Z"
+ content="""
+`datalad push` wants to use the same `git push` operations as
+`git-annex push` does, which is nontrivial to reimplement,
+especially in its handling of the git-annex branch.
+See the long comment on pushBranch explaining the order of operations.
+
+This is one place where `git-annex push` *can't* be emulated using other
+`git-annex` commands that *do* support --json.
+
+But, `git-annex push --no-content` doesn't do much besides run pushBranch.
+So `datalad push` could use it when run in a git-annex repository. 
+There's no need for it to support --json either, the regular `git push`
+output goes to stderr, so it can parse the `git push` progress out of
+stderr as before.
+
+It may want to pass `--quiet` to avoid the usual git-annex output to
+stdout. AFAICS, `git push` does not itself output to stdout.
+
+The only other thing that command does besides `pushBranch` is
+`updateBranches`, which updates view branches and adjusted branches when
+run in one. 
+"""]]

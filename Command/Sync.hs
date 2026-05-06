@@ -736,25 +736,36 @@ pushRemote o remote (Just branch, _) = do
  -}
 pushBranch :: Remote -> Maybe Git.Branch -> MessageState -> Git.Repo -> IO Bool
 pushBranch remote mbranch ms g = do
-	directpush
-	annexpush `after` syncpush
+	directpushed <- directpush
+	annexpush `after` syncpush directpushed
   where
 	directpush = case mbranch of
 		Just branch -> do
-			let p = flip Git.Command.gitCreateProcess g $ pushparams
-				[ Git.fromRef $ Git.Ref.base $ origBranch branch ]
+			let p = flip Git.Command.gitCreateProcess g $
+				pushparams True
+					[ Git.fromRef $ Git.Ref.base $ origBranch branch ]
 			let p' = p { std_err = CreatePipe }
 			bracket (createProcess p') cleanupProcess $ \h -> do
 				filterstderr [] (stderrHandle h) (processHandle h)
 				void $ waitForProcess (processHandle h)
-		Nothing -> noop
+			return True
+		Nothing -> return False
 				
-	syncpush = flip Git.Command.runBool g $ pushparams $ catMaybes
-		[ (syncrefspec . origBranch) <$> mbranch
-		, Just $ Git.Branch.forcePush $ syncrefspec Annex.Branch.name
-		]
+	syncpush directpushed =  do
+		let p = flip Git.Command.gitCreateProcess g $
+			pushparams (not directpushed) $ catMaybes
+				[ (syncrefspec . origBranch) <$> mbranch
+				, Just $ Git.Branch.forcePush $ syncrefspec Annex.Branch.name
+				]
+		-- stderr is relayed through a pipe so that the push
+		-- progress is not displayed a second time when the
+		-- directpush already displayed push progress.
+		let p' = p { std_err = CreatePipe }
+		bracket (createProcess p') cleanupProcess $ \h -> do
+			relaystderr (stderrHandle h) (processHandle h)
+			checkSuccessProcess (processHandle h)
 	
-	annexpush = void $ tryIO $ flip Git.Command.runQuiet g $ pushparams
+	annexpush = void $ tryIO $ flip Git.Command.runQuiet g $ pushparams False
 		[ Git.fromRef $ Git.Ref.base $ Annex.Branch.name ]
 	
 	-- In the default configuration of receive.denyCurrentBranch,
@@ -779,11 +790,19 @@ pushBranch remote mbranch ms g = do
 			unless (any ("receive.denyCurrentBranch" `isInfixOf`) buf) $
 				mapM_ (hPutStrLn stderr) (reverse buf)
 	
-	pushparams branches = catMaybes
+	relaystderr herr pid = hGetLineUntilExitOrEOF pid herr >>= \case
+		Just l -> do
+			hPutStrLn stderr l
+			relaystderr herr pid
+		Nothing -> return ()
+
+	pushparams forceprogress branches = catMaybes
 		[ Just $ Param "push"
 		, if commandProgressDisabled' ms
 			then Just $ Param "--quiet"
-			else Nothing
+			else if forceprogress
+				then Just $ Param "--progress"
+				else Nothing
 		, Just $ Param $ Remote.name remote
 		] ++ map Param branches
 	

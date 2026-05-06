@@ -7,6 +7,8 @@ git-annex (10.20260422) UNRELEASED; urgency=medium
     both the remote and the local repository, now pull only drops unwanted
     files from the local repository, and push only drops unwanted files
     from the remote.
+  * push: When pushing to a bare git repository, display git push
+    progress before the display of pushed branches.
 
  -- Joey Hess <id@joeyh.name>  Mon, 27 Apr 2026 11:41:49 -0400
 
