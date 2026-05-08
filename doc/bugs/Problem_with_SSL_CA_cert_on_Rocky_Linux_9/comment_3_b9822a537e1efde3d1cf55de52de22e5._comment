@@ -1,0 +1,26 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 3"""
+ date="2026-05-08T14:27:02Z"
+ content="""
+The standalone build is made on Debian and inherits
+where it expects to find SSL certs from there. On Debian, the 
+ca-certificates package provides the certificates, and derives from
+those shipped with Mozilla.
+
+Rocky does have an equivilant ca-certificates package, which seems likely to
+provide certificates in a place that will work.
+
+There may be an argument for the standalone build bundling its own copy
+of certificates. Of course, it then would need a security update every time
+there is a removal. But, Debian allows the admin to configure which
+certificate authorities they trust and only populates the file with those.
+If the standalone build overrode that, it would be at least surprising.
+It might be a good compromise for it to ship its own copy, but only
+use it if the file is not present in /etc/.
+
+As well as the 2 C libraries, git-annex links to a haskell library that
+reads the certificates too. Each of these would need to be patched,
+probably, I don't think there is any way to override the location 
+with an environment variable.
+"""]]
