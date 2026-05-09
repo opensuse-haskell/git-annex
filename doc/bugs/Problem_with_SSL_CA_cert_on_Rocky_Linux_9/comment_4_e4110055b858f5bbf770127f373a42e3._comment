@@ -1,0 +1,18 @@
+[[!comment format=mdwn
+ username="matrss"
+ avatar="http://cdn.libravatar.org/avatar/cd1c0b3be1af288012e49197918395f0"
+ subject="comment 4"
+ date="2026-05-09T23:37:03Z"
+ content="""
+> Rocky does have an equivilant ca-certificates package, which seems likely to provide certificates in a place that will work.
+
+Unfortunately that is not the case. The ca-certificates package on Rocky Linux 9 does not provide /etc/ssl/certs/ca-certificates.crt, only /etc/ssl/certs/ca-bundle.crt and /etc/ssl/ca-bundle.trust.crt. /etc/ssl/certs/ca-bundle.crt seems to be Rocky's equivalent to /etc/ssl/certs/ca-certificates.crt, but it is not picked up by the git-annex-standalone package.
+
+I can confirm that symlinking (`ln -s /etc/ssl/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt`) fixes the issue, but I am not sure if I will be able to convince the HPC sysadmins to do so everywhere.
+
+While the changelog for the Rocky Linux **10** ca-certificates package says that the /etc/ssl/certs/ca-certificates.crt symlink has been restored (<https://rockylinux.pkgs.org/10/rockylinux-baseos-x86_64/ca-certificates-2025.2.80_v9.0.305-102.el10.noarch.rpm.html#:~:text=%2A%20%2Fetc%2Fssl%2Fcerts%2Fca%2Dcertificates%2Ecrt>) this doesn't actually seem to be the case, at least I can't find it in the docker.io/rockylinux/rockylinux:10 image.
+
+> I don't think there is any way to override the location with an environment variable.
+
+At least for GnuTLS it seems to be not implemented: <https://gitlab.com/gnutls/gnutls/-/work_items/1279>. But some applications make it overwritable, and this gave me another idea: setting `export GIT_SSL_CAINFO=/etc/ssl/certs/ca-bundle.crt` eliminates the error I was seeing (which seemed to originate from git after all). But I am not sure if there won't be other issues due to the missing /etc/ssl/certs/ca-certificates.crt file and that path being hardcoded in GnuTLS. At least `git annex get` via p2phttp seems to be working fine, but now I am wondering which CAs it is actually using to validate the remote...
+"""]]
