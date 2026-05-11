@@ -1,0 +1,15 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 5"""
+ date="2026-05-11T13:37:32Z"
+ content="""
+	2025-08-18 - Frantisek Krenzelok <fkrenzel@redhat.com> - 2024.2.69_v8.0.303-102.5
+	- Bring back openssl trusted format bundle as well (Resolves: RHEL-109484)
+	- Restored the following symlinks:
+	* /etc/pki/tls/cert.pem
+	* /etc/pki/tls/certs/ca-certificates.crt
+
+That certainly reads as if the package is intended to contain the file, and is buggy.
+
+Are you sure the image you checked has a new enough version of the package?
+"""]]
