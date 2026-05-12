@@ -165,6 +165,8 @@ data GitConfig = GitConfig
 	, coreSharedRepository :: SharedRepository
 	, coreQuotePath :: QuotePath
 	, receiveDenyCurrentBranch :: DenyCurrentBranch
+	, httpSslCAInfo :: Maybe String
+	, httpSslCAPath :: Maybe String
 	, gcryptId :: Maybe String
 	, gpgCmd :: GpgCmd
 	, mergeDirectoryRenames :: Maybe String
@@ -296,6 +298,8 @@ extractGitConfig configsource r = GitConfig
 	, coreSharedRepository = getSharedRepository r
 	, coreQuotePath = QuotePath (getbool "core.quotepath" True)
 	, receiveDenyCurrentBranch = getDenyCurrentBranch r
+	, httpSslCAInfo = getmaybe "http.sslcainfo"
+	, httpSslCAPath = getmaybe "http.sslcapath"
 	, gcryptId = getmaybe "core.gcrypt-id"
 	, gpgCmd = mkGpgCmd (getmaybe "gpg.program")
 	, mergeDirectoryRenames = getmaybe "directoryrenames"

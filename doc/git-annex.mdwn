@@ -2433,6 +2433,14 @@ These environment variables are used by git-annex when set:
   Usually it's better to configure any desired options through your
   ~/.ssh/config file, or by setting `annex.ssh-options`.
 
+* `GIT_SSL_CAINFO`, `GIT_SSL_CAPATH`
+
+  Similarly to git, when set to a file or directory, this overrides
+  the default SSL certificates used to verify HTTPS connections.
+
+  (The `http.sslCAInfo` and `http.sslCAPath` git configs have the same
+  effect.)
+
 * `GIT_ANNEX_VECTOR_CLOCK`
 
   Normally git-annex timestamps lines in the log files committed to the

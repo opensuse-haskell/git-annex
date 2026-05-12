@@ -39,20 +39,24 @@ import qualified Utility.Url.Parse as U
 import Annex.Hook
 import Utility.Hash (IncrementalVerifier)
 import Utility.IPAddress
-import Network.HTTP.Client.Restricted
 import Utility.Metered
+import Utility.Env
 import Git.Credential
 import qualified BuildInfo
 
 import Network.Socket
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS
+import Network.HTTP.Client.Restricted
+import Network.Connection
 import Text.Read
 import qualified Data.Set as S
 #if MIN_VERSION_tls(2,0,0)
 import qualified Network.Connection as NC
 import qualified Network.TLS as TLS
 #endif
+import Network.Connection.Internal (ConnectionContext(..))
+import Data.X509.CertificateStore
 
 defaultUserAgent :: U.UserAgent
 defaultUserAgent = "git-annex/" ++ BuildInfo.packageversion
@@ -100,8 +104,9 @@ getUrlOptions mgc = Annex.getState Annex.urloptions >>= \case
 				then U.DownloadWithConduit $
 					U.DownloadWithCurlRestricted mempty
 				else U.DownloadWithCurl curlopts
+			ctx <- mkconnectioncontext 
 			manager <- liftIO $ U.newManager $ 
-				avoidtimeout managersettings
+				avoidtimeout $ managersettings ctx
 			return (urldownloader, manager)
 		allowedaddrsports -> do
 			addrmatcher <- liftIO $ 
@@ -122,8 +127,9 @@ getUrlOptions mgc = Annex.getState Annex.urloptions >>= \case
 				if isallowed (addrAddress addr)
 					then Nothing
 					else Just (connectionrestricted addr)
-			(settings, pr) <- liftIO $ 
-				mkRestrictedManagerSettings r Nothing tlssettings
+			ctx <- mkconnectioncontext
+			(settings, pr) <- liftIO $
+				mkRestrictedManagerSettings r (Just ctx) tlssettings
 			case pr of
 				Nothing -> return ()
 				Just ProxyRestricted -> toplevelWarning True
@@ -146,10 +152,26 @@ getUrlOptions mgc = Annex.getState Annex.urloptions >>= \case
 				def { TLS.supportedExtendedMainSecret = TLS.AllowEMS }
 #endif
 			| otherwise = Nothing
-		managersettings = case tlssettings of
-			Nothing -> tlsManagerSettings
-			Just v -> mkManagerSettings v Nothing
 	
+		managersettings ctx = case tlssettings of
+			Nothing -> mkManagerSettingsContext (Just ctx) def Nothing
+			Just v -> mkManagerSettingsContext (Just ctx) v Nothing
+		
+		mkconnectioncontext =
+			getCAPath >>= \case
+				Just p -> liftIO $ mkconnectioncontext' p
+				Nothing -> liftIO $ initConnectionContext
+		mkconnectioncontext' p = 
+			ConnectionContext . fromMaybe mempty
+				<$> readCertificateStore p
+
+		getCAPath = getM id
+			[ liftIO (getEnv "GIT_SSL_CAINFO")
+			, liftIO (getEnv "GIT_SSL_CAPATH")
+			, httpSslCAInfo <$> Annex.getGitConfig
+			, httpSslCAPath <$> Annex.getGitConfig
+			]
+
 	-- http-client defailts to timing out a request after 30 seconds
 	-- or so, but some web servers are slower and git-annex has its own
 	-- separate timeout controls, so disable that.
