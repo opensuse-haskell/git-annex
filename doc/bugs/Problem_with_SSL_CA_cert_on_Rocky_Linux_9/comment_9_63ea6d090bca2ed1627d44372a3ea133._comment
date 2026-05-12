@@ -1,0 +1,17 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 9"""
+ date="2026-05-12T18:38:08Z"
+ content="""
+> But now I've read this in the Changelog, and I could swear it wasn't there 2 days ago
+
+> > Remove /etc/pki/tls/certs/ca-certificates.crt symlink which was included by mistake
+
+That is not /etc/ssl/certs/ca-certificates.crt so not relevant.
+
+Looking at /etc/ssl/README on Rocky 10, it documents that /etc/ssl/certs
+is supposed to a) match Debian and b) include ca-certificates.crt.
+
+So Rocky unquestionably has a bug, either a bug in its documentation, or an
+omission of a file.
+"""]]
