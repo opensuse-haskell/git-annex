@@ -1,0 +1,55 @@
+### Please describe the problem.
+
+<https://atris.fz-juelich.de> uses <https://iocaine.madhouse-project.org/> to protect against being overloaded by scrapers. I've whitelisted the `git-annex/` user agent to keep git-annex functional. Unfortunately it seems like git-annex isn't actually sending a user agent for p2phttp related requests (the user agent field as logged by iocaine is an empty string), and therefore my iocaine configuration broke git-annex operations via p2phttp.
+
+For now I've implemented a path-based workaround allowing all requests to the p2phttp endpoints under `https://atris.fz-juelich.de/git-annex-p2phttp/` irrespective of user agent, so everything is working, but it still looks like a bug.
+
+
+### What steps will reproduce the problem?
+
+Inspect the p2phttp traffic for the User-Agent header. 
+
+
+### What version of git-annex are you using? On what operating system?
+
+Client side:
+```
+$ git annex version
+git-annex version: 10.20260420-g74cffe2f348afd81711fa9f69e165e04e11f1ef0
+build flags: Assistant Webapp Inotify DBus DesktopNotify TorrentParser MagicMime Benchmark Feeds Testsuite S3 WebDAV Servant OsPath
+dependency versions: aws-0.24.4 bloomfilter-2.0.1.3 crypton-1.0.4 DAV-1.3.4 feed-1.3.2.1 ghc-9.10.3 http-client-0.7.19 torrent-10000.1.3 uuid-1.3.16 yesod-1.6.2.1
+key/value backends: SHA256E SHA256 SHA512E SHA512 SHA224E SHA224 SHA384E SHA384 SHA3_256E SHA3_256 SHA3_512E SHA3_512 SHA3_224E SHA3_224 SHA3_384E SHA3_384 SKEIN256E SKEIN256 SKEIN512E SKEIN512 BLAKE2B256E BLAKE2B256 BLAKE2B512E BLAKE2B512 BLAKE2B160E BLAKE2B160 BLAKE2B224E BLAKE2B224 BLAKE2B384E BLAKE2B384 BLAKE2BP512E BLAKE2BP512 BLAKE2S256E BLAKE2S256 BLAKE2S160E BLAKE2S160 BLAKE2S224E BLAKE2S224 BLAKE2SP256E BLAKE2SP256 BLAKE2SP224E BLAKE2SP224 SHA1E SHA1 MD5E MD5 WORM URL GITBUNDLE GITMANIFEST VURL X*
+remote types: git gcrypt p2p S3 bup directory rsync web bittorrent webdav adb tahoe glacier ddar git-lfs httpalso borg rclone hook external compute mask
+operating system: linux x86_64
+supported repository versions: 8 9 10
+upgrade supported from repository versions: 0 1 2 3 4 5 6 7 8 9 10
+local repository version: 10
+```
+
+Server side:
+```
+# git annex version
+git-annex version: 10.20260316
+build flags: Assistant Webapp Inotify DBus DesktopNotify TorrentParser MagicMime Benchmark Feeds Testsuite S3 WebDAV Servant OsPath
+dependency versions: aws-0.25.2 bloomfilter-2.0.1.3 crypton-1.0.6 DAV-1.3.4 feed-1.3.2.1 ghc-9.8.2 http-client-0.7.19 torrent-10000.1.3 uuid-1.3.16 yesod-1.6.2.1
+key/value backends: SHA256E SHA256 SHA512E SHA512 SHA224E SHA224 SHA384E SHA384 SHA3_256E SHA3_256 SHA3_512E SHA3_512 SHA3_224E SHA3_224 SHA3_384E SHA3_384 SKEIN256E SKEIN256 SKEIN512E SKEIN512 BLAKE2B256E BLAKE2B256 BLAKE2B512E BLAKE2B512 BLAKE2B160E BLAKE2B160 BLAKE2B224E BLAKE2B224 BLAKE2B384E BLAKE2B384 BLAKE2BP512E BLAKE2BP512 BLAKE2S256E BLAKE2S256 BLAKE2S160E BLAKE2S160 BLAKE2S224E BLAKE2S224 BLAKE2SP256E BLAKE2SP256 BLAKE2SP224E BLAKE2SP224 SHA1E SHA1 MD5E MD5 WORM URL GITBUNDLE GITMANIFEST VURL X*
+remote types: git gcrypt p2p S3 bup directory rsync web bittorrent webdav adb tahoe glacier ddar git-lfs httpalso borg rclone hook external compute mask
+operating system: linux x86_64
+supported repository versions: 8 9 10
+upgrade supported from repository versions: 0 1 2 3 4 5 6 7 8 9 10
+```
+
+
+### Please provide any additional information below.
+
+[[!format sh """
+# If you can, paste a complete transcript of the problem occurring here.
+# If the problem is with the git-annex assistant, paste in .git/annex/daemon.log
+
+
+# End of transcript or log.
+"""]]
+
+### Have you had any luck using git-annex before? (Sometimes we get tired of reading bug reports all day and a lil' positive end note does wonders)
+
+
