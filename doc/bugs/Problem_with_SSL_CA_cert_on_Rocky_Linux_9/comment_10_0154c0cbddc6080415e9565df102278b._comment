@@ -1,0 +1,14 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 10"""
+ date="2026-05-13T13:03:59Z"
+ content="""
+It seems more valuable to make the standalone build not depend on the
+system having /etc/ssl/certs/ than it does to work around one bug in one
+distribution.
+
+I'm leaning toward including a copy of the certs, and only using it when
+/etc/ssl/certs/ca-certificates.crt is not present. This limits the security
+exposure of stale certs to linux systems where https would otherwise not work
+without the bundled certs.
+"""]]
