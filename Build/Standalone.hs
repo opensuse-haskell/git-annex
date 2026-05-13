@@ -160,6 +160,14 @@ installLocales topdir =
 	cp (literalOsPath "/usr/share/i18n") (topdir </> "i18n")
 #endif
 
+installSSLCaCertBundle :: OsPath -> IO ()
+#ifdef darwin_HOST_OS
+installSSLCaCertBundle _ = return ()
+#else
+installSSLCaCertBundle topdir =
+	cp (literalOsPath "/etc/ssl/certs/ca-certificates.crt") (topdir </> "ca-certificates.crt")
+#endif
+
 installSkel :: OsPath -> OsPath -> IO ()
 #ifdef darwin_HOST_OS
 installSkel _topdir basedir = do
@@ -238,6 +246,7 @@ main = getArgs >>= go . map toOsPath
 		installGitLibs topdir
 		installMagic topdir
 		installLocales topdir
+		installSSLCaCertBundle topdir
 		hwcaplibs <- mklibs topdir installedbins
 		installSkelRest topdir basedir hwcaplibs
 	go _ = error "specify topdir and basedir"

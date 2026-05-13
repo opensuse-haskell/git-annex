@@ -240,6 +240,23 @@ case "$os" in
 		# when running non-bundled programs.
 		GIT_ANNEX_STANDLONE_ENV="PATH GCONV_PATH GIT_EXEC_PATH GIT_TEMPLATE_DIR MANPATH LOCPATH"
 		export GIT_ANNEX_STANDLONE_ENV
+
+		# Use system's SSL CA certs if present; fall back to
+		# bundled certs. This is the same list of locations
+		# as in crypton-x509-system System.X509.Unix,
+		# limited to only the Linux ones.
+		if [ -z "$GIT_SSL_CAINFO" ] && [ -z "$GIT_SSL_CAPATH" ]; then
+			if [ -e /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem ]; then
+				GIT_SSL_CAINFO=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+				export GIT_SSL_CAINFO
+			else
+				if [ ! -e /etc/ssl/certs/ca-certificates.crt ]; then
+					GIT_SSL_CAINFO="$base/ca-certificates.crt"
+					export GIT_SSL_CAINFO
+				fi
+			fi
+		fi
+
 		;;
 esac
 
