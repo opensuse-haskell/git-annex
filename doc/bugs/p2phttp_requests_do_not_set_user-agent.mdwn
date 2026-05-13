@@ -13,6 +13,7 @@ Inspect the p2phttp traffic for the User-Agent header.
 ### What version of git-annex are you using? On what operating system?
 
 Client side:
+
 ```
 $ git annex version
 git-annex version: 10.20260420-g74cffe2f348afd81711fa9f69e165e04e11f1ef0
@@ -27,6 +28,7 @@ local repository version: 10
 ```
 
 Server side:
+
 ```
 # git annex version
 git-annex version: 10.20260316
