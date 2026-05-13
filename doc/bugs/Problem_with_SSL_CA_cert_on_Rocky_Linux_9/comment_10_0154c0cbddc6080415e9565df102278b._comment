@@ -3,12 +3,29 @@
  subject="""comment 10"""
  date="2026-05-13T13:03:59Z"
  content="""
-It seems more valuable to make the standalone build not depend on the
-system having /etc/ssl/certs/ than it does to work around one bug in one
-distribution.
+Fedora has no /etc/ssl/certs/ca-certificates.crt.
+Unlike Rocky, it also has no README saying it should have that file.
 
-I'm leaning toward including a copy of the certs, and only using it when
-/etc/ssl/certs/ca-certificates.crt is not present. This limits the security
-exposure of stale certs to linux systems where https would otherwise not work
-without the bundled certs.
+On Fedora, both git and git-annex from the standalone bundle fail to
+find any certs.
+
+(While crypton-x509-system does use the Fedora location, Debian has too
+old a version for that, and the standalone build inherits that old
+version.)
+
+So, this is affecting multiple distributions. I would like to find a
+solution that avoids needing to worry about this class of problems with
+the standalone build not being sufficiently standalone.
+
+It seems that the best fix would be for the standalone build to use the
+system CA cert store if one is installed, but fall back to one bundled with
+it if not. This limits the security exposure of stale certs in the bundle 
+to linux systems where https would otherwise not work without the bundled
+certs.
+
+I guess this means that the standalone bundle will need to maintain its
+own list of system cert store locations. Ugh.
+
+Pity that linux does not have some kind of filesystem hierarchy standard.
+;-/
 """]]
