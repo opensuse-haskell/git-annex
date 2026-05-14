@@ -16,3 +16,19 @@ transition.
 > Using the August 2025 debian stable release that included the warning as the
 > start point, I suggest September 2026 as the transition end date.
 > --[[Joey]]
+> 
+> > Now thinking I can avoid waiting that long, especially since the
+> > pending release has some pull/push drop behavior changes that would be
+> > well bundled with this change.
+> >
+> > Users who upgraded to Debian stable last September will have gotten 8
+> > months of warnings. And they will mostly not be upgrading to a new
+> > version of Debian until the next stable release, which will be in
+> > 2027. While some may choose to upgrade git-annex, there is not
+> > currently a backport so they would have to install eg linuxstandalone.
+> > 
+> > (Users of other distributions are on other schedules, but I generally
+> > take Debian stable as a benchmark of fairly slow updating users. And
+> > the timing of the warning being added right after the previous Debian
+> > stable release makes debian stable pretty much worst case for the
+> > timing of this.) --[[Joey]]
