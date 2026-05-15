@@ -14,9 +14,6 @@ import Common
 import Utility.FreeDesktop
 #ifdef darwin_HOST_OS
 import Utility.OSX
-import Utility.Path
-import Utility.SystemDirectory
-import Utility.FileSystemEncoding
 #endif
 
 installAutoStart :: String -> OsPath -> IO ()
