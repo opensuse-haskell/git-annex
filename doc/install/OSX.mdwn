@@ -18,8 +18,12 @@ several more. Handy if you don't otherwise have git installed.
 
 ## autobuilds
 
-No autobuilds are currently available, however there is a Appveyor CI
-[here](https://ci.appveyor.com/project/mih/git-annex).
+There is a [stopgap autobuilder](https://github.com/joeyh/gitannexbuilder) 
+run by Joey Hess. However, it is currently manually triggered and will 
+usually only be run shortly before a release.
+
+* [git-annex.dmg](https://downloads.kitenet.net/git-annex/autobuild/x86_64-apple-catalina/git-annex.dmg)
+  ([build logs](https://github.com/joeyh/gitannexbuilder/actions/workflows/build-macos.yaml?query=Build+git-annex+on+macOS))
 
 ## download security
 
