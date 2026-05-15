@@ -45,7 +45,7 @@
 </iframe>
 <h2>OSX</h2>
 <a href="https://github.com/joeyh/gitannexbuilder/actions?query=workflow%3A%22Build+git-annex+on+macOS%22">
-<img src="https://github.com/joeyh/gitannexbuilder/actions/workflows/build-macos.yaml/badge.svg">
+<img src="https://github.com/joeyh/gitannexbuilder/actions/workflows/build-macos-intel.yaml/badge.svg">
 </a>
 <h2>Windows</h2>
 <a href="https://github.com/joeyh/gitannexbuilder/actions?query=workflow%3A%22Build+git-annex+on+Windows%22">
