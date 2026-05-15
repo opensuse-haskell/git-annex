@@ -9,6 +9,8 @@ git-annex (10.20260422) UNRELEASED; urgency=medium
     from the remote.
   * push: When pushing to a bare git repository, display git push
     progress before the display of pushed branches.
+  * Send git-annex (or other configured) User-Agent when connecting to
+    annex+http remotes.
   * Support GIT_SSL_CAINFO, GIT_SSL_CAPATH, http.sslCAPath, and http.sslCAPath
     when connecting to https servers.
   * Linux standalone builds now bundle CA certs. They are used only when

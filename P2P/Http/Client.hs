@@ -94,14 +94,19 @@ p2pHttpClientVersions' allowedversion rmt rmtrepo fallback clientaction =
 	case p2pHttpBaseUrl <$> remoteAnnexP2PHttpUrl (gitconfig rmt) of
 		Nothing -> error "internal"
 		Just baseurl -> do
-			mgr <- httpManager <$> getUrlOptions Nothing
-			let clientenv = mkClientEnv mgr baseurl
+			uo <- getUrlOptions (Just (gitconfig rmt))
+			let clientenv = mkClientEnv (httpManager uo) baseurl
+			let clientenv' = clientenv
+				{ makeClientRequest = \u r -> 
+					applyRequest uo
+						<$> makeClientRequest clientenv u r
+				}
 			ccv <- Annex.getRead Annex.gitcredentialcache
 			Git.CredentialCache cc <- liftIO $ atomically $
 				readTMVar ccv
 			case M.lookup (Git.CredentialBaseURL credentialbaseurl) cc of
-				Nothing -> go clientenv Nothing False Nothing versions
-				Just cred -> go clientenv (Just cred) True (credauth cred) versions
+				Nothing -> go clientenv' Nothing False Nothing versions
+				Just cred -> go clientenv' (Just cred) True (credauth cred) versions
   where
 	versions = filter allowedversion allProtocolVersions
 	go clientenv mcred credcached mauth (v:vs) = do
