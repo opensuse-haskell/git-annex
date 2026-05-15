@@ -14,7 +14,6 @@ import System.IO
 import Control.Monad
 import Control.Monad.IfElse
 import Data.List
-import Control.Applicative
 import System.Posix.Files
 
 import Utility.PartialPrelude
@@ -28,7 +27,6 @@ import Utility.Path
 import Utility.Exception
 import Utility.Env
 import Utility.Split
-import Utility.FileSystemEncoding
 import qualified Utility.OsString as OS
 
 import qualified Data.Map as M
