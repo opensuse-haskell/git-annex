@@ -18,7 +18,7 @@ several more. Handy if you don't otherwise have git installed.
 
 ## autobuilds
 
-An hourly autobuild is also available, run by [[Joey]]:
+A daily autobuild is also available, run by [[Joey]]:
 
 * [git-annex.dmg](https://downloads.kitenet.net/git-annex/autobuild/x86_64-apple-catalina/git-annex.dmg)
   ([build logs](https://github.com/joeyh/gitannexbuilder/actions/workflows/build-macos.yaml?query=Build+git-annex+on+macOS))
