@@ -12,8 +12,8 @@ module Command.RemoteDaemon where
 import Command
 import RemoteDaemon.Core
 import Utility.Daemon
-import qualified Annex
 #ifndef mingw32_HOST_OS
+import qualified Annex
 import Annex.Path
 import Utility.OpenFd
 #endif

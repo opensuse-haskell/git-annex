@@ -19,7 +19,6 @@ module Utility.Env (
 
 #ifdef mingw32_HOST_OS
 import Utility.Exception
-import Control.Applicative
 import Data.Maybe
 import qualified System.Environment as E
 #else

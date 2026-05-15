@@ -80,5 +80,7 @@ moveFile src dest = tryIO (renamePath src dest) >>= onrename
 			(Right s) -> return $ isDirectory s
 #endif
 
+#ifndef mingw32_HOST_OS	
 copyright :: Copyright
 copyright = author JoeyHess (2022-11)
+#endif
