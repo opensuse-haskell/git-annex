@@ -13,9 +13,7 @@ current status.
 
 ## autobuilds
 
-There is a [stopgap autobuilder](https://github.com/joeyh/gitannexbuilder) 
-run by Joey Hess. However, it is currently manually triggered and will 
-usually only be run shortly before a release.
+An hourly autobuild is also available, run by [[Joey]]:
 
 * Windows 10 [download](https://downloads.kitenet.net/git-annex/autobuild/windows/git-annex-installer.exe)
   ([build logs](https://github.com/joeyh/gitannexbuilder/actions?query=workflow%3A%22Build+git-annex+on+Windows%22))

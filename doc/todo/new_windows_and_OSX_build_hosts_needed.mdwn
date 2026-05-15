@@ -17,3 +17,5 @@ perhaps be blessed as the official builds. mih assures me those builds
 will contiue to be from git-annex master.
 
 --[[Joey]]
+
+> Set up <https://github.com/joeyh/gitannexbuilder> [[done]] --[[Joey]] 
