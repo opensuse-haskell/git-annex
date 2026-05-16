@@ -28,24 +28,17 @@
 
 import Development.NSIS
 import Control.Monad
-import Control.Applicative
 import Data.String
 import Data.Maybe
-import Data.Char
-import Data.List (nub, isPrefixOf)
 
 import Utility.Tmp.Dir
-import Utility.Path
-import Utility.CopyFile
 import Utility.SafeCommand
-import Utility.Process
-import Utility.Exception
-import Utility.Directory
 import Utility.SystemDirectory
 import Utility.OsPath
 import qualified Utility.FileIO as F
 import Build.BundledPrograms
 
+main :: IO ()
 main = do
 	withTmpDir "nsis-build" $ \tmpdir -> do
 		let gitannex = fromOsPath $ tmpdir </> toOsPath gitannexprogram
@@ -108,9 +101,6 @@ installer = "git-annex-installer.exe"
 
 uninstaller :: FilePath
 uninstaller = "git-annex-uninstall.exe"
-
-gitInstallDir32 :: Exp FilePath
-gitInstallDir32 = fromString "$PROGRAMFILES\\Git"
 
 gitInstallDir64 :: Exp FilePath
 gitInstallDir64 = fromString "$PROGRAMFILES64\\Git"
@@ -175,7 +165,7 @@ makeInstaller gitannex gitannexcmd license htmlhelp extrabins sharefiles launche
 		, IconIndex 2
 		, Description "git-annex autostart"
 		]
-	section "cmd" [] $ do
+	_ <- section "cmd" [] $ do
 		-- Remove old files no longer installed in the cmd
 		-- directory.
 		removefilesFrom "$INSTDIR/cmd" (gitannex:extrabins)
@@ -193,7 +183,7 @@ makeInstaller gitannex gitannexcmd license htmlhelp extrabins sharefiles launche
 		-- prompt window).
 		setOutPath "$INSTDIR\\cmd"
 		addfile gitannexcmd
-	section "meta" [] $ do
+	_ <- section "meta" [] $ do
 		-- git opens this file when git annex --help is run.
 		-- (Program Files/Git/mingw64/share/doc/git-doc/git-annex.html)
 		setOutPath "$INSTDIR\\mingw64\\share\\doc\\git-doc"
