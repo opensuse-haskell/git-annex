@@ -1,0 +1,139 @@
+[[!comment format=mdwn
+ username="mih"
+ avatar="http://cdn.libravatar.org/avatar/f881df265a423e4f24eff27c623148fd"
+ subject="Appears to be unrelated to oauth credential helper"
+ date="2026-05-16T09:33:09Z"
+ content="""
+I am now seeing the \"same\" problem in a different context, where no 3rd-party credential helper is involved.
+
+Concretely, I have a Forgejo actions workflow that manually pre-fills a credential via
+
+```
+git config --global credential.helper cache
+git credential approve <<EOF
+protocol=https
+host=hub.psychoinformatics.de
+username=${{ forgejo.actor }}
+password=${{ forgejo.token }}
+EOF
+```
+
+This appears to be working, as confirmed by
+
+```
+git credential fill
+protocol=https
+host=hub.psychoinformatics.de
+```
+
+which returns
+
+```
+username=myuser
+password=***
+```
+
+However, running `git annex push` immediately afterwards has the git-push parts working, but the internal `credential fill` fail with `fatal: could not read Username for 'https://hub.psychoinformatics.de': No such device or address` (full log below).
+
+```
++ git annex --debug push
+[2026-05-16 09:19:30.185331705] (Utility.Process) process [597] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"show-ref\",\"git-annex\"]
+[2026-05-16 09:19:30.189155934] (Utility.Process) process [597] done ExitSuccess
+[2026-05-16 09:19:30.189885413] (Utility.Process) process [598] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"show-ref\",\"--hash\",\"refs/heads/git-annex\"]
+[2026-05-16 09:19:30.192024278] (Utility.Process) process [598] done ExitSuccess
+[2026-05-16 09:19:30.192633434] (Annex.Branch) read config.log
+[2026-05-16 09:19:30.193750572] (Utility.Process) process [599] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"cat-file\",\"--batch\"]
+[2026-05-16 09:19:30.195842697] (Utility.Process) process [600] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"symbolic-ref\",\"-q\",\"HEAD\"]
+[2026-05-16 09:19:30.197578872] (Utility.Process) process [600] done ExitSuccess
+[2026-05-16 09:19:30.198023783] (Utility.Process) process [601] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"show-ref\",\"refs/heads/main\"]
+[2026-05-16 09:19:30.19984727] (Utility.Process) process [601] done ExitSuccess
+[2026-05-16 09:19:30.200553359] (Utility.Process) process [602] call: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"show-ref\",\"--verify\",\"-q\",\"refs/heads/synced/main\"]
+[2026-05-16 09:19:30.20216315] (Utility.Process) process [602] done ExitFailure 1
+[2026-05-16 09:19:30.202230582] (Annex.Branch) read remote.log
+[2026-05-16 09:19:30.202912609] (Annex.Branch) read proxy.log
+[2026-05-16 09:19:30.20410367] (Utility.Process) process [603] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"show-ref\",\"git-annex\"]
+[2026-05-16 09:19:30.20603299] (Utility.Process) process [603] done ExitSuccess
+[2026-05-16 09:19:30.206394769] (Utility.Process) process [604] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"show-ref\",\"--hash\",\"refs/heads/git-annex\"]
+[2026-05-16 09:19:30.208407081] (Utility.Process) process [604] done ExitSuccess
+[2026-05-16 09:19:30.209282774] (Utility.Process) process [605] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"show-ref\",\"--hash\",\"refs/heads/git-annex\"]
+[2026-05-16 09:19:30.211913422] (Utility.Process) process [605] done ExitSuccess
+[2026-05-16 09:19:30.212857467] (Utility.Process) process [606] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"log\",\"-z\",\"--pretty=format:%H %ct\",\"--raw\",\"--no-abbrev\",\"--no-renames\",\"--reverse\",\"--follow\",\"668c5aa16d4e9ee0af8fc63f4fbb3e7cfb4b93d4\",\"--\",\"migrate.tree\"]
+[2026-05-16 09:19:30.215528925] (Utility.Process) process [606] done ExitSuccess
+[2026-05-16 09:19:30.216522001] (Utility.Process) process [607] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"ls-files\",\"--stage\",\"-z\",\"--error-unmatch\",\"--\"]
+[2026-05-16 09:19:30.217095856] (Utility.Process) process [608] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"cat-file\",\"--batch-check=%(objectname) %(objecttype) %(objectsize)\",\"--buffer\"]
+[2026-05-16 09:19:30.217808254] (Utility.Process) process [609] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"cat-file\",\"--batch=%(objectname) %(objecttype) %(objectsize)\",\"--buffer\"]
+[2026-05-16 09:19:30.218346408] (Utility.Process) process [599] done ExitSuccess
+[2026-05-16 09:19:30.222153637] (Utility.Process) process [610] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"cat-file\",\"--batch=%(objectname) %(objecttype) %(objectsize)\",\"--buffer\"]
+[2026-05-16 09:19:30.228726336] (Annex.Branch) read trust.log
+[2026-05-16 09:19:30.229328452] (Utility.Process) process [611] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"cat-file\",\"--batch\"]
+[2026-05-16 09:19:30.230981234] (Annex.Branch) read cluster.log
+[2026-05-16 09:19:30.237149214] (Utility.Process) process [614] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"-c\",\"filter.annex.smudge=\",\"-c\",\"filter.annex.clean=\",\"-c\",\"filter.annex.process=\",\"write-tree\"]
+[2026-05-16 09:19:30.239369771] (Utility.Process) process [614] done ExitSuccess
+[2026-05-16 09:19:30.239845993] (Utility.Process) process [615] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"show-ref\",\"--hash\",\"refs/annex/last-index\"]
+[2026-05-16 09:19:30.241848385] (Utility.Process) process [615] done ExitSuccess
+[2026-05-16 09:19:30.242685967] (Utility.Process) process [616] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"check-attr\",\"-z\",\"--stdin\",\"annex.backend\",\"annex.largefiles\",\"annex.numcopies\",\"annex.mincopies\",\"--\"]
+[2026-05-16 09:19:30.244064203] (Annex.Branch) read numcopies.log
+[2026-05-16 09:19:30.244322359] (Annex.Branch) read mincopies.log
+[2026-05-16 09:19:30.257332835] (Annex.Branch) read group.log
+[2026-05-16 09:19:30.25750822] (Annex.Branch) read group-preferred-content.log
+[2026-05-16 09:19:30.257716505] (Annex.Branch) read preferred-content.log
+[2026-05-16 09:19:30.257939851] (Annex.Branch) read required-content.log
+[2026-05-16 09:19:30.258732681] (Annex.Branch) read 455/e88/MD5E-s129943--06caaa82dc6cfdd358085974adbbe8d3.json.log
+copy static/graph.json (to origin...) [2026-05-16 09:19:30.378214958] (Utility.Process) process [617] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"credential\",\"fill\"]
+[2026-05-16 09:19:30.383551986] (Utility.Process) process [617] done ExitSuccess
+[2026-05-16 09:19:30.404495517] (Utility.Process) process [620] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"credential\",\"reject\"]
+[2026-05-16 09:19:30.40926853] (Utility.Process) process [620] done ExitSuccess
+25%   31.98 KiB        68 MiB/s 0s
+100%  126.9 KiB       177 MiB/s 0s[2026-05-16 09:19:30.450818263] (Utility.Process) process [623] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"credential\",\"fill\"]
+fatal: could not read Username for 'https://hub.psychoinformatics.de': No such device or address
+[2026-05-16 09:19:30.455457733] (Utility.Process) process [623] done ExitFailure 128
+                                  
+  user error (git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"credential\",\"fill\"] exited 128)
+[2026-05-16 09:19:30.473680804] (Utility.Process) process [626] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"credential\",\"fill\"]
+fatal: could not read Username for 'https://hub.psychoinformatics.de': No such device or address
+[2026-05-16 09:19:30.47933976] (Utility.Process) process [626] done ExitFailure 128
+                                  
+  user error (git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"credential\",\"fill\"] exited 128)
+                                  
+failed
+[2026-05-16 09:19:30.481071965] (Utility.Process) process [610] done ExitSuccess
+[2026-05-16 09:19:30.481128386] (Utility.Process) process [609] done ExitSuccess
+[2026-05-16 09:19:30.481169867] (Utility.Process) process [608] done ExitSuccess
+[2026-05-16 09:19:30.481201948] (Utility.Process) process [607] done ExitSuccess
+[2026-05-16 09:19:30.481629439] (Utility.Process) process [629] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"symbolic-ref\",\"-q\",\"HEAD\"]
+[2026-05-16 09:19:30.483084607] (Utility.Process) process [629] done ExitSuccess
+[2026-05-16 09:19:30.483620051] (Utility.Process) process [630] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"show-ref\",\"refs/heads/main\"]
+[2026-05-16 09:19:30.486919556] (Utility.Process) process [630] done ExitSuccess
+[2026-05-16 09:19:30.487433589] (Utility.Process) process [631] call: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"branch\",\"-f\",\"synced/main\",\"refs/heads/main\"]
+[2026-05-16 09:19:30.490124219] (Utility.Process) process [631] done ExitSuccess
+[2026-05-16 09:19:30.490606621] (Utility.Process) process [632] call: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"show-ref\",\"--verify\",\"-q\",\"refs/remotes/origin/synced/main\"]
+[2026-05-16 09:19:30.493191278] (Utility.Process) process [632] done ExitFailure 1
+                                  
+push origin 
+                                  
+[2026-05-16 09:19:30.493862885] (Utility.Process) process [633] call: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"push\",\"origin\",\"main\"]
+Everything up-to-date
+[2026-05-16 09:19:30.622077877] (Utility.Process) process [633] done ExitSuccess
+[2026-05-16 09:19:30.622889428] (Utility.Process) process [637] call: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"push\",\"origin\",\"main:synced/main\",\"+git-annex:synced/git-annex\"]
+remote: 
+remote: Create a new pull request for 'synced/main':        
+remote:   https://hub.psychoinformatics.de/www/www-from-model/compare/main...synced/main        
+remote: 
+remote: 
+remote: Create a new pull request for 'synced/git-annex':        
+remote:   https://hub.psychoinformatics.de/www/www-from-model/compare/main...synced/git-annex        
+remote: 
+To https://hub.psychoinformatics.de/www/www-from-model
+ * [new branch]      main -> synced/main
+ * [new branch]      git-annex -> synced/git-annex
+[2026-05-16 09:19:31.549596008] (Utility.Process) process [637] done ExitSuccess
+[2026-05-16 09:19:31.55045735] (Utility.Process) process [644] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"push\",\"origin\",\"git-annex\"]
+[2026-05-16 09:19:31.662607017] (Utility.Process) process [644] done ExitSuccess
+                                  
+ok
+[2026-05-16 09:19:31.663427958] (Utility.Process) process [611] done ExitSuccess
+[2026-05-16 09:19:31.663999003] (Utility.Process) process [616] done ExitSuccess
+push: 1 failed
+⚙️ [runner]: exitcode '1': failure
+```
+"""]]
