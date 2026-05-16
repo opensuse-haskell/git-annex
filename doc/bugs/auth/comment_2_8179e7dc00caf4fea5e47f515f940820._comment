@@ -1,0 +1,81 @@
+[[!comment format=mdwn
+ username="mih"
+ avatar="http://cdn.libravatar.org/avatar/f881df265a423e4f24eff27c623148fd"
+ subject="Credential is rejected!"
+ date="2026-05-16T10:09:34Z"
+ content="""
+I wanted to investigate further and added a credential \"helper\" that documents what was queried
+
+```
+cat << EOT > /usr/local/bin/git-credential-echo
+#!/usr/bin/env bash
+exec cat >&2
+EOT
+chmod +x /usr/local/bin/git-credential-echo
+git config --global --add credential.helper echo
+```
+
+I also switched from `annex push` to `annex copy` (because this is the aspect that failed). I now see (what I could have seen in the log above already). The issue is not that the credential isn't retrieved properly. It is actually rejected, and the superficial/original error is the result of prompting for another valid credential. Here is the log of a copy call:
+
+```
+git annex --debug copy -t origin .
+[2026-05-16 10:01:43.073507233] (Utility.Process) process [639] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"show-ref\",\"git-annex\"]
+[2026-05-16 10:01:43.075431464] (Utility.Process) process [639] done ExitSuccess
+[2026-05-16 10:01:43.075932187] (Utility.Process) process [640] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"show-ref\",\"--hash\",\"refs/heads/git-annex\"]
+[2026-05-16 10:01:43.077917969] (Utility.Process) process [640] done ExitSuccess
+[2026-05-16 10:01:43.078259638] (Annex.Branch) read remote.log
+[2026-05-16 10:01:43.079214293] (Utility.Process) process [641] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"cat-file\",\"--batch\"]
+[2026-05-16 10:01:43.081261767] (Annex.Branch) read proxy.log
+[2026-05-16 10:01:43.082419578] (Utility.Process) process [642] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"ls-files\",\"--stage\",\"-z\",\"--error-unmatch\",\"--\",\".\"]
+[2026-05-16 10:01:43.082798858] (Utility.Process) process [643] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"cat-file\",\"--batch-check=%(objectname) %(objecttype) %(objectsize)\",\"--buffer\"]
+[2026-05-16 10:01:43.083296281] (Utility.Process) process [644] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"cat-file\",\"--batch=%(objectname) %(objecttype) %(objectsize)\",\"--buffer\"]
+[2026-05-16 10:01:43.083778403] (Utility.Process) process [641] done ExitSuccess
+[2026-05-16 10:01:43.086359241] (Utility.Process) process [645] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"cat-file\",\"--batch=%(objectname) %(objecttype) %(objectsize)\",\"--buffer\"]
+copy static/graph.json (to origin...) [2026-05-16 10:01:43.210382475] (Utility.Process) process [647] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"-c\",\"filter.annex.smudge=\",\"-c\",\"filter.annex.clean=\",\"-c\",\"filter.annex.process=\",\"write-tree\"]
+[2026-05-16 10:01:43.214071033] (Utility.Process) process [647] done ExitSuccess
+[2026-05-16 10:01:43.214666158] (Utility.Process) process [648] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"show-ref\",\"--hash\",\"refs/annex/last-index\"]
+[2026-05-16 10:01:43.218272853] (Utility.Process) process [648] done ExitSuccess
+[2026-05-16 10:01:43.218310804] (Database.Keys) reconcileStaged start
+[2026-05-16 10:01:43.218806637] (Utility.Process) process [649] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"cat-file\",\"--batch-check=%(objectname) %(objecttype) %(objectsize)\",\"--buffer\"]
+[2026-05-16 10:01:43.219327951] (Utility.Process) process [650] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"cat-file\",\"--batch=%(objectname) %(objecttype) %(objectsize)\",\"--buffer\"]
+[2026-05-16 10:01:43.219921627] (Utility.Process) process [651] read: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"-c\",\"filter.annex.smudge=\",\"-c\",\"filter.annex.clean=\",\"-c\",\"filter.annex.process=\",\"-c\",\"diff.external=\",\"diff\",\"ee47aafecb91c163b0eb9e7ef1a35b07d5b1e0b9\",\"8ea4ce9a4065396e07306bc2f30bcf295837ad6f\",\"--raw\",\"-z\",\"--no-abbrev\",\"-G/annex/objects/\",\"--no-renames\",\"--ignore-submodules=all\",\"--no-textconv\",\"--no-ext-diff\"]
+[2026-05-16 10:01:43.223295855] (Utility.Process) process [651] done ExitSuccess
+[2026-05-16 10:01:43.225251807] (Database.Handle) commitDb start
+[2026-05-16 10:01:43.225610276] (Database.Handle) commitDb done
+[2026-05-16 10:01:43.225676608] (Utility.Process) process [650] done ExitSuccess
+[2026-05-16 10:01:43.2257297] (Utility.Process) process [649] done ExitSuccess
+[2026-05-16 10:01:43.226178161] (Utility.Process) process [652] call: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"update-ref\",\"refs/annex/last-index\",\"8ea4ce9a4065396e07306bc2f30bcf295837ad6f\"]
+[2026-05-16 10:01:43.228765129] (Utility.Process) process [652] done ExitSuccess
+[2026-05-16 10:01:43.22880699] (Database.Keys) reconcileStaged end
+[2026-05-16 10:01:43.246406143] (Utility.Process) process [653] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"credential\",\"fill\"]
+[2026-05-16 10:01:43.253477499] (Utility.Process) process [653] done ExitSuccess
+[2026-05-16 10:01:43.274667127] (Utility.Process) process [656] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"credential\",\"reject\"]
+protocol=https
+host=hub.psychoinformatics.de
+username=myuser
+password=***
+[2026-05-16 10:01:43.2873155] (Utility.Process) process [656] done ExitSuccess
+25%   31.98 KiB        70 MiB/s 0s
+100%  126.9 KiB       179 MiB/s 0s[2026-05-16 10:01:43.330200019] (Utility.Process) process [662] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"credential\",\"fill\"]
+protocol=https
+host=hub.psychoinformatics.de
+fatal: could not read Username for 'https://hub.psychoinformatics.de': No such device or address
+[2026-05-16 10:01:43.341958838] (Utility.Process) process [662] done ExitFailure 128
+                                  
+  user error (git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"credential\",\"fill\"] exited 128)
+[2026-05-16 10:01:43.357710043] (Utility.Process) process [668] chat: git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"credential\",\"fill\"]
+protocol=https
+host=hub.psychoinformatics.de
+fatal: could not read Username for 'https://hub.psychoinformatics.de': No such device or address
+[2026-05-16 10:01:43.369272597] (Utility.Process) process [668] done ExitFailure 128
+                                  
+  user error (git [\"--git-dir=.git\",\"--work-tree=.\",\"--literal-pathspecs\",\"-c\",\"annex.debug=true\",\"credential\",\"fill\"] exited 128)
+                                  
+failed
+[2026-05-16 10:01:43.371334491] (Utility.Process) process [645] done ExitSuccess
+[2026-05-16 10:01:43.371445144] (Utility.Process) process [644] done ExitSuccess
+[2026-05-16 10:01:43.371533016] (Utility.Process) process [643] done ExitSuccess
+[2026-05-16 10:01:43.371599238] (Utility.Process) process [642] done ExitSuccess
+copy: 1 failed
+```
+"""]]
