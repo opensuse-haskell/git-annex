@@ -64,3 +64,5 @@ My expectation would be that a git-annex push would be able to trigger the oauth
 ### What version of git-annex are you using? On what operating system?
 
 `git-annex version: 10.20260316-gf01ba218ffb36e8607516d9895dfaeaeaf101a05` on Debian forky/sid
+
+[[!tag projects/INM7]]
