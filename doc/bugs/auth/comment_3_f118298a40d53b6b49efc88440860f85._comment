@@ -1,0 +1,8 @@
+[[!comment format=mdwn
+ username="mih"
+ avatar="http://cdn.libravatar.org/avatar/f881df265a423e4f24eff27c623148fd"
+ subject="Red herring"
+ date="2026-05-17T07:54:31Z"
+ content="""
+The last two updates (posted yesterday by myself) are misleading and the underlying cause is different. At least some aspects are explained by differences in handling access tokens provisioned by forgejo for action runs vs longer-lived access tokens. A fix for this other issue is in the works for forgejo-aneksajo.
+"""]]
