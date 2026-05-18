@@ -273,7 +273,6 @@ seek' o = startConcurrency transferStages $ do
 			]
 	
 	remotes <- mapM (pushToCreate o) =<< syncRemotes (syncWith o)
-	warnSyncContentTransition o remotes
 	-- Remotes that git can push to and pull from.
 	let gitremotes = filter Remote.gitSyncableRemote remotes
 	-- Remotes that contain annex object content.
@@ -291,22 +290,27 @@ seek' o = startConcurrency transferStages $ do
 				]
 			
 			content <- shouldSyncContent o
+			changehere <- if content
+				then shouldSyncContentWith o =<< getUUID
+				else pure False
 
 			when content $
 				whenM (annexSyncMigrations <$> Annex.getGitConfig) $
 					Command.Migrate.seekDistributedMigrations True
 
 			forM_ (filter isImport contentremotes) $
-				withbranch . importRemote content o
+				withbranch . importRemote changehere o
 			forM_ (filter isThirdPartyPopulated contentremotes) $
 				pullThirdPartyPopulated o
 			
 			when content $ do
+				pushremotes <- filterM (shouldSyncContentWith o . Remote.uuid) contentremotes
+
 				-- Send content to any exports before other
 				-- repositories, in case that lets content
 				-- be dropped from other repositories.
 				exportedcontent <- withbranch $
-					seekExportContent (Just o) contentremotes
+					seekExportContent (Just o) pushremotes
 
 				-- Sync content with remotes, including
 				-- importing from import remotes (since
@@ -319,6 +323,8 @@ seek' o = startConcurrency transferStages $ do
 				syncedcontent <- withbranch $
 					seekSyncContent o
 						(filter shouldsynccontent contentremotes)
+						(filter shouldsynccontent pushremotes)
+						changehere
 
 				-- Transferring content can take a while,
 				-- and other changes can be pushed to the
@@ -852,9 +858,10 @@ newer remote b = do
  -
  - When concurrency is enabled, files are processed concurrently.
  -}
-seekSyncContent :: SyncOptions -> [Remote] -> CurrBranch -> Annex Bool
-seekSyncContent _ [] _ = return False
-seekSyncContent o rs currbranch = do
+seekSyncContent :: SyncOptions -> [Remote] -> [Remote] -> Bool -> CurrBranch -> Annex Bool
+seekSyncContent _ [] _ _ _ = return False
+seekSyncContent _ _ [] False _ = return False
+seekSyncContent o rs pushrs changehere currbranch = do
 	mvar <- liftIO newEmptyMVar
 	bloom <- case keyOptions o of
 		Just WantAllKeys -> ifM preferredcontentmatchesfilenames
@@ -913,7 +920,7 @@ seekSyncContent o rs currbranch = do
 	go ebloom mvar af k = do
 		let ai = OnlyActionOn k (ActionItemKey k)
 		startingNoMessage ai $ do
-			whenM (syncFile o ebloom rs af k) $
+			whenM (syncFile o ebloom rs pushrs changehere af k) $
 				void $ liftIO $ tryPutMVar mvar ()
 			next $ return True
 
@@ -926,7 +933,7 @@ seekSyncContent o rs currbranch = do
 {- If it's preferred content, and we don't have it, get it from one of the
  - listed remotes (preferring the cheaper earlier ones).
  -
- - Send it to each remote that doesn't have it, and for which it's
+ - Send it to each pushrs that doesn't have it, and for which it's
  - preferred content.
  -
  - When pulling, drop it locally if it's not preferred content
@@ -937,11 +944,12 @@ seekSyncContent o rs currbranch = do
  -
  - Returns True if any file transfers were made.
  -}
-syncFile :: SyncOptions -> Either (Maybe (Bloom Key)) (Key -> Annex ()) -> [Remote] -> AssociatedFile -> Key -> Annex Bool
-syncFile o ebloom rs af k = do
+syncFile :: SyncOptions -> Either (Maybe (Bloom Key)) (Key -> Annex ()) -> [Remote] -> [Remote] -> Bool -> AssociatedFile -> Key -> Annex Bool
+syncFile o ebloom rs pushrs changehere af k = do
 	inhere <- inAnnex k
 	locs <- map Remote.uuid <$> Remote.keyPossibilities (Remote.IncludeIgnored False) k
-	let (have, lack) = partition (\r -> Remote.uuid r `elem` locs) rs
+	let have = filter (\r -> Remote.uuid r `elem` locs) rs
+	let lack = filter (\r -> Remote.uuid r `notElem` locs) pushrs
 
 	got <- anyM id =<< handleget have inhere
 	let inhere' = inhere || got
@@ -981,12 +989,14 @@ syncFile o ebloom rs af k = do
 		, pure (not inhere)
 		, wantGet lu True (Just k) af
 		]
-	handleget have inhere = do
-		lu <- prepareLiveUpdate Nothing k AddingKey
-		ifM (wantget lu have inhere)
-			( return [ get lu have ]
-			, return []
-			)
+	handleget have inhere
+		| changehere = do
+			lu <- prepareLiveUpdate Nothing k AddingKey
+			ifM (wantget lu have inhere)
+				( return [ get lu have ]
+				, return []
+				)
+		| otherwise = return []
 	get lu have = includeCommandAction $ starting "get" ai si $
 		stopUnless (getKey' lu k af have) $
 			next $ return True
@@ -1011,10 +1021,10 @@ syncFile o ebloom rs af k = do
 	put lu dest = includeCommandAction $ 
 		Command.Move.toStart' lu dest Command.Move.RemoveNever af k ai si
 	
-	dropfromhere = pullOption o || satisfymode
+	dropfromhere = changehere && (pullOption o || satisfymode)
 
 	dropfromrs
-		| pushOption o || satisfymode = rs
+		| pushOption o || satisfymode = pushrs
 		| otherwise = []
 	
 	satisfymode = operationMode o == SatisfyMode
@@ -1157,48 +1167,43 @@ cleanupRemote remote (Just b, _) =
 	ai = ActionItemOther (Just (UnquotedString (Remote.name remote)))
 	si = SeekInput []
 
+getAnnexSyncContent :: Annex (Maybe Bool)
+getAnnexSyncContent = 
+	getGitConfigVal' annexSyncContent >>= return . \case
+		HasGlobalConfig (Just c) -> Just c
+		HasGitConfig (Just c) -> Just c
+		_ -> Nothing
+
 shouldSyncContent :: SyncOptions -> Annex Bool
 shouldSyncContent o
 	| fromMaybe False (noContentOption o) = pure False
 	| operationMode o == SatisfyMode = pure True
-	-- For git-annex pull and git-annex push and git-annex assist,
-	-- annex.syncontent defaults to True unless set
-	| operationMode o /= SyncMode = annexsynccontent True
+	| operationMode o /= SyncMode = annexsynccontent
 	| fromMaybe False (contentOption o) || not (null (contentOfOption o)) = pure True
-	-- For git-annex sync, 
-	-- annex.syncontent defaults to False unless set
-	| otherwise = annexsynccontent False <||> onlyAnnex o
+	| otherwise = annexsynccontent <||> onlyAnnex o
   where
-	annexsynccontent d = 
-		getGitConfigVal' annexSyncContent >>= \case
-			HasGlobalConfig (Just c) -> return c
-			HasGitConfig (Just c) -> return c
-			_ -> return d
+	annexsynccontent = fromMaybe True <$> getAnnexSyncContent
 
--- See doc/todo/finish_sync_content_transition.mdwn
-warnSyncContentTransition :: SyncOptions -> [Remote] -> Annex ()
-warnSyncContentTransition o remotes
-	| operationMode o /= SyncMode = noop
-	| isJust (noContentOption o) || isJust (contentOption o) = noop
-	| not (null (contentOfOption o)) = noop
-	| otherwise = getGitConfigVal' annexSyncContent >>= \case
-		HasGlobalConfig (Just _) -> noop
-		HasGitConfig (Just _) -> noop
-		_ -> do
-			m <- preferredContentMap
-			hereu <- getUUID
-			when (any (preferredcontentconfigured m) (hereu:map Remote.uuid remotes)) $
-				showwarning
-  where
-	showwarning = earlyWarning $
-		"git-annex sync will change default behavior in the future to"
-		<> " sync content with repositories that have"
-		<> " preferred content configured. If you do not want this to"
-		<> " sync any content, use --no-content (or -g)"
-		<> " to prepare for that change."
-		<> " (Or you can configure annex.synccontent)"
-	preferredcontentconfigured m u = 
-		maybe False (not . isEmpty . fst) (M.lookup u m)
+{- When shouldSyncContent is True, this can be queried to determine if
+ - content should be synced with the repository with the given uuid.
+ -
+ - This handles the special case of git-annex sync defaulting to only
+ - syncing content with repositories that have preferred content configured.
+ -} 
+shouldSyncContentWith :: SyncOptions -> UUID -> Annex Bool
+shouldSyncContentWith o u
+	| operationMode o /= SyncMode = pure True
+	| fromMaybe False (contentOption o) || not (null (contentOfOption o)) = pure True
+	| onlyAnnexOption o = pure True
+	| otherwise = getAnnexSyncContent >>= \case
+		Just True -> pure True
+		_ -> getGitConfigVal' annexSyncOnlyAnnex >>= \case
+			HasGlobalConfig True -> pure True
+			HasGitConfig True -> pure True
+			_ -> maybe False (not . isEmpty . fst) 
+				. M.lookup u
+				<$> preferredContentMap
+
 
 notOnlyAnnex :: SyncOptions -> Annex Bool
 notOnlyAnnex o = not <$> onlyAnnex o
@@ -1208,7 +1213,7 @@ onlyAnnex o
 	| notOnlyAnnexOption o = pure False
 	| onlyAnnexOption o = pure True
 	| otherwise = getGitConfigVal annexSyncOnlyAnnex
-	
+
 isExport :: Remote -> Bool
 isExport = exportTree . Remote.config
 

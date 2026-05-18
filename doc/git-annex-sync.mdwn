@@ -14,27 +14,27 @@ This command first commits any local changes to files that have
 previously been added to the repository. Then it does the equivilant of
 [[git-annex-pull]](1) followed by [[git-annex-push]](1).
 
-However, unlike those commands, this command does not transfer annexed
-content by default. That will change in a future version of git-annex,
-when syncing with repositories that have preferred content configured.
+Unlike push and pull, this command defaults to avoiding transferring
+the content of annexed files to repositories that do not have 
+preferred content configured. This is a special case, to avoid
+a surprising behavior change. Using any option or configuration that
+enables content syncing, including `--content`, `--content-of`, and
+setting `annex.synccontent` will avoid this special case.
 
 # OPTIONS
 
-* `--content`, `--no-content`, `-g`
+* `--no-content`, `-g`, `--content`
 
-  The --content option causes the content of annexed files
-  to also be pulled and pushed.
+  Use `--no-content` or `-g` to avoid transferring the content
+  of annexed files.
 
-  The --no-content and -g options cause the content of annexed files to
-  not be pulled and pushed.
-
-  The `annex.synccontent` configuration can be set to true to make
-  `--content` be enabled by default.
+  If you often use `--no-content`, you can set the `annex.synccontent`
+  configuration to false to prevent transferring content by default.
+  The `--content` option overrides that configuration.
 
 * `--content-of=path` `-C path`
 
-  This option causes the content of annexed files in the given
-  path to also be pulled and pushed.
+  Only pull and push the content of annexed files in the given path.
 
   This option can be repeated multiple times with different paths.
 
