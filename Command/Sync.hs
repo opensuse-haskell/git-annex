@@ -1183,18 +1183,14 @@ shouldSyncContent o
 		ifM (onlyAnnex o)
 			( alwayssync
 			, getAnnexSyncContent >>= \case
-				Just True -> alwayssync
-				Just False -> neversync
+				Just b -> syncwhen b
 				Nothing -> syncwhenpreferredcontentconfigured
 			)
-	| otherwise =
-		ifM (fromMaybe True <$> getAnnexSyncContent) 
-			( alwayssync
-			, neversync
-			)
+	| otherwise = syncwhen =<< fromMaybe True <$> getAnnexSyncContent
   where
-	alwayssync = pure (True, const True)
-	neversync = pure (False, const False)
+	syncwhen b = pure (b, const b)
+	alwayssync = syncwhen True
+	neversync = syncwhen False
 
 	{- This handles the special case of git-annex sync defaulting to only
 	 - syncing content with repositories that have preferred content
