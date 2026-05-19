@@ -289,10 +289,9 @@ seek' o = startConcurrency transferStages $ do
 				, [ mergeAnnex ]
 				]
 			
-			content <- shouldSyncContent o
-			changehere <- if content
-				then shouldSyncContentWith o =<< getUUID
-				else pure False
+			(content, syncwith) <- shouldSyncContent o
+			changehere <- syncwith <$> getUUID
+			let pushremotes = filter (syncwith . Remote.uuid) contentremotes
 
 			when content $
 				whenM (annexSyncMigrations <$> Annex.getGitConfig) $
@@ -304,8 +303,6 @@ seek' o = startConcurrency transferStages $ do
 				pullThirdPartyPopulated o
 			
 			when content $ do
-				pushremotes <- filterM (shouldSyncContentWith o . Remote.uuid) contentremotes
-
 				-- Send content to any exports before other
 				-- repositories, in case that lets content
 				-- be dropped from other repositories.
@@ -1174,36 +1171,40 @@ getAnnexSyncContent =
 		HasGitConfig (Just c) -> Just c
 		_ -> Nothing
 
-shouldSyncContent :: SyncOptions -> Annex Bool
+{- Should content be synced at all, and given a UUID, should it be synced
+ - with that uuid?  -}
+shouldSyncContent :: SyncOptions -> Annex (Bool, UUID -> Bool)
 shouldSyncContent o
-	| fromMaybe False (noContentOption o) = pure False
-	| operationMode o == SatisfyMode = pure True
-	| operationMode o /= SyncMode = annexsynccontent
-	| fromMaybe False (contentOption o) || not (null (contentOfOption o)) = pure True
-	| otherwise = annexsynccontent <||> onlyAnnex o
+	| fromMaybe False (noContentOption o) = neversync
+	| operationMode o == SatisfyMode = alwayssync
+	| operationMode o /= SyncMode =
+		ifM (fromMaybe True <$> getAnnexSyncContent) 
+			( alwayssync
+			, neversync
+			)
+	| fromMaybe False (contentOption o) || not (null (contentOfOption o)) =
+		alwayssync
+	| otherwise = 
+		ifM (onlyAnnex o)
+			( alwayssync
+			, getAnnexSyncContent >>= \case
+				Just True -> alwayssync
+				Just False -> neversync
+				Nothing -> syncwhenpreferredcontentconfigured
+			)
   where
-	annexsynccontent = fromMaybe True <$> getAnnexSyncContent
+	alwayssync = pure (True, const True)
+	neversync = pure (False, const False)
 
-{- When shouldSyncContent is True, this can be queried to determine if
- - content should be synced with the repository with the given uuid.
- -
- - This handles the special case of git-annex sync defaulting to only
- - syncing content with repositories that have preferred content configured.
- -} 
-shouldSyncContentWith :: SyncOptions -> UUID -> Annex Bool
-shouldSyncContentWith o u
-	| operationMode o /= SyncMode = pure True
-	| fromMaybe False (contentOption o) || not (null (contentOfOption o)) = pure True
-	| onlyAnnexOption o = pure True
-	| otherwise = getAnnexSyncContent >>= \case
-		Just True -> pure True
-		_ -> getGitConfigVal' annexSyncOnlyAnnex >>= \case
-			HasGlobalConfig True -> pure True
-			HasGitConfig True -> pure True
-			_ -> maybe False (not . isEmpty . fst) 
-				. M.lookup u
-				<$> preferredContentMap
-
+	{- This handles the special case of git-annex sync defaulting to only
+	 - syncing content with repositories that have preferred content
+	 - configured. -}
+	syncwhenpreferredcontentconfigured = do
+		m <- preferredContentMap
+		let checkisconfigured u =
+			maybe False (not . isEmpty . fst)
+				(M.lookup u m)
+		return (True, checkisconfigured)
 
 notOnlyAnnex :: SyncOptions -> Annex Bool
 notOnlyAnnex o = not <$> onlyAnnex o
