@@ -1176,14 +1176,14 @@ getAnnexSyncContent =
 shouldSyncContent :: SyncOptions -> Annex (Bool, UUID -> Bool)
 shouldSyncContent o
 	| fromMaybe False (noContentOption o) = neversync
+	| fromMaybe False (contentOption o) = alwayssync
+	| not (null (contentOfOption o)) = alwayssync
 	| operationMode o == SatisfyMode = alwayssync
 	| operationMode o /= SyncMode =
 		ifM (fromMaybe True <$> getAnnexSyncContent) 
 			( alwayssync
 			, neversync
 			)
-	| fromMaybe False (contentOption o) || not (null (contentOfOption o)) =
-		alwayssync
 	| otherwise = 
 		ifM (onlyAnnex o)
 			( alwayssync

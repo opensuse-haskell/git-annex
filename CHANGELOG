@@ -14,6 +14,8 @@ git-annex (10.20260519) UNRELEASED; urgency=medium
     of git-annex unused.
   * push: When pushing to a bare git repository, display git push
     progress before the display of pushed branches.
+  * push, pull, assist: Fix behavior of --content to override the
+    annex.synccontent configuration.
   * Send git-annex (or other configured) User-Agent when connecting to
     annex+http remotes.
   * Support GIT_SSL_CAINFO, GIT_SSL_CAPATH, http.sslCAPath, and http.sslCAPath
