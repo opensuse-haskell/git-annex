@@ -1,4 +1,4 @@
-git-annex (10.20260519) UNRELEASED; urgency=medium
+git-annex (10.20260520) UNRELEASED; urgency=medium
 
   * Behavior change: git-annex sync now defaults to syncing content,
     for consistency with push and pull. However, to avoid surprising
