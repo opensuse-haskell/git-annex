@@ -1179,18 +1179,18 @@ shouldSyncContent o
 	| fromMaybe False (contentOption o) = alwayssync
 	| not (null (contentOfOption o)) = alwayssync
 	| operationMode o == SatisfyMode = alwayssync
-	| operationMode o /= SyncMode =
-		ifM (fromMaybe True <$> getAnnexSyncContent) 
-			( alwayssync
-			, neversync
-			)
-	| otherwise = 
+	| operationMode o == SyncMode = 
 		ifM (onlyAnnex o)
 			( alwayssync
 			, getAnnexSyncContent >>= \case
 				Just True -> alwayssync
 				Just False -> neversync
 				Nothing -> syncwhenpreferredcontentconfigured
+			)
+	| otherwise =
+		ifM (fromMaybe True <$> getAnnexSyncContent) 
+			( alwayssync
+			, neversync
 			)
   where
 	alwayssync = pure (True, const True)
