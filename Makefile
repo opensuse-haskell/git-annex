@@ -239,7 +239,7 @@ distributionupdate:
 	git pull
 	cabal configure
 	rm cabal.project.local~* 2>/dev/null || true
-	ghc -Wall -fno-warn-tabs --make Build/DistributionUpdate -XLambdaCase -XPackageImports
+	cabal exec -- ghc -Wall -fno-warn-tabs --make Build/DistributionUpdate -XLambdaCase -XPackageImports
 	./Build/DistributionUpdate
 
 .PHONY: git-annex tags
