@@ -1,4 +1,4 @@
-git-annex (10.20260520) UNRELEASED; urgency=medium
+git-annex (10.20260520) upstream; urgency=medium
 
   * Behavior change: git-annex sync now defaults to syncing content,
     for consistency with push and pull. However, to avoid surprising
@@ -24,7 +24,7 @@ git-annex (10.20260520) UNRELEASED; urgency=medium
     the system does not have its own CA cert store.
   * Linux standalone build supports using Fedora's CA cert store location.
 
- -- Joey Hess <id@joeyh.name>  Mon, 18 May 2026 13:47:15 -0400
+ -- Joey Hess <id@joeyh.name>  Wed, 20 May 2026 09:16:07 -0400
 
 git-annex (10.20260421) upstream; urgency=medium
 
