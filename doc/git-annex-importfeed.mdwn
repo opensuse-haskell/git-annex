@@ -70,6 +70,8 @@ resulting in the new url being downloaded to such a filename.
   or sometimes ".m" if no extension can be determined.
 
   The template also has some variables for when an item was published.
+  (These may not be available when using --scrape, depending on the
+  website.)
   
   itempubyear (YYYY), itempubmonth (MM), itempubday (DD), itempubhour (HH),
   itempubminute (MM), itempubsecond (SS),
