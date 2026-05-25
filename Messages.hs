@@ -65,9 +65,7 @@ import qualified Data.ByteString.Char8 as S8
 import System.Exit
 import qualified Control.Monad.Catch as M
 import Data.String
-#ifndef mingw32_HOST_OS
-import System.Posix.Signals
-#endif
+import GHC.IO.Exception
 
 import Common
 import Types
@@ -355,26 +353,26 @@ mkPrompter = getConcurrency >>= \case
 				(\v -> putMVar l v >> cleanup)
 				(const $ run a)
 
-{- Catch all (non-async and not ExitCode) exceptions and display, 
- - sanitizing any control characters in the exceptions.
+{- Catch all (non-async) exceptions and display, sanitizing any control
+ - characters in the exceptions.
  -
  - Should only be used at topmost level.
  -}
 sanitizeTopLevelExceptionMessages :: IO a -> IO a
 sanitizeTopLevelExceptionMessages a = do
-#ifndef mingw32_HOST_OS
-	-- By default ghc Ignores sigPIPE, and then does not display
-	-- exceptions like <stdout>: hFlush: resource vanished (Broken pipe)
-	--
-	-- Since this would display such exceptions, instead restore the
-	-- Default sigPIPE behavior, which is for the program to
-	-- immediately exit.
-	void $ installHandler sigPIPE Default Nothing
-#endif
-	a `catches`
-		((M.Handler (\ (e :: ExitCode) -> throwM e)) : nonAsyncHandler go)
+	a `catches` (ignoreExitCode : ignoreBrokenPipe : nonAsyncHandler go)
   where
 	go e = giveup $ show e
+
+	-- Propigate ExitCode exceptions so the program exits with the code
+	-- as usual.
+	ignoreExitCode = M.Handler $ \(e :: ExitCode) -> throwM e
+
+	-- ghc's default toplevel exception handler avoids displaying
+	-- IOExceptions caused by SIGPIPE. So, rethrow the IOException
+	-- to it. But sanitize the exception description first.
+	ignoreBrokenPipe = M.Handler $ \(e :: IOException) ->
+		throwM $ e { ioe_description = safeOutput (ioe_description e) }
 
 {- Used to only run an action that displays a message after the specified
  - number of steps. This is useful when performing an action that can

@@ -1,0 +1,14 @@
+[[!commit de5dee49da1dc9ca7733f723299235da1da52b10]] changed the SIGPIPE
+behavior. Unfortunately, this causes a `git-annex copy` of 2 files to a ssh
+remote, when the 1st file doesn't fit, to now die of a SIGPIPE, and never
+get a chance to send the 2nd file.
+
+In P2P.IO.runNet, the SendBytes case runs sendExactly inside a tryNonAsync.
+When the peer closes the connection due to the file being too large,
+a SIGPIPE happens at some point when writing to the handle, and it is not
+caught as an exception as a result of this change.
+
+My conclusion is that the SIGPIPE handler needs to be put back the way it
+was. --[[Joey]]
+
+> [[fixed|done]] --[[Joey]] 

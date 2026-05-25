@@ -1,3 +1,10 @@
+git-annex (10.20260521) UNRELEASED; urgency=medium
+
+  * Fix reversion introduced in 10.20260421 that caused commands
+    like git-annex copy to stop early due to SIGPIPE.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 25 May 2026 11:29:22 -0400
+
 git-annex (10.20260520) upstream; urgency=medium
 
   * Behavior change: git-annex sync now defaults to syncing content,
