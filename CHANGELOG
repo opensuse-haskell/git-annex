@@ -1,4 +1,4 @@
-git-annex (10.20260521) UNRELEASED; urgency=medium
+git-annex (10.20260525) UNRELEASED; urgency=medium
 
   * Fix reversion introduced in 10.20260421 that caused commands
     like git-annex copy to stop early due to SIGPIPE.
