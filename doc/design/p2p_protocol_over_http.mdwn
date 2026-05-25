@@ -99,6 +99,10 @@ with 404 Not Found.
 Note that the common parameters bypass and clientuuid, while
 accepted, have no effect. Both are optional for this request.
 
+### HEAD /git-annex/$uuid/key/$key
+
+Also supported, like the GET request above.
+
 ### GET /git-annex/$uuid/v4/key/$key
 
 Get the content of a key from the repository with the specified uuid.

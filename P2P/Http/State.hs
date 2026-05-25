@@ -440,15 +440,18 @@ localP2PConnectionPair connparams relv startworker = do
 	serverrunst <- mkServerRunState connparams
 	asyncworker <- async $
 		startworker serverrunst serverconn
-	let releaseconn = atomically $ void $ tryPutTMVar relv $
+	let releaseconn closeit = atomically $ void $ tryPutTMVar relv $ do
+		when closeit $ do
+			liftIO $ closeConnection clientconn
+			liftIO $ closeConnection serverconn
 		liftIO $ wait asyncworker
 			>>= either throwM return
 	return $ Right $ P2PConnectionPair
 		{ clientRunState = clientrunst
 		, clientP2PConnection = clientconn
 		, serverP2PConnection = serverconn
-		, releaseP2PConnection = releaseconn
-		, closeP2PConnection = releaseconn
+		, releaseP2PConnection = releaseconn False
+		, closeP2PConnection = releaseconn True
 		}
 
 mkP2PConnectionPair
