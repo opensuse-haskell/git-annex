@@ -1,0 +1,21 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 1"""
+ date="2026-05-25T17:38:58Z"
+ content="""
+Reproduced this.
+
+I'm surprised it responds to HEAD at all. It's not a documented part
+of the p2phttp API, and the implementation is only a GET endpoint. 
+I guess that `servant` makes GET endpoints also support HEAD? Urk.
+
+It seems possible that this doesn't only happen on HEAD, but also
+on a GET where the client disconnects without reading any of the
+response body. The code path through looks like it would possibly 
+be the same.
+
+It is getting stuck on `getP2PConnection`. So far I've determined that
+the connection servicer thread gets stuck handling a connection release.
+Which is why the subsequent HEAD fails. So will any subsequent request
+actually. So this can take down a p2phttp server with a single request.
+"""]]
