@@ -1,0 +1,4 @@
+git-annex 10.20260525 released with [[!toggle text="these changes"]]
+[[!toggleable text="""  * Fix reversion introduced in 10.20260421 that caused commands
+    like git-annex copy to stop early due to SIGPIPE.
+  * p2phttp: Avoid hanging after HEAD request."""]]
