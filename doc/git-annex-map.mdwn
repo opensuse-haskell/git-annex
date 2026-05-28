@@ -10,7 +10,7 @@ git annex map
 
 Helps you keep track of your repositories, and the connections between them,
 by going out and looking at all the ones it can get to, and generating a
-Graphviz file displaying it all. If the `xdot` or `dot` command is available,
+Graphviz file displaying it all. If the `xdot` command is available,
 it is used to display the file to your screen.
   
 This command only connects to hosts that the host it's run on can

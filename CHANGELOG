@@ -9,6 +9,8 @@ git-annex (10.20260526) UNRELEASED; urgency=medium
   * Fix bug that prevented remote.name.annex-web-options from always taking
     effect, and sometimes caused it to be used in situations where it
     should not be.
+  * map: Don't try to use dot -Tx11 to display the map, that no longer
+    works in commonly available builds of graphviz.
 
  -- Joey Hess <id@joeyh.name>  Thu, 28 May 2026 13:13:21 -0400
 

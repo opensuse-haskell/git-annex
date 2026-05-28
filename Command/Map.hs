@@ -61,7 +61,6 @@ start = startingNoMessage (ActionItemOther Nothing) $ do
 					( runViewer file []
 					, runViewer file
 			 			[ ("xdot", [File (fromOsPath file)])
-						, ("dot", [Param "-Tx11", File (fromOsPath file)])
 						]	
 					)
 		)
