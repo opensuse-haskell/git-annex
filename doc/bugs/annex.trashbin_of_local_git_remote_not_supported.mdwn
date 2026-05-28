@@ -1,0 +1,27 @@
+When dropping content from a local git remote that has annex.trashbin
+configured in its git config, there will be an error
+"annex.trashbin is set to the name of an unknown remote" and it will fail
+to drop.
+
+I think this unfortunately is rather difficult to fix.
+
+There is a simple workaround: Change the url of the local 
+git remote to a ssh url.
+
+Fixing this would need Remote.Git to get a list of all the remotes of a git
+remote, in order to pass it to Annex.Content.removeAnnex. But that would
+mean depending on Remote.List. Which depends on Remote.Git. I do think it
+would be possible to work around that by making a version of Remote.List
+which does not include Remote.Git.remote, but takes that as a parameter.
+
+But, bear in mind that code running in Remote.Git in the Annex monad of a
+local git remote is running with pwd not set to that repository. Which
+works fine for all the code in there. But if we then try to use the code
+of every other remote, including all external special remotes, it seems
+very likely that something would break.
+
+Likely the only way to avoid such problems is to have a helper program.
+Ie, git-annex-shell. And if Remote.Git wanted to, it could use
+git-annex-shell for accessing a local git remote. Changing it to do so
+broadly would be a big change. Would it be possible to only do it only
+in this one specifict case? --[[Joey]]
