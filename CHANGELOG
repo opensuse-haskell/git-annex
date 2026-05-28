@@ -4,8 +4,8 @@ git-annex (10.20260526) UNRELEASED; urgency=medium
     (Reversion introduced in 10.20260421)
   * Fix use of annex.commitmessage
     (Reversion introduced in 10.20250115)
-  * disableremote: Avoid (temporarily) clearing sizes of other repos than the
-    one being disabled.
+  * disableremote: Avoid (temporarily) clearing size tracking information
+    for other repos than the one being disabled.
   * Fix bug that prevented remote.name.annex-web-options from always taking
     effect, and sometimes caused it to be used in situations where it
     should not be.
