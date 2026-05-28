@@ -260,7 +260,7 @@ discoverLFSEndpoint tro h =
   	r = remoteRepo h
 	lfsrepouri = case Git.location r of
 		Git.Url u -> u
-		_ -> giveup $ "unsupported git-lfs remote location " ++ Git.repoLocation r
+		_ -> giveup $ "unsupported git-lfs remote location " ++ Git.repoLocationUserVisible r
 	
 	unsupportedurischeme = do
 		warning "git-lfs endpoint has unsupported URI scheme"

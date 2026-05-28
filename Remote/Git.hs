@@ -344,13 +344,15 @@ tryGitConfigRead gc autoinit r hasuuid
 				return $ Left exitcode
 
 	geturlconfig = Url.withUrlOptionsPromptingCreds (Just gc) $ \uo -> do
-		let url = Git.repoLocation r ++ "/config"
+		let configurl u = u ++ "/config"
 		v <- withTmpFile (literalOsPath "git-annex.tmp") $ \tmpfile h -> do
 			liftIO $ hClose h
-			Url.download' nullMeterUpdate Nothing url tmpfile uo >>= \case
+			Url.download' nullMeterUpdate Nothing (configurl (Git.repoLocation r)) tmpfile uo >>= \case
 				Right () ->
 					pipedconfig Git.Config.ConfigNullList
-						False url "git"
+						False
+						(configurl (Git.repoLocationUserVisible r))
+						"git"
 						[ Param "config"
 						, Param "--null"
 						, Param "--list"
@@ -375,7 +377,7 @@ tryGitConfigRead gc autoinit r hasuuid
 				return r'
 			Left err -> do
 				set_ignore "not usable by git-annex" False
-				warning $ UnquotedString $ url ++ " " ++ err
+				warning $ UnquotedString $ configurl (Git.repoLocationUserVisible r) ++ " " ++ err
 				return r
 
 	configlist_failed = set_ignore "does not have git-annex installed" True

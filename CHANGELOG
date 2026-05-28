@@ -1,3 +1,10 @@
+git-annex (10.20260526) UNRELEASED; urgency=medium
+
+  * Fix reversion introduced in 10.20260421 that made an error message
+    display a git remote url with an embedded password.
+
+ -- Joey Hess <id@joeyh.name>  Thu, 28 May 2026 13:13:21 -0400
+
 git-annex (10.20260525) upstream; urgency=medium
 
   * Fix reversion introduced in 10.20260421 that caused commands

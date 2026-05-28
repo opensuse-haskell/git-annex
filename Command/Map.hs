@@ -102,7 +102,7 @@ drawMap rs trustmap umap = Dot.graph $ repos ++ others
 
 hostname :: Git.Repo -> String
 hostname r
-	| Git.repoIsUrl r = fromMaybe (Git.repoLocation r) (Git.Url.host r)
+	| Git.repoIsUrl r = fromMaybe (Git.repoLocationUserVisible r) (Git.Url.host r)
 	| otherwise = "localhost"
 
 basehostname :: Git.Repo -> String

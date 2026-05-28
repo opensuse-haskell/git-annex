@@ -265,7 +265,7 @@ getRepoInfo _ _ = [whamlet|git repository|]
 
 getGitRepoInfo :: Git.Repo -> Widget
 getGitRepoInfo r = do
-	let loc = Git.repoLocation r
+	let loc = Git.repoLocationUserVisible r
 	[whamlet|git repository located at <tt>#{loc}</tt>|]
 
 getRepoEncryption :: Maybe Remote.Remote -> Maybe Remote.RemoteConfig -> Widget
