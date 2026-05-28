@@ -67,13 +67,22 @@ getUserAgent = Annex.getRead $
 
 getUrlOptions :: Maybe RemoteGitConfig -> Annex U.UrlOptions
 getUrlOptions mgc = Annex.getState Annex.urloptions >>= \case
-	Just uo -> return uo
+	Just uo -> return (adjustforremote uo)
 	Nothing -> do
 		uo <- mk
 		Annex.changeState $ \s -> s
 			{ Annex.urloptions = Just uo }
-		return uo
+		return (adjustforremote uo)
   where
+	adjustforremote uo = case mgc of
+		Just gc
+			| not (null (remoteAnnexWebOptions gc))
+				&& U.isDownloadWithCurl (U.urlDownloader uo) -> uo
+					{ U.urlDownloader = U.DownloadWithCurl
+						(map Param (remoteAnnexWebOptions gc))
+					}
+		_ -> uo
+
 	mk = do
 		(urldownloader, manager) <- mk' =<< Annex.getGitConfig
 		U.mkUrlOptions
@@ -91,14 +100,9 @@ getUrlOptions mgc = Annex.getState Annex.urloptions >>= \case
 				Just output -> pure (lines output)
 				Nothing -> annexHttpHeaders <$> Annex.getGitConfig
 			
-	getweboptions = case mgc of
-		Just gc | not (null (remoteAnnexWebOptions gc)) ->
-			pure (remoteAnnexWebOptions gc)
-		_ -> annexWebOptions <$> Annex.getGitConfig
-	
 	mk' gc = case words (annexAllowedIPAddresses gc) of
 		["all"] -> do
-			curlopts <- map Param <$> getweboptions
+			curlopts <- map Param . annexWebOptions <$> Annex.getGitConfig
 			allowedurlschemes <- annexAllowedUrlSchemes <$> Annex.getGitConfig
 			let urldownloader = if null curlopts && not (any (`S.notMember` U.conduitUrlSchemes) allowedurlschemes)
 				then U.DownloadWithConduit $

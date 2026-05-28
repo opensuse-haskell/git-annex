@@ -6,6 +6,9 @@ git-annex (10.20260526) UNRELEASED; urgency=medium
     (Reversion introduced in 10.20250115)
   * disableremote: Avoid (temporarily) clearing sizes of other repos than the
     one being disabled.
+  * Fix bug that prevented remote.name.annex-web-options from always taking
+    effect, and sometimes caused it to be used in situations where it
+    should not be.
 
  -- Joey Hess <id@joeyh.name>  Thu, 28 May 2026 13:13:21 -0400
 
