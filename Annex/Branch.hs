@@ -531,8 +531,9 @@ createMessage = fromMaybe "branch created" <$> getCommitMessage
 getCommitMessage :: Annex (Maybe String)
 getCommitMessage = 
 	outputOfAnnexHook commitMessageAnnexHook annexCommitMessageCommand
-		<|>
-	(annexCommitMessage <$> Annex.getGitConfig)
+		>>= \case
+			Just msg -> return (Just msg)
+			Nothing -> annexCommitMessage <$> Annex.getGitConfig
 
 {- Stages the journal, and commits staged changes to the branch. -}
 commit :: String -> Annex ()
