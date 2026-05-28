@@ -432,8 +432,7 @@ removeUUID u = do
 	db <- openDb
 	case db of
 		RepoSizeHandle (Just h) _ -> liftIO $ H.commitDb h $ do
-			l <- getRepoSizes'
-			forM_ (map fst l) unsetRepoSize
+			unsetRepoSize u
 			deleteWhere
 				[ LiveSizeChangesRepo ==. u
 				]
