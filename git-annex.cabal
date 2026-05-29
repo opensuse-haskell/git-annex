@@ -700,6 +700,7 @@ Executable git-annex
     Command.PreCommit
     Command.Pull
     Command.Push
+    Command.Put
     Command.Recompute
     Command.ReKey
     Command.ReadPresentKey
