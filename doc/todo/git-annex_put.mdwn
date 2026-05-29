@@ -1,0 +1,36 @@
+In [[todo/add_--json-progress_support_in_push_and_pull]]
+I noticed that it might be good to have a `git-annex put` command
+that is symmetric with `git-annex get`. That is, it picks which 
+remotes to send content to.
+
+One use case is emulating `git-annex push` but with json output.
+When operating on a single remote, that can be done using `copy --to`:
+
+	git-annex copy --auto --json --to $someremote
+	git-annex drop --auto --json --from $someremote
+	git-annex push --no-content $someremote
+
+But to operate on all remotes needs `git-annex put`:
+
+    git-annex put --auto --json
+    git-annex drop --auto --json
+    git-annex push --no-content
+
+So `git-annex put` would default to putting to all remotes,
+but with `--auto` would honor preferred content and numcopies.
+It's essentially `git-annex copy --to` run over each remote in turn.
+
+Another way to look at it is this tower has a missing leg:
+
+	           assist
+                  |
+	          --sync--
+              |      |
+           push      pull
+              |      |
+           copy --to copy --from
+              |      |
+                     get
+
+
+--[[Joey]]
