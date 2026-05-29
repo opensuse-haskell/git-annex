@@ -1,0 +1,46 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 10"""
+ date="2026-05-29T13:59:25Z"
+ content="""
+Summarizing the current status of this todo, if someone wants 
+the equivilant of `git-annex pull --json $someremote`, they can run:
+
+	git-annex pull --no-content $someremote
+	git-annex get --auto --json --from $someremote
+	git-annex drop --auto --json
+
+The first command above does not have json output, but outputs the
+usual `git pull` messages for the user to deal with as they see fit.
+
+And, if someone wants the equivilant of `git-annex push --json
+$someremote`, they can run:
+
+	git-annex copy --auto --json --to $someremote
+	git-annex drop --auto --json --from $someremote
+	git-annex push --no-content $someremote
+
+The last command above does not have json output, but outputs the
+usual `git push` messages for the user to deal with as they see fit.
+
+The argument for adding --json to pull/push now seems to be reduced.
+But not gone entirely I suppose. 
+
+For example, `git-annex push` without
+a remote pushes content to all remotes that want it. That needs
+multiple runs of `git-annex copy`, one per remote. Notice that
+in the `git-annex pull` case, it can be made to operate on all remotes:
+
+	git-annex pull --no-content
+	git-annex get --auto --json
+	git-annex drop --auto --json
+
+This seems like an argument for adding a `git-annex put`
+command that copies to all remotes that want content. Which is nicely
+symmetric with `git-annex get`.
+
+Another difference is that a single `git-annex push` or `pull`
+(or `sync`) does less work than several git-annex commands.
+In the scripts above, git-annex has to traverse the tree twice.
+That is a pretty small difference in overhead.
+"""]]
