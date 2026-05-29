@@ -129,6 +129,12 @@ parseAutoOption = switch
 	<> help "automatic mode"
 	)
 
+parseWantedOption :: Parser Bool
+parseWantedOption = switch
+	( long "wanted" <> short 'w'
+	<> help "operate on preferred content"
+	)
+
 mkParseRemoteOption :: RemoteName -> DeferredParse Remote
 mkParseRemoteOption = DeferredParse 
 	. (fromJust <$$> Remote.byNameWithUUID)

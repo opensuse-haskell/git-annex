@@ -233,10 +233,10 @@ withKeyOptions'
 	-> (WorkTreeItems -> CommandSeek)
 	-> WorkTreeItems
 	-> CommandSeek
-withKeyOptions' ko auto mkkeyaction fallbackaction worktreeitems = do
+withKeyOptions' ko autoorwanted mkkeyaction fallbackaction worktreeitems = do
 	bare <- fromRepo Git.repoIsLocalBare
-	when (auto && bare) $
-		giveup "Cannot use --auto in a bare repository"
+	when (autoorwanted && bare) $
+		giveup "Cannot use --auto or --wanted in a bare repository"
 	case (nospecifiedworktreeitems, ko) of
 		(True, Nothing)
 			| bare -> nofilename $ noauto runallkeys
@@ -251,7 +251,7 @@ withKeyOptions' ko auto mkkeyaction fallbackaction worktreeitems = do
 		(False, Just _) -> giveup "Can only specify one of file names, --all, --branch, --unused, --failed, --key, or --incomplete"
   where
 	noauto a
-		| auto = giveup "Cannot use --auto with --all or --branch or --unused or --key or --incomplete"
+		| autoorwanted = giveup "Cannot use --auto or --wanted with --all or --branch or --unused or --key or --incomplete"
 		| otherwise = a
 			
 	nofilename a = ifM (Limit.introspect matchNeedsFileName)

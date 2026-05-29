@@ -25,6 +25,7 @@ data GetOptions = GetOptions
 	{ getFiles :: CmdParams
 	, getFrom :: Maybe (DeferredParse Remote)
 	, autoMode :: Bool
+	, wantedMode :: Bool
 	, keyOptions :: Maybe KeyOptions
 	, batchOption :: BatchMode
 	}
@@ -34,6 +35,7 @@ optParser desc = GetOptions
 	<$> cmdParams desc
 	<*> optional (mkParseRemoteOption <$> parseFromOption)
 	<*> parseAutoOption
+	<*> parseWantedOption
 	<*> optional (parseIncompleteOption <|> parseKeyOptions <|> parseFailedTransfersOption)
 	<*> parseBatchOption True
 
@@ -46,7 +48,7 @@ seek o = startConcurrency transferStages $ do
 		, usesLocationLog = True
 		}
 	case batchOption o of
-		NoBatch -> withKeyOptions (keyOptions o) (autoMode o) seeker
+		NoBatch -> withKeyOptions (keyOptions o) (autoMode o || wantedMode o) seeker
 			(commandAction . startKeys from)
 			(withFilesInGitAnnex ww seeker)
 			=<< workTreeItems ww (getFiles o)
@@ -63,9 +65,10 @@ start o from si file key = do
 	afile = AssociatedFile (Just file)
 	ai = mkActionItem (key, afile)
 	expensivecheck lu
-		| autoMode o = numCopiesCheck file key (<)
-			<||> wantGet lu False (Just key) afile
+		| autoMode o = numCopiesCheck file key (<) <||> wantget lu
+		| wantedMode o = wantget lu
 		| otherwise = return True
+	wantget lu = wantGet lu False (Just key) afile
 
 startKeys :: Maybe Remote -> (SeekInput, Key, ActionItem) -> CommandStart
 startKeys from (si, key, ai) = checkFailedTransferDirection ai Download $

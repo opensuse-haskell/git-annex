@@ -56,11 +56,17 @@ Paths of files or directories to operate on can be specified.
   Note that when using --from with --to, twice this many jobs will
   run at once, evenly split between the two remotes.
 
+* `--wanted` `-w`
+
+  Rather than copying all specified files, only copy those that
+  are preferred content of the destination repository.
+  See [[git-annex-preferred-content]](1)
+
 * `--auto`
 
   Rather than copying all specified files, only copy those that don't yet have
   the desired number of copies, or that are preferred content of the
-  destination repository. See [[git-annex-preferred-content]](1)
+  destination repository.
 
 * `--fast`
 

@@ -7,8 +7,8 @@ git-annex-preferred-content - which files are wanted in a repository
 Each repository has a preferred content setting, which specifies content
 that the repository wants to have present. These settings can be configured
 using `git annex vicfg` or `git annex wanted`.
-They are used by the `--auto` option, by `git annex sync --content`,
-by clusters, and by the git-annex assistant.
+They are used by the `--wanted` and `--auto` options, 
+by `git annex sync --content`, by clusters, and by the git-annex assistant.
 
 While preferred content expresses a preference, it can be overridden
 by simply using `git annex drop`. On the other hand, required content
@@ -419,8 +419,8 @@ preferred content settings, you can use the --want-get and --want-drop
 options.
 
 For example, git annex find --want-get --not --in . will find all the files
-that git annex get --auto will want to get, and git annex find --want-drop --in
-. will find all the files that git annex drop --auto will want to drop.
+that git annex get --wanted will want to get, and git annex find --want-drop --in
+. will find all the files that git annex drop --wanted will want to drop.
 
 The --explain option can be used to understand why a complex preferred
 content expression matches or fails to match. The expression will

@@ -12,4 +12,6 @@ That's something that `git-annex pull` and `git-annex push` don't do.
 I think it would be a good idea to add a `--wanted` option to commands
 that support `--auto`. It would only operate on preferred content, avoiding
 making copies only to work toward satisfying numcopies.
+
+Update: Added `--wanted.
 """]]

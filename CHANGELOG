@@ -1,5 +1,7 @@
 git-annex (10.20260526) UNRELEASED; urgency=medium
 
+  * get, copy: Added --wanted option, which only transfers files
+    that are preferred content.
   * Avoid an error message displaying a password embedded in a git remote url.
     (Reversion introduced in 10.20260421)
   * Fix use of annex.commitmessage

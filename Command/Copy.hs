@@ -24,6 +24,7 @@ data CopyOptions = CopyOptions
 	, fromToOptions :: Maybe FromToHereOptions
 	, keyOptions :: Maybe KeyOptions
 	, autoMode :: Bool
+	, wantedMode :: Bool
 	, batchOption :: BatchMode
 	}
 
@@ -33,6 +34,7 @@ optParser desc = CopyOptions
 	<*> parseFromToHereOptions
 	<*> optional (parseKeyOptions <|> parseFailedTransfersOption)
 	<*> parseAutoOption
+	<*> parseWantedOption
 	<*> parseBatchOption True
 
 instance DeferredParseClass CopyOptions where
@@ -42,6 +44,7 @@ instance DeferredParseClass CopyOptions where
 			(fromToOptions v)
 		<*> pure (keyOptions v)
 		<*> pure (autoMode v)
+		<*> pure (wantedMode v)
 		<*> pure (batchOption v)
 
 seek :: CopyOptions -> CommandSeek
@@ -53,7 +56,7 @@ seek' :: CopyOptions -> FromToHereOptions -> CommandSeek
 seek' o fto = startConcurrency (Command.Move.stages fto) $ do
 	case batchOption o of
 		NoBatch -> withKeyOptions
-			(keyOptions o) (autoMode o) seeker
+			(keyOptions o) (autoMode o || wantedMode o) seeker
 			(commandAction . keyaction)
 			(withFilesInGitAnnex ww seeker)
 			=<< workTreeItems ww (copyFiles o)
@@ -96,6 +99,7 @@ start' lu o fto si file key = stopUnless shouldCopy $
   where
 	shouldCopy
 		| autoMode o = want <||> numCopiesCheck file key (<)
+		| wantedMode o = want
 		| otherwise = return True
 	want = case fto of
 		FromOrToRemote (ToRemote dest) -> checkwantsend dest
