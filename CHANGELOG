@@ -1,7 +1,5 @@
 git-annex (10.20260526) UNRELEASED; urgency=medium
 
-  * get, copy: Added --wanted option, which only transfers files
-    that are preferred content.
   * Avoid an error message displaying a password embedded in a git remote url.
     (Reversion introduced in 10.20260421)
   * Fix use of annex.commitmessage
@@ -15,6 +13,8 @@ git-annex (10.20260526) UNRELEASED; urgency=medium
     works in commonly available builds of graphviz.
   * push: Avoid updating a view branch or adjusted branch.
   * pull: Avoid propagating adjusted branch changes to the original branch.
+  * get, copy: Added --wanted option, which only transfers files
+    that are preferred content.
 
  -- Joey Hess <id@joeyh.name>  Thu, 28 May 2026 13:13:21 -0400
 
