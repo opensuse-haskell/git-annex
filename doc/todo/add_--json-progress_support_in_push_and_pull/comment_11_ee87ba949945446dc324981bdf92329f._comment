@@ -1,0 +1,15 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 11"""
+ date="2026-05-29T15:09:31Z"
+ content="""
+Hmm, `git-annex get --auto` and `git-annex copy --auto` don't just check
+preferred content, they will also make a copy if numcopies is not satisfied
+for the file.
+
+That's something that `git-annex pull` and `git-annex push` don't do.
+
+I think it would be a good idea to add a `--wanted` option to commands
+that support `--auto`. It would only operate on preferred content, avoiding
+making copies only to work toward satisfying numcopies.
+"""]]
