@@ -8,7 +8,7 @@ git annex copy `[path ...] [--from=remote|--to=remote]`
 
 # DESCRIPTION
 
-Copies the content of files from or to another remote.
+Copies the content of files from or to another repository.
 
 With no parameters, operates on all annexed files in the current directory.
 Paths of files or directories to operate on can be specified.
