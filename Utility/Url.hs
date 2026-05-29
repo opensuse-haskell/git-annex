@@ -18,7 +18,6 @@ module Utility.Url (
 	mkScheme,
 	allowedScheme,
 	UrlDownloader(..),
-	isDownloadWithCurl,
 	NonHttpUrlDownloader(..),
 	UrlOptions(..),
 	defUrlOptions,
@@ -105,10 +104,6 @@ data UrlOptions = UrlOptions
 data UrlDownloader
 	= DownloadWithConduit NonHttpUrlDownloader
 	| DownloadWithCurl [CommandParam]
-
-isDownloadWithCurl :: UrlDownloader -> Bool
-isDownloadWithCurl (DownloadWithCurl _) = True
-isDownloadWithCurl (DownloadWithConduit _) = False
 
 data NonHttpUrlDownloader
 	= DownloadWithCurlRestricted Restriction

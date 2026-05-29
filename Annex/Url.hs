@@ -69,23 +69,23 @@ getUrlOptions :: Maybe RemoteGitConfig -> Annex U.UrlOptions
 getUrlOptions mgc = Annex.getState Annex.urloptions >>= \case
 	Just uo -> return (adjustforremote uo)
 	Nothing -> do
-		uo <- mk
+		v <- mk
 		Annex.changeState $ \s -> s
-			{ Annex.urloptions = Just uo }
-		return (adjustforremote uo)
+			{ Annex.urloptions = Just v }
+		return (adjustforremote v)
   where
-	adjustforremote uo = case mgc of
-		Just gc
-			| not (null (remoteAnnexWebOptions gc))
-				&& U.isDownloadWithCurl (U.urlDownloader uo) -> uo
-					{ U.urlDownloader = U.DownloadWithCurl
-						(map Param (remoteAnnexWebOptions gc))
-					}
-		_ -> uo
+	adjustforremote (uo, curlallowed)
+		| curlallowed = case mgc of
+			Just gc | not (null (remoteAnnexWebOptions gc)) -> uo
+				{ U.urlDownloader = U.DownloadWithCurl
+					(map Param (remoteAnnexWebOptions gc))
+				}
+			_ -> uo
+		| otherwise = uo
 
 	mk = do
-		(urldownloader, manager) <- mk' =<< Annex.getGitConfig
-		U.mkUrlOptions
+		(urldownloader, manager, curlallowed) <- mk' =<< Annex.getGitConfig
+		uo <- U.mkUrlOptions
 			<$> (Just <$> getUserAgent)
 			<*> headers
 			<*> pure urldownloader
@@ -93,6 +93,7 @@ getUrlOptions mgc = Annex.getState Annex.urloptions >>= \case
 			<*> (annexAllowedUrlSchemes <$> Annex.getGitConfig)
 			<*> pure (Just (\u -> "Configuration of annex.security.allowed-url-schemes does not allow accessing " ++ show u))
 			<*> pure U.noBasicAuth
+		return (uo, curlallowed)
 	
 	headers =
 		outputOfAnnexHook httpHeadersAnnexHook annexHttpHeadersCommand
@@ -111,7 +112,7 @@ getUrlOptions mgc = Annex.getState Annex.urloptions >>= \case
 			ctx <- mkconnectioncontext 
 			manager <- liftIO $ U.newManager $ 
 				avoidtimeout $ managersettings ctx
-			return (urldownloader, manager)
+			return (urldownloader, manager, True)
 		allowedaddrsports -> do
 			addrmatcher <- liftIO $ 
 				(\l v -> any (\f -> f v) l) . catMaybes
@@ -144,7 +145,7 @@ getUrlOptions mgc = Annex.getState Annex.urloptions >>= \case
 			-- preventing it from accessing specific IP addresses.
 			let urldownloader = U.DownloadWithConduit $
 				U.DownloadWithCurlRestricted r
-			return (urldownloader, manager)
+			return (urldownloader, manager, False)
 	  where
 		-- When configured, allow TLS 1.2 without EMS.
 		-- In tls-2.0, the default was changed from

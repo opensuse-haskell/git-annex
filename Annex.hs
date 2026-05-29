@@ -226,7 +226,7 @@ data AnnexState = AnnexState
 	, workers :: Maybe (TMVar (WorkerPool (AnnexState, AnnexRead)))
 	, cachedcurrentbranch :: (Maybe (Maybe Git.Branch, Maybe Adjustment))
 	, cachedgitenv :: Maybe (AltIndexFile, OsPath, [(String, String)])
-	, urloptions :: Maybe UrlOptions
+	, urloptions :: Maybe (UrlOptions, Bool)
 	, insmudgecleanfilter :: Bool
 	, inreconcilestaged :: Bool
 	, getvectorclock :: IO CandidateVectorClock
