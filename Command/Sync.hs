@@ -498,8 +498,10 @@ needMerge currbranch headbranch
 
 updateLocal :: SyncOptions -> CurrBranch -> CommandStart
 updateLocal o b = stopUnless (notOnlyAnnex o) $ do
-	updateBranches (pullOption o) (pushOption o) b
+	updateBranches (pullOption o || syncmode) (pushOption o || syncmode) b
 	stop
+  where
+	syncmode = operationMode o == SyncMode
 
 updateBranches :: Bool -> Bool -> CurrBranch -> Annex ()
 updateBranches _ _ (Nothing, _) = noop
