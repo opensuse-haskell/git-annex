@@ -253,7 +253,7 @@ commitStaged msg = do
 				, Param msg
 				]
 			when ok $
-				Command.Sync.updateBranches =<< getCurrentBranch
+				Command.Sync.updateBranches True True =<< getCurrentBranch
 			{- Commit the git-annex branch. This comes after
 			 - the commit of the staged changes, so that
 			 - annex.commitmessage-command can examine that

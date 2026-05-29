@@ -334,7 +334,7 @@ seek' o = startConcurrency transferStages $ do
 						, [ commitAnnex, mergeAnnex ]
 						]
 	
-			void $ includeCommandAction $ withbranch $ pushLocal o
+			void $ includeCommandAction $ withbranch $ updateLocal o
 			-- Pushes to remotes can run concurrently.
 			mapM_ (commandAction . withbranch . pushRemote o) gitremotes
   where
@@ -439,8 +439,10 @@ commitMsg = do
 		++ maybe "unknown" fromUUIDDesc (M.lookup u m)
 
 mergeLocal :: [Git.Merge.MergeConfig] -> SyncOptions -> CurrBranch -> CommandStart
-mergeLocal mergeconfig o currbranch = stopUnless (notOnlyAnnex o) $
+mergeLocal mergeconfig o currbranch = stopUnless shouldmerge $
 	mergeLocal' mergeconfig o currbranch
+  where
+	shouldmerge = pure (pullOption o) <&&> notOnlyAnnex o
 
 mergeLocal' :: [Git.Merge.MergeConfig] -> SyncOptions -> CurrBranch -> CommandStart
 mergeLocal' mergeconfig o currbranch@(Just branch, _) =
@@ -494,46 +496,50 @@ needMerge currbranch headbranch
 		let branch' = maybe headbranch (adjBranch . originalToAdjusted headbranch) madj
 		in hassyncbranch <&&> inRepo (Git.Branch.changed branch' syncbranch)
 
-pushLocal :: SyncOptions -> CurrBranch -> CommandStart
-pushLocal o b = stopUnless (notOnlyAnnex o) $ do
-	updateBranches b
+updateLocal :: SyncOptions -> CurrBranch -> CommandStart
+updateLocal o b = stopUnless (notOnlyAnnex o) $ do
+	updateBranches (pullOption o) (pushOption o) b
 	stop
 
-updateBranches :: CurrBranch -> Annex ()
-updateBranches (Nothing, _) = noop
-updateBranches (Just branch, madj) = do
-	-- When in a view branch, update it to reflect any changes
-	-- of its parent branch or the metadata.
+updateBranches :: Bool -> Bool -> CurrBranch -> Annex ()
+updateBranches _ _ (Nothing, _) = noop
+updateBranches forpull forpush (Just branch, madj) = do
 	currentView >>= \case
-		Just (view, madj') -> updateView view madj' >>= \case
-			Nothing -> noop
-			Just newcommit -> do
-				ok <- inRepo $ Git.Command.runBool
-					[ Param "merge"
-					, Param (Git.fromRef newcommit)
-					]
-				unless ok $
-					giveup $ "failed to update view"
-				case madj' of
-					Nothing -> noop
-					Just adj -> updateadjustedbranch adj
+		Just (view, madj')
+			| forpull -> updateview view madj'
+			| otherwise -> noop
 		-- When in an adjusted branch, propagate any changes
 		-- made to it back to the original branch.
 		Nothing -> case madj of
 			Just adj -> do
-				propigateAdjustedCommits branch adj
-				updateadjustedbranch adj
+				when forpush $
+					propigateAdjustedCommits branch adj
+				when forpull $
+					updateadjustedbranch adj
 			Nothing -> noop
 	
 	-- Update the sync branch to match the new state of the branch
 	inRepo $ updateBranch (syncBranch branch) (fromViewBranch branch)
   where
-	-- The adjusted branch may also need to be updated, if the adjustment
+	-- The adjusted branch may need to be updated, if the adjustment
 	-- is not stable, and the usual configuration does not update it.
 	updateadjustedbranch adj = unless (adjustmentIsStable adj) $
 		annexAdjustedBranchRefresh <$> Annex.getGitConfig >>= \case
 			0 -> adjustedBranchRefreshFull adj branch
 			_ -> return ()
+	
+	updateview view madj' = updateView view madj' >>= \case
+		Nothing -> noop
+		Just newcommit -> do
+			ok <- inRepo $ Git.Command.runBool
+				[ Param "merge"
+				, Param (Git.fromRef newcommit)
+				]
+			unless ok $
+				giveup $ "failed to update view"
+			case madj' of
+				Nothing -> noop
+				Just adj -> updateadjustedbranch adj
 
 updateBranch :: Git.Branch -> Git.Branch -> Git.Repo -> IO ()
 updateBranch syncbranch updateto g = 
