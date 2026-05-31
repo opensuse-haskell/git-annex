@@ -92,6 +92,10 @@ better format.
 
   Operate on files found by last run of git-annex unused.
 
+* `--failed`
+
+  Operate on files that have recently failed to be transferred.
+
 * `--key=keyname`
 
   Use this option to fsck a specified key.

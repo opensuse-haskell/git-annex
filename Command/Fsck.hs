@@ -83,7 +83,7 @@ optParser desc = FsckOptions
 		<> completeRemotes
 		))
 	<*> optional parseincremental
-	<*> optional parseKeyOptions
+	<*> optional (parseKeyOptions <|> parseFailedTransfersOption)
   where
 	parseincremental =
 		flag' StartIncrementalO
