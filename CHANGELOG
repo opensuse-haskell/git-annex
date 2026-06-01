@@ -15,7 +15,7 @@ git-annex (10.20260526) UNRELEASED; urgency=medium
   * pull: Avoid propagating adjusted branch changes to the original branch.
   * get, copy: Added --wanted option, which only transfers files
     that are preferred content.
-  * fsck: Support --failed option. 
+  * fsck, drop, whereis: Support --failed option. 
   * Display an introduction before other debug output.
 
  -- Joey Hess <id@joeyh.name>  Thu, 28 May 2026 13:13:21 -0400

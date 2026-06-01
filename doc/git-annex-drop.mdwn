@@ -88,6 +88,13 @@ Paths of files or directories to drop can be specified.
   Note that this bypasses checking the .gitattributes annex.numcopies
   setting and required content settings.
 
+* `--failed`
+
+  Drop files that have recently failed to be transferred.
+  
+  Note that this bypasses checking the .gitattributes annex.numcopies
+  setting and required content settings.
+
 * `--key=keyname`
 
   Use this option to drop a specified key.
