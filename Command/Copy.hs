@@ -57,11 +57,11 @@ seek' o fto = startConcurrency (Command.Move.stages fto) $ do
 	case batchOption o of
 		NoBatch -> withKeyOptions
 			(keyOptions o) (autoMode o || wantedMode o) seeker
-			(commandAction . keyaction)
+			(commandAction . startKey fto)
 			(withFilesInGitAnnex ww seeker)
 			=<< workTreeItems ww (copyFiles o)
 		Batch fmt -> batchOnly (keyOptions o) (copyFiles o) $
-			batchAnnexed fmt seeker keyaction
+			batchAnnexed fmt seeker (startKey fto)
   where
 	ww = WarnUnmatchLsFiles "copy"
 	
@@ -75,7 +75,6 @@ seek' o fto = startConcurrency (Command.Move.stages fto) $ do
 			FromAnywhereToRemote _ -> Nothing
 		, usesLocationLog = True
 		}
-	keyaction = Command.Move.startKey NoLiveUpdate fto Command.Move.RemoveNever
 
 {- A copy is just a move that does not delete the source file.
  - However, auto mode avoids unnecessary copies, and avoids getting or
@@ -92,6 +91,9 @@ start o fto si file key = do
 	start' lu o fto si file key
   where
 	getru dest = Just . Remote.uuid <$> getParsed dest
+
+startKey :: FromToHereOptions -> (SeekInput, Key, ActionItem) -> CommandStart
+startKey fto = Command.Move.startKey NoLiveUpdate fto Command.Move.RemoveNever
 
 start' :: LiveUpdate -> CopyOptions -> FromToHereOptions -> SeekInput -> OsPath -> Key -> CommandStart
 start' lu o fto si file key = stopUnless shouldCopy $ 
