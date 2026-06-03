@@ -1019,7 +1019,7 @@ syncFile o ebloom rs pushrs changehere af k = do
 			)
 		| otherwise = return []
 	put lu dest = includeCommandAction $
-		Command.Move.toStart' lu dest Command.Move.RemoveNever af k ai si
+		Command.Move.toStart' lu dest Command.Move.Put af k ai si
 	
 	dropfromhere = changehere && (pullOption o || satisfymode)
 

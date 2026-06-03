@@ -9,6 +9,7 @@ module Command.Put where
 
 import Command
 import qualified Command.Copy
+import qualified Command.Move (MoveAction(..))
 import qualified Remote
 
 cmd :: Command
@@ -47,7 +48,7 @@ seek o = startConcurrency commandStages $ do
 		}
 	let keyaction v = 
 		return $ flip map contentremotes $ \r ->
-			Command.Copy.startKey (to r) v
+			Command.Copy.startKey co (to r) v
 	case batchOption o of
 		NoBatch -> withKeyOptions
 			(keyOptions o) (autoMode o || wantedMode o) seeker
@@ -66,6 +67,7 @@ seek o = startConcurrency commandStages $ do
 		, Command.Copy.autoMode = autoMode o
 		, Command.Copy.wantedMode = wantedMode o
 		, Command.Copy.batchOption = batchOption o
+		, Command.Copy.moveAction = Command.Move.Put
 		}
 	
 	to = FromOrToRemote . ToRemote . ReadyParse

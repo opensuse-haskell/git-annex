@@ -81,7 +81,7 @@ start' lu expensivecheck from key afile ai si =
 			Nothing -> go $ perform lu key afile
 			Just src ->
 				stopUnless (Command.Move.fromOk src key) $
-					go $ Command.Move.fromPerform lu src Command.Move.RemoveNever key afile
+					go $ Command.Move.fromPerform lu src Command.Move.Get key afile
   where
 	go = starting "get" (OnlyActionOn key ai) si
 

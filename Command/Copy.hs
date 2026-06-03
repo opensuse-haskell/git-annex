@@ -26,6 +26,7 @@ data CopyOptions = CopyOptions
 	, autoMode :: Bool
 	, wantedMode :: Bool
 	, batchOption :: BatchMode
+	, moveAction :: Command.Move.MoveAction
 	}
 
 optParser :: CmdParamsDesc -> Parser CopyOptions
@@ -36,6 +37,7 @@ optParser desc = CopyOptions
 	<*> parseAutoOption
 	<*> parseWantedOption
 	<*> parseBatchOption True
+	<*> pure Command.Move.Copy
 
 instance DeferredParseClass CopyOptions where
 	finishParse v = CopyOptions
@@ -46,6 +48,7 @@ instance DeferredParseClass CopyOptions where
 		<*> pure (autoMode v)
 		<*> pure (wantedMode v)
 		<*> pure (batchOption v)
+		<*> pure (moveAction v)
 
 seek :: CopyOptions -> CommandSeek
 seek o = case fromToOptions o of
@@ -57,11 +60,11 @@ seek' o fto = startConcurrency (Command.Move.stages fto) $ do
 	case batchOption o of
 		NoBatch -> withKeyOptions
 			(keyOptions o) (autoMode o || wantedMode o) seeker
-			(commandAction . startKey fto)
+			(commandAction . startKey o fto)
 			(withFilesInGitAnnex ww seeker)
 			=<< workTreeItems ww (copyFiles o)
 		Batch fmt -> batchOnly (keyOptions o) (copyFiles o) $
-			batchAnnexed fmt seeker (startKey fto)
+			batchAnnexed fmt seeker (startKey o fto)
   where
 	ww = WarnUnmatchLsFiles "copy"
 	
@@ -92,12 +95,12 @@ start o fto si file key = do
   where
 	getru dest = Just . Remote.uuid <$> getParsed dest
 
-startKey :: FromToHereOptions -> (SeekInput, Key, ActionItem) -> CommandStart
-startKey fto = Command.Move.startKey NoLiveUpdate fto Command.Move.RemoveNever
+startKey :: CopyOptions -> FromToHereOptions -> (SeekInput, Key, ActionItem) -> CommandStart
+startKey o fto = Command.Move.startKey NoLiveUpdate fto (moveAction o)
 
 start' :: LiveUpdate -> CopyOptions -> FromToHereOptions -> SeekInput -> OsPath -> Key -> CommandStart
 start' lu o fto si file key = stopUnless shouldCopy $ 
-	Command.Move.start lu fto Command.Move.RemoveNever si file key
+	Command.Move.start lu fto (moveAction o) si file key
   where
 	shouldCopy
 		| autoMode o = want <||> numCopiesCheck file key (<)
