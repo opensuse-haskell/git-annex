@@ -8,6 +8,7 @@
 module Command.Put where
 
 import Command
+import qualified Annex
 import qualified Command.Copy
 import qualified Command.Move (MoveAction(..))
 import qualified Remote
@@ -36,8 +37,11 @@ optParser desc = PutOptions
 
 seek :: PutOptions -> CommandSeek
 seek o = startConcurrency commandStages $ do
+	fast <- Annex.getRead Annex.fast
+	let fastest = fromMaybe [] . headMaybe
 	contentremotes <- filter Remote.canPut
-		. concat . Remote.byCost 
+		. (if fast then fastest else concat)
+		. Remote.byCost 
 		<$> (Remote.contentRemotes =<< Remote.remoteList)
 	let seeker = AnnexedFileSeeker
 		{ startAction = \_ si p k ->

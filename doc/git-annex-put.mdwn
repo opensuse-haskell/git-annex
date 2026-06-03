@@ -27,6 +27,10 @@ Paths of files or directories to operate on can be specified.
   Only send files to remotes that want them, or when there are not
   yet have the desired number of copies.
 
+* `--fast`
+
+  Only send files to remotes with the lowest annex-cost value configured.
+
 * `--jobs=N` `-JN`
 
   Enables parallel transfers with up to the specified number of jobs
