@@ -7,15 +7,31 @@
 another remote if the first is not available, and of course does nothing
 if the content is present already. 
 
-It would be most symmetric if `git-annex put` picked one remote to send
-content to (ie, the fastest one that wants it), fell back to
-the next best remote if that one was not available, and avoided 
+It would be perhaps most symmetric with that if `git-annex put` picked one
+remote to send content to (ie, the lowest cost one that wants it), fell
+back to the next best remote if that one was not available, and avoided
 sending any content for files that are in some other repository already.
 
 As well as just being symmetric, that feels like a useful behavior that
-is not currently possible to get from any git-annex command. 
+is not currently possible to get from any git-annex command.
 
 That's in tension with the idea that `git-annex put --json` would
 send to the same remotes that `git-annex push` would. Maybe that
 behavior should be an option? Or maybe that belongs in yet another command.
+
+Just how useful would the 1 copy behavior be? One indication maybe is that
+noone has ever asked for that behavior. And it seems like it would be easy
+for the content to go to an unexpected place and break a workflow. Eg,
+suppose a user starts using `git-annex put`, which sends the content
+to `origin` and makes it available to others. But they also have a remote
+for a local USB drive, which has been disconnected all that time. When
+they one day reconnect that drive, it has a lower cost, and so their
+puts start going there, preventing others from accessing the files.
+
+Also it's worth noting that `pull` picks a remote to get to, but
+`push` sends to all remotes that want it. So this particular symmetry
+is not maintained all the way up. So perhaps it's not a useful symmetry.
+
+Overall, it seems like something that could be an option and not the
+default. If someone has a good use case.
 """]]
