@@ -294,9 +294,9 @@ seek' o = startConcurrency transferStages $ do
 				whenM (annexSyncMigrations <$> Annex.getGitConfig) $
 					Command.Migrate.seekDistributedMigrations True
 
-			forM_ (filter isImport contentremotes) $
+			forM_ (filter Remote.isImport contentremotes) $
 				withbranch . importRemote changehere o
-			forM_ (filter isThirdPartyPopulated contentremotes) $
+			forM_ (filter Remote.isThirdPartyPopulated contentremotes) $
 				pullThirdPartyPopulated o
 			
 			when content $ do
@@ -311,8 +311,8 @@ seek' o = startConcurrency transferStages $ do
 				-- importing only downloads new files not
 				-- old files)
 				let shouldsynccontent r
-					| isExport r && not (isImport r) 
-						&& not (exportHasAnnexObjects r) = False
+					| Remote.isExport r && not (Remote.isImport r) 
+						&& not (annexObjects (Remote.config r)) = False
 					| otherwise = True
 				syncedcontent <- withbranch $
 					seekSyncContent o
@@ -1006,10 +1006,7 @@ syncFile o ebloom rs pushrs changehere af k = do
 
 	wantput lu r
 		| pushOption o == False && not satisfymode = return False
-		| Remote.readonly r || remoteAnnexReadOnly (Remote.gitconfig r) = return False
-		| isImport r && not (isExport r) = return False
-		| isExport r && not (exportHasAnnexObjects r) = return False
-		| isThirdPartyPopulated r = return False
+		| not (Remote.canPut r) = return False
 		| otherwise = wantGetBy lu True (Just k) af (Remote.uuid r)
 	handleput lack inhere
 		| inhere = catMaybes <$>
@@ -1021,7 +1018,7 @@ syncFile o ebloom rs pushrs changehere af k = do
 					)
 			)
 		| otherwise = return []
-	put lu dest = includeCommandAction $ 
+	put lu dest = includeCommandAction $
 		Command.Move.toStart' lu dest Command.Move.RemoveNever af k ai si
 	
 	dropfromhere = changehere && (pullOption o || satisfymode)
@@ -1034,7 +1031,7 @@ syncFile o ebloom rs pushrs changehere af k = do
 
 	ai = mkActionItem (k, af)
 	si = SeekInput []
-
+		
 {- When a remote has an annex-tracking-branch configuration, and that branch
  - is currently checked out, change the export to contain the current content
  - of the branch. (If the branch is not currently checked out, anything
@@ -1051,7 +1048,7 @@ seekExportContent :: Maybe SyncOptions -> [Remote] -> CurrBranch -> Annex Bool
 seekExportContent o rs currbranch =
 	seekExportContent' o (filter canexportcontent rs) currbranch
   where
-	canexportcontent r = isExport r && not (isProxied r)
+	canexportcontent r = Remote.isExport r && not (isProxied r)
 
 seekExportContent' :: Maybe SyncOptions -> [Remote] -> CurrBranch -> Annex Bool
 seekExportContent' o rs (mcurrbranch, madj)
@@ -1217,21 +1214,6 @@ onlyAnnex o
 	| onlyAnnexOption o = pure True
 	| otherwise = getGitConfigVal annexSyncOnlyAnnex
 
-isExport :: Remote -> Bool
-isExport = exportTree . Remote.config
-
-isImport :: Remote -> Bool
-isImport = importTree . Remote.config
-
-isProxied :: Remote -> Bool
-isProxied = isJust . remoteAnnexProxiedBy . Remote.gitconfig
-
-exportHasAnnexObjects :: Remote -> Bool
-exportHasAnnexObjects = annexObjects . Remote.config
-
-isThirdPartyPopulated :: Remote -> Bool
-isThirdPartyPopulated = Remote.thirdPartyPopulated . Remote.remotetype
-
 {- Support for push-to-create of git repositories.
  -
  - When the remote does not exist yet, annex-ignore and
@@ -1271,3 +1253,7 @@ pushToCreate o r
 		case filter (\r' -> Remote.name r' == Remote.name r) rs of
 			(r':_) -> return r'
 			_ -> return r
+
+isProxied :: Remote -> Bool
+isProxied = isJust . remoteAnnexProxiedBy . Remote.gitconfig
+

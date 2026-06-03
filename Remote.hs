@@ -1,6 +1,6 @@
 {- git-annex remotes
  -
- - Copyright 2011-2024 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -66,6 +66,10 @@ module Remote (
 	gitSyncableRemote,
 	gitSyncableRemoteType,
 	contentRemotes,
+	canPut,
+	isExport,
+	isImport,
+	isThirdPartyPopulated,
 ) where
 
 import Data.Ord
@@ -76,6 +80,7 @@ import qualified Data.Vector as V
 import Annex.Common
 import Types.Remote
 import qualified Annex
+import Annex.SpecialRemote.Config
 import Annex.UUID
 import Annex.Action
 import Logs.UUID
@@ -465,10 +470,28 @@ gitSyncableRemote r
 		Just u | "annex::" `isPrefixOf` u -> True
 		_ -> False
 
-{- Filers a list of remotes to those that contain annex object content. -}
+{- Filters a list of remotes to those that contain annex object content. -}
 contentRemotes :: [Remote] -> Annex [Remote]
 contentRemotes remotes = 
 	filter (\r -> uuid r /= NoUUID)
 		<$> filterM (not <$$> ignored) remotes
   where
 	ignored = liftIO . getDynamicConfig . remoteAnnexIgnore . gitconfig
+
+{- Can annex objects be stored on a remote? -}
+canPut :: Remote -> Bool
+canPut r
+	| readonly r || remoteAnnexReadOnly (gitconfig r) = False
+	| isImport r && not (isExport r) = False
+	| isExport r && not (annexObjects (config r)) = False
+	| isThirdPartyPopulated r = False
+	| otherwise = True
+
+isExport :: Remote -> Bool
+isExport = exportTree . config
+
+isImport :: Remote -> Bool
+isImport = importTree . config
+
+isThirdPartyPopulated :: Remote -> Bool
+isThirdPartyPopulated = thirdPartyPopulated . remotetype
