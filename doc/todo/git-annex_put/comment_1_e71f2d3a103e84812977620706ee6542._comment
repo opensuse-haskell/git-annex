@@ -1,0 +1,21 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 1"""
+ date="2026-06-03T16:02:58Z"
+ content="""
+`git-annex get` picks which remote to use, and falls back as needed to
+another remote if the first is not available, and of course does nothing
+if the content is present already. 
+
+It would be most symmetric if `git-annex put` picked one remote to send
+content to (ie, the fastest one that wants it), fell back to
+the next best remote if that one was not available, and avoided 
+sending any content for files that are in some other repository already.
+
+As well as just being symmetric, that feels like a useful behavior that
+is not currently possible to get from any git-annex command. 
+
+That's in tension with the idea that `git-annex put --json` would
+send to the same remotes that `git-annex push` would. Maybe that
+behavior should be an option? Or maybe that belongs in yet another command.
+"""]]
