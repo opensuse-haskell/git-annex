@@ -155,22 +155,24 @@ batchCommandStart a = a >>= \case
 --
 -- File matching options are checked, and non-matching files skipped.
 batchFiles :: BatchFormat -> ((SeekInput, OsPath) -> CommandStart) -> Annex ()
-batchFiles fmt a = batchFilesKeys fmt $ \(si, v) -> case v of
-	Right f -> a (si, f)
-	Left _k -> return Nothing
+batchFiles fmt a = batchFilesKeys fmt $ \(si, v) -> 
+	return $ case v of
+		Right f -> [a (si, f)]
+		Left _k -> [return Nothing]
 
-batchFilesKeys :: BatchFormat -> ((SeekInput, Either Key OsPath) -> CommandStart) -> Annex ()
+batchFilesKeys :: BatchFormat -> ((SeekInput, Either Key OsPath) -> Annex [CommandStart]) -> Annex ()
 batchFilesKeys fmt a = do
 	matcher <- getMatcher
 	go $ \si v -> case v of
 		Right f -> 
 			ifM (matcher $ MatchingFile $ FileInfo f f Nothing)
 				( a (si, Right f)
-				, return Nothing
+				, return [return Nothing]
 				)
 		Left k -> a (si, Left k)
   where
-	go a' = batchInput fmt parser (batchCommandAction . uncurry a')
+	go a' = batchInput fmt parser $ \v ->
+		mapM_ batchCommandAction =<< uncurry a' v
 	parser = case fmt of
 		-- Absolute filepaths are converted to relative,
 		-- because in non-batch mode, that is done when
@@ -184,32 +186,37 @@ batchFilesKeys fmt a = do
 				Nothing -> Left "not a valid key"
 
 batchAnnexedFiles :: BatchFormat -> AnnexedFileSeeker -> Annex ()
-batchAnnexedFiles fmt seeker = batchAnnexed fmt seeker (const (return Nothing))
+batchAnnexedFiles fmt seeker = 
+	batchAnnexed' fmt seeker (const (return [return Nothing]))
 
 -- Reads lines of batch input and passes filepaths to the AnnexedFileSeeker
 -- to handle them. Or, with --batch-keys, passes keys to the keyaction.
 --
 -- Matching options are checked, and non-matching items skipped.
 batchAnnexed :: BatchFormat -> AnnexedFileSeeker -> ((SeekInput, Key, ActionItem) -> CommandStart) -> Annex ()
-batchAnnexed fmt seeker keyaction = do
+batchAnnexed fmt seeker keyaction =
+	batchAnnexed' fmt seeker $ \v -> return [keyaction v]
+
+batchAnnexed' :: BatchFormat -> AnnexedFileSeeker -> ((SeekInput, Key, ActionItem) -> Annex [CommandStart]) -> Annex ()
+batchAnnexed' fmt seeker keyaction = do
 	matcher <- getMatcher
 	batchFilesKeys fmt $ \(si, v) ->
 		case v of
 			Right f -> lookupKeyStaged f >>= \case
-				Nothing -> return Nothing
+				Nothing -> return [return Nothing]
 				Just k -> checkpresent k $
 					startAction seeker Nothing si f k
 			Left k -> ifM (matcher (MatchingInfo (mkinfo k)))
 				( checkpresent k $
 					keyaction (si, k, mkActionItem k)
-				, return Nothing)
+				, return [return Nothing])
   where
 	checkpresent k cont = case checkContentPresent seeker of
 		Just v -> do
 			present <- inAnnex k
 			if present == v
 				then cont
-				else return Nothing
+				else return [return Nothing]
 		Nothing -> cont
 	
 	mkinfo k = ProvidedInfo

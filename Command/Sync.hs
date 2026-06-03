@@ -894,7 +894,8 @@ seekSyncContent o rs pushrs changehere currbranch = do
   where
 	seekworktree mvar l bloomfeeder = do
 		let seeker = AnnexedFileSeeker
-			{ startAction = const $ gofile bloomfeeder mvar
+			{ startAction = startSingle $ 
+				const $ gofile bloomfeeder mvar
 			, checkContentPresent = Nothing
 			, usesLocationLog = True
 			}

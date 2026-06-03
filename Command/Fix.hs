@@ -38,7 +38,7 @@ seek ps = unlessM crippledFileSystem $
   where
 	ww = WarnUnmatchLsFiles "fix"
 	seeker = AnnexedFileSeeker
-		{ startAction = const $ start FixAll
+		{ startAction = startSingle $ const $ start FixAll
 		, checkContentPresent = Nothing
 		, usesLocationLog = False
 		}

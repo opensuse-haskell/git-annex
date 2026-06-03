@@ -63,7 +63,7 @@ seek o = do
 		checkNotBareRepo
 	isterminal <- liftIO $ checkIsTerminal stdout
 	seeker <- contentPresentUnlessLimited $ AnnexedFileSeeker
-		{ startAction = const (start o isterminal)
+		{ startAction = startSingle $ const (start o isterminal)
 		, checkContentPresent = Nothing
 		, usesLocationLog = False
 		}

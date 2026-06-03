@@ -34,7 +34,7 @@ seek ps = withFilesInGitAnnex ww seeker =<< workTreeItems ww ps
   where
 	ww = WarnUnmatchLsFiles "lock"
 	seeker = AnnexedFileSeeker
-		{ startAction = const start
+		{ startAction = startSingle $ const start
 		, checkContentPresent = Nothing
 		, usesLocationLog = False
 		}

@@ -59,7 +59,7 @@ seek' o = do
 	computeremote <- maybe (pure Nothing) (Just <$$> getParsed)
 		(computeRemote o)
 	let seeker = AnnexedFileSeeker
-		{ startAction = const $ start o computeremote
+		{ startAction = startSingle $ const $ start o computeremote
 		, checkContentPresent = Nothing
 		, usesLocationLog = True
 		}

@@ -4,7 +4,7 @@
  - the values a user passes to a command, and prepare actions operating
  - on them.
  -
- - Copyright 2010-2023 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -58,10 +58,15 @@ import Data.Time.Clock.POSIX
 import System.PosixCompat.Files (isDirectory, isSymbolicLink, deviceID, fileID)
 
 data AnnexedFileSeeker = AnnexedFileSeeker
-	{ startAction :: Maybe KeySha -> SeekInput -> OsPath -> Key -> CommandStart
+	{ startAction :: Maybe KeySha -> SeekInput -> OsPath -> Key -> Annex [CommandStart]
 	, checkContentPresent :: Maybe Bool
 	, usesLocationLog :: Bool
 	}
+
+startSingle
+	:: (Maybe KeySha -> SeekInput -> OsPath -> Key -> CommandStart)
+	-> Maybe KeySha -> SeekInput -> OsPath -> Key -> Annex [CommandStart]
+startSingle a ks i p k = return [a ks i p k]
 
 -- The Sha that was read to get the Key.
 newtype KeySha = KeySha Git.Sha
@@ -381,8 +386,9 @@ seekFilteredKeys seeker listfs = do
   where
 	finisher mi oreader checktimelimit = liftIO oreader >>= \case
 		Just ((si, f, keysha), content) -> checktimelimit (liftIO discard) $ do
-			keyaction f mi content $
-				commandAction . startAction seeker keysha si f
+			keyaction f mi content $ \k ->
+				mapM_ commandAction
+					=<< startAction seeker keysha si f k
 			finisher mi oreader checktimelimit
 		Nothing -> return ()
 	  where
@@ -396,7 +402,7 @@ seekFilteredKeys seeker listfs = do
 			checkMatcherWhen mi
 				(matcherNeedsLocationLog mi && not (matcherNeedsFileName mi))
 				(MatchingFile $ FileInfo f f (Just k))
-				(commandAction $ startAction seeker keysha si f k)
+				(mapM_ commandAction =<< startAction seeker keysha si f k)
 			precachefinisher mi lreader checktimelimit
 		Nothing -> return ()
 	  where

@@ -76,7 +76,8 @@ seek' o fto = startConcurrency (stages fto) $ do
 			batchAnnexed fmt seeker keyaction
   where
 	seeker = AnnexedFileSeeker
-		{ startAction = const $ start NoLiveUpdate fto (removeWhen o)
+		{ startAction = startSingle $ 
+			const $ start NoLiveUpdate fto (removeWhen o)
 		, checkContentPresent = case fto of
 			FromOrToRemote (FromRemote _) -> Nothing
 			FromOrToRemote (ToRemote _) -> Just True

@@ -66,7 +66,7 @@ seek o
   where
 	ww = WarnUnmatchLsFiles "migrate"
 	seeker = AnnexedFileSeeker
-		{ startAction = start o
+		{ startAction = startSingle $ start o
 		, checkContentPresent = Nothing
 		, usesLocationLog = False
 		}

@@ -155,7 +155,7 @@ seek o = withOtherTmp $ \tmpdir -> do
 					=<< Annex.Branch.get f
 			next (return True)
 		let seeker = AnnexedFileSeeker
-			{ startAction = \_ _ _ k -> addkeyinfo k
+			{ startAction = startSingle $ \_ _ _ k -> addkeyinfo k
 			, checkContentPresent = Nothing
 			, usesLocationLog = True
 			}

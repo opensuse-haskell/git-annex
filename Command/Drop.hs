@@ -61,7 +61,7 @@ seek o = startConcurrency commandStages $ do
 				then pure Nothing
 				else pure (Just remote)				
 	let seeker = AnnexedFileSeeker
-		{ startAction = const $ start o from
+		{ startAction = startSingle $ const $ start o from
 		, checkContentPresent = case from of
 			Nothing -> Just True
 			Just _ -> Nothing
