@@ -66,7 +66,7 @@ start o si file k = startKey o afile (si, k, ai)
 startKey :: MirrorOptions -> AssociatedFile -> (SeekInput, Key, ActionItem) -> CommandStart
 startKey o afile (si, key, ai) = case fromToOptions o of
 	ToRemote r -> checkFailedTransferDirection ai Upload $ ifM (inAnnex key)
-		( Command.Move.toStart NoLiveUpdate Command.Move.Copy afile key ai si =<< getParsed r
+		( Command.Move.toStart NoLiveUpdate (Command.Move.Copy False) afile key ai si =<< getParsed r
 		, do
 			(numcopies, mincopies) <- getSafestNumMinCopies afile key
 			Command.Drop.startRemote NoLiveUpdate pcc afile ai si numcopies mincopies key (Command.Drop.DroppingUnused False)

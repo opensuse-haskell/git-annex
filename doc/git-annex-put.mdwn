@@ -34,12 +34,6 @@ Paths of files or directories to operate on can be specified.
 
   Setting this to "cpus" will run one job per CPU core.
 
-* `--fast`
-
-  Avoid doing round trips to check if a remote already has content.
-  This can be faster, but might skip sending content to a remote in
-  some cases.
-
 * `--all` `-A`
 
   Rather than specifying a filename or path to send, this option can be

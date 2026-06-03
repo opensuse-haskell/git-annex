@@ -57,12 +57,16 @@ instance DeferredParseClass MoveOptions where
 		<*> pure (keyOptions v)
 		<*> pure (batchOption v)
 
-data MoveAction = Move | Copy | Put | Get
+data MoveAction
+	= Move
+	| Copy { copyFast :: Bool }
+	| Put
+	| Get
 	deriving (Show, Eq)
 
 describeMoveAction :: MoveAction -> String
 describeMoveAction Move = "move"
-describeMoveAction Copy = "copy"
+describeMoveAction (Copy _) = "copy"
 describeMoveAction Put = "put"
 describeMoveAction Get = "get"
 
@@ -140,15 +144,16 @@ toStart lu moveaction afile key ai si dest = do
 		else toStart' lu dest moveaction afile key ai si
 
 toStart' :: LiveUpdate -> Remote -> MoveAction -> AssociatedFile -> Key -> ActionItem -> SeekInput -> CommandStart
-toStart' lu dest moveaction afile key ai si = do
-	fast <- Annex.getRead Annex.fast
-	if fast && moveaction /= Move
-		then ifM (expectedPresent dest key)
+toStart' lu dest moveaction afile key ai si =
+	case moveaction of
+		Move -> checkhaskey
+		Copy { copyFast = False } -> checkhaskey
+		_ -> ifM (expectedPresent dest key)
 			( stop
 			, go True (pure $ Right False)
 			)
-		else go False (Remote.hasKey dest key)
   where
+	checkhaskey = go False (Remote.hasKey dest key)
 	go fastcheck isthere =
 		starting (describeMoveAction moveaction) (OnlyActionOn key ai) si $
 			toPerform lu dest moveaction key afile fastcheck =<< isthere
@@ -364,11 +369,10 @@ fromToStart lu moveaction afile key ai si src dest =
   where
 	somethingtodo
 		| Remote.uuid src == Remote.uuid dest = return False
-		| otherwise = do
-			fast <- Annex.getRead Annex.fast
-			if fast && moveaction /= Move
-				then not <$> expectedPresent dest key
-				else return True
+		| otherwise = case moveaction of
+			Move -> return True
+			Copy { copyFast = False } -> return True
+			_ -> not <$> expectedPresent dest key
 
 fromAnywhereToStart :: LiveUpdate -> MoveAction -> AssociatedFile -> Key -> ActionItem -> SeekInput -> Remote -> CommandStart
 fromAnywhereToStart lu moveaction afile key ai si dest =
@@ -388,11 +392,10 @@ fromAnywhereToStart lu moveaction afile key ai si dest =
 						toStart lu moveaction afile key ai si dest 
 				next $ return True
   where
-	somethingtodo = do
-		fast <- Annex.getRead Annex.fast
-		if fast && moveaction /= Move
-			then not <$> expectedPresent dest key
-			else return True
+	somethingtodo = case moveaction of
+		Move -> return True
+		Copy { copyFast = False } -> return True
+		_ -> not <$> expectedPresent dest key
 
 {- When there is a local copy, transfer it to the dest, and drop from the src.
  -
@@ -432,7 +435,7 @@ fromToPerform lu src dest moveaction key afile = do
 		dropsrc <- fromsrc True
 		combinecleanups 
 			-- Send to dest, preserve local copy.
-			(todest Nothing Copy haskey)
+			(todest Nothing (Copy False) haskey)
 			(\senttodest -> if senttodest
 				then dropsrc moveaction
 				else stop
@@ -474,7 +477,7 @@ fromToPerform lu src dest moveaction key afile = do
 							-- Drop from src, checking
 							-- copies including dest.
 							combinecleanups
-								(cleanupfromsrc Copy)
+								(cleanupfromsrc (Copy False))
 								(\_ -> if senttodest
 									then dropfromsrc (\l -> UnVerifiedRemote dest : l)
 									else stop

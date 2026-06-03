@@ -8,6 +8,7 @@
 module Command.Copy where
 
 import Command
+import qualified Annex
 import qualified Command.Move
 import qualified Remote
 import Annex.Wanted
@@ -37,7 +38,7 @@ optParser desc = CopyOptions
 	<*> parseAutoOption
 	<*> parseWantedOption
 	<*> parseBatchOption True
-	<*> pure Command.Move.Copy
+	<*> pure (Command.Move.Copy False)
 
 instance DeferredParseClass CopyOptions where
 	finishParse v = CopyOptions
@@ -52,7 +53,10 @@ instance DeferredParseClass CopyOptions where
 
 seek :: CopyOptions -> CommandSeek
 seek o = case fromToOptions o of
-	Just fto -> seek' o fto
+	Just fto -> do
+		fast <- Annex.getRead Annex.fast
+		let o' = o { moveAction = Command.Move.Copy fast }
+		seek' o' fto
 	Nothing -> giveup "Specify --from or --to"
 
 seek' :: CopyOptions -> FromToHereOptions -> CommandSeek
