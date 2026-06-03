@@ -33,7 +33,8 @@ seek o = do
 		, usesLocationLog = False
 		-- startAction is not actually used since this
 		-- is not used to seek files
-		, startAction = \_ _ _ key -> start' o isterminal key
+		, startAction = startSingle $ 
+			\_ _ _ key -> start' o isterminal key
 		}
 	withKeyOptions (Just WantAllKeys) False seeker
 		(commandAction . start o isterminal)

@@ -108,7 +108,7 @@ seek o = startConcurrency commandStages $ do
 		cleanupLinkedWorkTreeBug
 	i <- prepIncremental u (incrementalOpt o)
 	let seeker = AnnexedFileSeeker
-		{ startAction = const $ start from i
+		{ startAction = startSingle $ const $ start from i
 		, checkContentPresent = Nothing
 		, usesLocationLog = True
 		}

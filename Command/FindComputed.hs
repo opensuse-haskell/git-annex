@@ -59,7 +59,8 @@ seek o = do
 	isterminal <- liftIO $ checkIsTerminal stdout
 	computeremotes <- filter isComputeRemote <$> Remote.remoteList
 	let seeker = AnnexedFileSeeker
-		{ startAction = const (start o isterminal computeremotes)
+		{ startAction = startSingle $ 
+			const (start o isterminal computeremotes)
 		, checkContentPresent = Nothing
 		, usesLocationLog = True
 		}

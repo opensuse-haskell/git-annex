@@ -52,7 +52,7 @@ seek o = startConcurrency stages $
 		ToRemote _ -> commandStages
 	ww = WarnUnmatchLsFiles "mirror"
 	seeker = AnnexedFileSeeker
-		{ startAction = const $ start o
+		{ startAction = startSingle $ const $ start o
 		, checkContentPresent = Nothing
 		, usesLocationLog = True
 		}

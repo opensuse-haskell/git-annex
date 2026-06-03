@@ -134,7 +134,7 @@ seek o = ifM (null <$> Annex.Branch.getUnmergedRefs)
 		zone <- liftIO getCurrentTimeZone
 		outputter <- mkOutputter m zone o <$> jsonOutputEnabled
 		let seeker = AnnexedFileSeeker
-			{ startAction = const $ \si file key ->
+			{ startAction = startSingle $ const $ \si file key ->
 				start o outputter (si, key, mkActionItem (file, key))
 			, checkContentPresent = Nothing
 			-- the way this uses the location log would not be

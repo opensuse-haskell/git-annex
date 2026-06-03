@@ -77,7 +77,7 @@ seek o = case batchOption o of
 		c <- currentVectorClock
 		let ww = WarnUnmatchLsFiles "metadata"
 		let seeker = AnnexedFileSeeker
-			{ startAction = const $ start c o
+			{ startAction = startSingle $ const $ start c o
 			, checkContentPresent = Nothing
 			, usesLocationLog = False
 			}

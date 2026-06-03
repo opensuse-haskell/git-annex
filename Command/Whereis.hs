@@ -52,7 +52,7 @@ seek :: WhereisOptions -> CommandSeek
 seek o = do
 	m <- remoteMap id
 	let seeker = AnnexedFileSeeker
-		{ startAction = const $ start o m
+		{ startAction = startSingle $ const $ start o m
 		, checkContentPresent = Nothing
 		, usesLocationLog = True
 		}
