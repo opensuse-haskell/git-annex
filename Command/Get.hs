@@ -18,7 +18,7 @@ import Logs.Location
 cmd :: Command
 cmd = withAnnexOptions [jobsOption, jsonOptions, jsonProgressOption, annexedMatchingOptions] $ 
 	command "get" SectionCommon 
-		"make content of annexed files available"
+		"get content of annexed files"
 		paramPaths (seek <$$> optParser)
 
 data GetOptions = GetOptions

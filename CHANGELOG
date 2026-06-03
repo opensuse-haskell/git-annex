@@ -1,4 +1,4 @@
-git-annex (10.20260526) UNRELEASED; urgency=medium
+git-annex (10.20260601) upstream; urgency=medium
 
   * Avoid an error message displaying a password embedded in a git remote url.
     (Reversion introduced in 10.20260421)
@@ -15,9 +15,10 @@ git-annex (10.20260526) UNRELEASED; urgency=medium
   * pull: Avoid propagating adjusted branch changes to the original branch.
   * get, copy: Added --wanted option, which only transfers files
     that are preferred content.
+  * fsck, drop, whereis: Support --failed option. 
   * Display an introduction before other debug output.
 
- -- Joey Hess <id@joeyh.name>  Thu, 28 May 2026 13:13:21 -0400
+ -- Joey Hess <id@joeyh.name>  Mon, 01 Jun 2026 11:53:04 -0400
 
 git-annex (10.20260525) upstream; urgency=medium
 

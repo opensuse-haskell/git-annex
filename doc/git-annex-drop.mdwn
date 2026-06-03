@@ -1,6 +1,6 @@
 # NAME
 
-git-annex drop - remove content of files from repository
+git-annex drop - remove content of annexed files from repository
 
 # SYNOPSIS
 
@@ -85,6 +85,13 @@ Paths of files or directories to drop can be specified.
 
   Drop files found by last run of git-annex unused.
 
+  Note that this bypasses checking the .gitattributes annex.numcopies
+  setting and required content settings.
+
+* `--failed`
+
+  Drop files that have recently failed to be transferred.
+  
   Note that this bypasses checking the .gitattributes annex.numcopies
   setting and required content settings.
 

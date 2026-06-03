@@ -248,12 +248,14 @@ withKeyOptions' ko autoorwanted mkkeyaction fallbackaction worktreeitems = do
 		(True, Just (WantSpecificKey k)) -> nofilename $ noauto $ runkeyaction (return [k])
 		(True, Just WantIncompleteKeys) -> nofilename $ noauto $ runkeyaction incompletekeys
 		(True, Just (WantBranchKeys bs)) -> noauto $ runbranchkeys bs
-		(False, Just _) -> giveup "Can only specify one of file names, --all, --branch, --unused, --failed, --key, or --incomplete"
+		(False, Just _) -> giveup $ "Can only specify one of file names, " ++ optionlist
   where
 	noauto a
-		| autoorwanted = giveup "Cannot use --auto or --wanted with --all or --branch or --unused or --key or --incomplete"
+		| autoorwanted = giveup $ "Cannot use --auto or --wanted with " ++ optionlist
 		| otherwise = a
-			
+		
+	optionlist = "--all, --branch, --unused, --failed --key, or --incomplete"
+
 	nofilename a = ifM (Limit.introspect matchNeedsFileName)
 		( do
 			bare <- fromRepo Git.repoIsLocalBare

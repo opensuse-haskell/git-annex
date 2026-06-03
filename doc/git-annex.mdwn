@@ -68,7 +68,7 @@ content from the key-value store.
 
 * `get [path ...]`
 
-  Makes the content of annexed files available in this repository.
+  Gets the content of annexed files.
   
   See [[git-annex-get]](1) for details.
 
