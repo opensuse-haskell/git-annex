@@ -273,11 +273,8 @@ seek' o = startConcurrency transferStages $ do
 			]
 	
 	remotes <- mapM (pushToCreate o) =<< syncRemotes (syncWith o)
-	-- Remotes that git can push to and pull from.
 	let gitremotes = filter Remote.gitSyncableRemote remotes
-	-- Remotes that contain annex object content.
-	contentremotes <- filter (\r -> Remote.uuid r /= NoUUID)
-		<$> filterM (not <$$> liftIO . getDynamicConfig . remoteAnnexIgnore . Remote.gitconfig) remotes
+	contentremotes <- Remote.contentRemotes remotes
 
 	if cleanupOption o
 		then do

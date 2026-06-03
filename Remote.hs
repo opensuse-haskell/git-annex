@@ -65,6 +65,7 @@ module Remote (
 	isExportSupported,
 	gitSyncableRemote,
 	gitSyncableRemoteType,
+	contentRemotes,
 ) where
 
 import Data.Ord
@@ -463,3 +464,11 @@ gitSyncableRemote r
 	| otherwise = case remoteUrl (gitconfig r) of
 		Just u | "annex::" `isPrefixOf` u -> True
 		_ -> False
+
+{- Filers a list of remotes to those that contain annex object content. -}
+contentRemotes :: [Remote] -> Annex [Remote]
+contentRemotes remotes = 
+	filter (\r -> uuid r /= NoUUID)
+		<$> filterM (not <$$> ignored) remotes
+  where
+	ignored = liftIO . getDynamicConfig . remoteAnnexIgnore . gitconfig
