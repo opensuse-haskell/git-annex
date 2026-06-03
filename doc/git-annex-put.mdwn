@@ -8,7 +8,7 @@ git annex put `[path ...]`
 
 # DESCRIPTION
 
-Copies the content of annexed files to other remotes. By default,
+Sends the content of annexed files to remotes. By default,
 files are sent to all remotes (except for certian special remotes
 that have to be populated using `git-annex export`).
 
@@ -17,9 +17,15 @@ Paths of files or directories to operate on can be specified.
 
 # OPTIONS
 
-* `--to=remote`
+* `--wanted` `-w`
 
-  Only send the content of files to the specified remote.
+  Send files only to remotes that want them.
+  See [[git-annex-preferred-content]](1)
+
+* `--auto`
+
+  Only send files to remotes that want them, or when there are not
+  yet have the desired number of copies.
 
 * `--jobs=N` `-JN`
 
@@ -27,18 +33,6 @@ Paths of files or directories to operate on can be specified.
   running at once. For example: `-J10`
 
   Setting this to "cpus" will run one job per CPU core.
-
-* `--wanted` `-w`
-
-  Rather than sending all specified files, only send those that
-  are preferred content of the destination repository.
-  See [[git-annex-preferred-content]](1)
-
-* `--auto`
-
-  Rather than sending all specified files, only send those that don't yet have
-  the desired number of copies, or that are preferred content of the
-  destination repository.
 
 * `--fast`
 

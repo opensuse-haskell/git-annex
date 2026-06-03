@@ -1,3 +1,9 @@
+git-annex (10.20260602) UNRELEASED; urgency=medium
+
+  * put: New command.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 03 Jun 2026 14:49:39 -0400
+
 git-annex (10.20260601) upstream; urgency=medium
 
   * Avoid an error message displaying a password embedded in a git remote url.

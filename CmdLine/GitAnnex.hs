@@ -104,6 +104,7 @@ import qualified Command.Sync
 import qualified Command.Assist
 import qualified Command.Pull
 import qualified Command.Push
+import qualified Command.Put
 import qualified Command.Satisfy
 import qualified Command.Mirror
 import qualified Command.AddUrl
@@ -161,6 +162,7 @@ cmds testoptparser testrunner mkbenchmarkgenerator = map addGitAnnexCommonOption
 	, Command.Assist.cmd
 	, Command.Pull.cmd
 	, Command.Push.cmd
+	, Command.Put.cmd
 	, Command.Satisfy.cmd
 	, Command.Mirror.cmd
 	, Command.AddUrl.cmd
