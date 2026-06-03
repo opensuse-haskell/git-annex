@@ -387,7 +387,7 @@ seekFilteredKeys seeker listfs = do
 	finisher mi oreader checktimelimit = liftIO oreader >>= \case
 		Just ((si, f, keysha), content) -> checktimelimit (liftIO discard) $ do
 			keyaction f mi content $ \k ->
-				mapM_ commandAction
+				commandActions
 					=<< startAction seeker keysha si f k
 			finisher mi oreader checktimelimit
 		Nothing -> return ()
@@ -402,7 +402,7 @@ seekFilteredKeys seeker listfs = do
 			checkMatcherWhen mi
 				(matcherNeedsLocationLog mi && not (matcherNeedsFileName mi))
 				(MatchingFile $ FileInfo f f (Just k))
-				(mapM_ commandAction =<< startAction seeker keysha si f k)
+				(commandActions =<< startAction seeker keysha si f k)
 			precachefinisher mi lreader checktimelimit
 		Nothing -> return ()
 	  where
