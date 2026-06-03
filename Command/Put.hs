@@ -16,7 +16,7 @@ import Annex.NumCopies
 cmd :: Command
 cmd = withAnnexOptions [jobsOption, jsonOptions, jsonProgressOption, annexedMatchingOptions] $
 	command "put" SectionCommon
-		"put content of files to other repositories"
+		"send content of files to other repositories"
 		paramPaths (seek <--< optParser)
 
 data PutOptions = PutOptions
@@ -35,21 +35,21 @@ optParser desc = PutOptions
 	<*> parseWantedOption
 	<*> parseBatchOption True
 
-seek :: CopyOptions -> CommandSeek
+seek :: PutOptions -> CommandSeek
 seek o = startConcurrency commandStages $ do
 	case batchOption o of
 		NoBatch -> withKeyOptions
 			(keyOptions o) (autoMode o || wantedMode o) seeker
 			(commandAction . keyaction)
 			(withFilesInGitAnnex ww seeker)
-			=<< workTreeItems ww (copyFiles o)
-		Batch fmt -> batchOnly (keyOptions o) (copyFiles o) $
+			=<< workTreeItems ww (putFiles o)
+		Batch fmt -> batchOnly (keyOptions o) (putFiles o) $
 			batchAnnexed fmt seeker keyaction
   where
 	ww = WarnUnmatchLsFiles "put"
 	
 	seeker = AnnexedFileSeeker
-		{ startAction = const $ start o
+		{ startAction = startSingle $ const $ start o
 		, checkContentPresent = case fto of
 			FromOrToRemote (FromRemote _) -> Just False
 			FromOrToRemote (ToRemote _) -> Just True
@@ -63,7 +63,7 @@ seek o = startConcurrency commandStages $ do
 {- A copy is just a move that does not delete the source file.
  - However, auto mode avoids unnecessary copies, and avoids getting or
  - sending non-preferred content. -}
-start :: CopyOptions -> FromToHereOptions -> SeekInput -> OsPath -> Key -> CommandStart
+start :: PutOptions -> FromToHereOptions -> SeekInput -> OsPath -> Key -> CommandStart
 start o fto si file key = do
 	ru <- case fto of
 		FromOrToRemote (ToRemote dest) -> getru dest
@@ -76,7 +76,7 @@ start o fto si file key = do
   where
 	getru dest = Just . Remote.uuid <$> getParsed dest
 
-start' :: LiveUpdate -> CopyOptions -> FromToHereOptions -> SeekInput -> OsPath -> Key -> CommandStart
+start' :: LiveUpdate -> PutOptions -> FromToHereOptions -> SeekInput -> OsPath -> Key -> CommandStart
 start' lu o fto si file key = stopUnless shouldCopy $ 
 	Command.Move.start lu fto Command.Move.RemoveNever si file key
   where
