@@ -99,9 +99,6 @@ start o fto si file key = do
   where
 	getru dest = Just . Remote.uuid <$> getParsed dest
 
-startKey :: CopyOptions -> FromToHereOptions -> (SeekInput, Key, ActionItem) -> CommandStart
-startKey o fto = Command.Move.startKey NoLiveUpdate fto (moveAction o)
-
 start' :: LiveUpdate -> CopyOptions -> FromToHereOptions -> SeekInput -> OsPath -> Key -> CommandStart
 start' lu o fto si file key = stopUnless shouldCopy $ 
 	Command.Move.start lu fto (moveAction o) si file key
@@ -121,3 +118,6 @@ start' lu o fto si file key = stopUnless shouldCopy $
 		(Remote.uuid <$> getParsed dest) >>=
 			wantGetBy lu False (Just key) (AssociatedFile (Just file))
 	checkwantget = wantGet lu False (Just key) (AssociatedFile (Just file))
+
+startKey :: CopyOptions -> FromToHereOptions -> (SeekInput, Key, ActionItem) -> CommandStart
+startKey o fto = Command.Move.startKey NoLiveUpdate fto (moveAction o)
