@@ -46,13 +46,13 @@ seek o = startConcurrency commandStages $ do
 	let seeker = AnnexedFileSeeker
 		{ startAction = \_ si p k ->
 			return $ flip map contentremotes $ \r ->
-				Command.Copy.start co (to r) si p k
+				Command.Copy.start co (to r) (fai r) si p k
 		, checkContentPresent = Just True
 		, usesLocationLog = True
 		}
 	let keyaction v = 
 		return $ flip map contentremotes $ \r ->
-			Command.Copy.startKey co (to r) v
+			Command.Copy.startKey co (to r) (fai r) v
 	case batchOption o of
 		NoBatch -> withKeyOptions
 			(keyOptions o) (autoMode o || wantedMode o) seeker
@@ -75,3 +75,9 @@ seek o = startConcurrency commandStages $ do
 		}
 	
 	to = FromOrToRemote . ToRemote . ReadyParse
+
+	-- Since put can send to remotes of its choosing, suppliment the
+	-- ActionItem with the uuid. This makes the json include the remote
+	-- uuid.
+	fai r ai = ActionItemForUUID (Remote.uuid r) ai
+

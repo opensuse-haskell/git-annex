@@ -1,6 +1,6 @@
 {- items that a command can act on
  -
- - Copyright 2016-2023 Joey Hess <id@joeyh.name>
+ - Copyright 2016-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -29,6 +29,7 @@ data ActionItem
 	| ActionItemUUID UUID StringContainingQuotedPath
 	-- ^ UUID with a description or name of the repository
 	| ActionItemOther (Maybe StringContainingQuotedPath)
+	| ActionItemForUUID UUID ActionItem
 	| OnlyActionOn Key ActionItem
 	-- ^ Use to avoid more than one thread concurrently processing the
 	-- same Key.
@@ -85,6 +86,7 @@ actionItemDesc (ActionItemTreeFile f) = QuotedPath f
 actionItemDesc (ActionItemUUID _ desc) = desc
 actionItemDesc (ActionItemOther Nothing) = mempty
 actionItemDesc (ActionItemOther (Just v)) = v
+actionItemDesc (ActionItemForUUID _ ai) = actionItemDesc ai
 actionItemDesc (OnlyActionOn _ ai) = actionItemDesc ai
 
 actionItemKey :: ActionItem -> Maybe Key
@@ -95,21 +97,26 @@ actionItemKey (ActionItemFailedTransfer t _) = Just (transferKey t)
 actionItemKey (ActionItemTreeFile _) = Nothing
 actionItemKey (ActionItemUUID _ _) = Nothing
 actionItemKey (ActionItemOther _) = Nothing
+actionItemKey (ActionItemForUUID _ ai) = actionItemKey ai
 actionItemKey (OnlyActionOn _ ai) = actionItemKey ai
 
 actionItemFile :: ActionItem -> Maybe OsPath
 actionItemFile (ActionItemAssociatedFile (AssociatedFile af) _) = af
 actionItemFile (ActionItemTreeFile f) = Just f
 actionItemFile (ActionItemUUID _ _) = Nothing
+actionItemFile (ActionItemForUUID _ ai) = actionItemFile ai
 actionItemFile (OnlyActionOn _ ai) = actionItemFile ai
 actionItemFile _ = Nothing
 
 actionItemUUID :: ActionItem -> Maybe UUID
 actionItemUUID (ActionItemUUID uuid _) = Just uuid
+actionItemUUID (ActionItemForUUID uuid _) = Just uuid
+actionItemUUID (OnlyActionOn _ ai) = actionItemUUID ai
 actionItemUUID _ = Nothing
 
 actionItemTransferDirection :: ActionItem -> Maybe Direction
 actionItemTransferDirection (ActionItemFailedTransfer t _) = Just $
 	transferDirection t
+actionItemTransferDirection (ActionItemForUUID _ ai) = actionItemTransferDirection ai
 actionItemTransferDirection (OnlyActionOn _ ai) = actionItemTransferDirection ai
 actionItemTransferDirection _ = Nothing

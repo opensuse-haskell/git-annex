@@ -1,3 +1,5 @@
 `git-annex put -J2` with the same file needing to go to 2 remotes only runs
 1 transfer at a time. This is because of the use of OnlyActionOn in
 Command.Move. --[[Joey]]
+
+[[fixed|done]] --[[Joey]] 

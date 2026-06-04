@@ -64,16 +64,16 @@ seek' o fto = startConcurrency (Command.Move.stages fto) $ do
 	case batchOption o of
 		NoBatch -> withKeyOptions
 			(keyOptions o) (autoMode o || wantedMode o) seeker
-			(commandAction . startKey o fto)
+			(commandAction . startKey o fto id)
 			(withFilesInGitAnnex ww seeker)
 			=<< workTreeItems ww (copyFiles o)
 		Batch fmt -> batchOnly (keyOptions o) (copyFiles o) $
-			batchAnnexed fmt seeker (startKey o fto)
+			batchAnnexed fmt seeker (startKey o fto id)
   where
 	ww = WarnUnmatchLsFiles "copy"
 	
 	seeker = AnnexedFileSeeker
-		{ startAction = startSingle $ const $ start o fto
+		{ startAction = startSingle $ const $ start o fto id
 		, checkContentPresent = case fto of
 			FromOrToRemote (FromRemote _) -> Just False
 			FromOrToRemote (ToRemote _) -> Just True
@@ -86,8 +86,15 @@ seek' o fto = startConcurrency (Command.Move.stages fto) $ do
 {- A copy is just a move that does not delete the source file.
  - However, auto mode avoids unnecessary copies, and avoids getting or
  - sending non-preferred content. -}
-start :: CopyOptions -> FromToHereOptions -> SeekInput -> OsPath -> Key -> CommandStart
-start o fto si file key = do
+start
+	:: CopyOptions
+	-> FromToHereOptions
+	-> (ActionItem -> ActionItem)
+	-> SeekInput
+	-> OsPath
+	-> Key
+	-> CommandStart
+start o fto fai si file key = do
 	ru <- case fto of
 		FromOrToRemote (ToRemote dest) -> getru dest
 		FromOrToRemote (FromRemote _) -> pure Nothing
@@ -95,13 +102,26 @@ start o fto si file key = do
 		FromRemoteToRemote _ dest -> getru dest
 		FromAnywhereToRemote dest -> getru dest
 	lu <- prepareLiveUpdate ru key AddingKey
-	start' lu o fto si file key
+
+	start' lu o fto afile si file key ai
   where
 	getru dest = Just . Remote.uuid <$> getParsed dest
+	
+	afile = AssociatedFile (Just file)
+	ai = fai $ mkActionItem (key, afile)
 
-start' :: LiveUpdate -> CopyOptions -> FromToHereOptions -> SeekInput -> OsPath -> Key -> CommandStart
-start' lu o fto si file key = stopUnless shouldCopy $ 
-	Command.Move.start lu fto (moveAction o) si file key
+start'
+	:: LiveUpdate
+	-> CopyOptions
+	-> FromToHereOptions
+	-> AssociatedFile
+	-> SeekInput
+	-> OsPath
+	-> Key
+	-> ActionItem
+	-> CommandStart
+start' lu o fto afile si file key ai = stopUnless shouldCopy $ 
+	Command.Move.start' lu fto (moveAction o) afile si key ai
   where
 	shouldCopy
 		| autoMode o = want <||> numCopiesCheck file key (<)
@@ -119,5 +139,11 @@ start' lu o fto si file key = stopUnless shouldCopy $
 			wantGetBy lu False (Just key) (AssociatedFile (Just file))
 	checkwantget = wantGet lu False (Just key) (AssociatedFile (Just file))
 
-startKey :: CopyOptions -> FromToHereOptions -> (SeekInput, Key, ActionItem) -> CommandStart
-startKey o fto = Command.Move.startKey NoLiveUpdate fto (moveAction o)
+startKey
+	:: CopyOptions
+	-> FromToHereOptions
+	-> (ActionItem -> ActionItem)
+	-> (SeekInput, Key, ActionItem)
+	-> CommandStart
+startKey o fto fai (si, k, ai) = 
+	Command.Move.startKey NoLiveUpdate fto (moveAction o) (si, k, fai ai)
