@@ -25,7 +25,7 @@ Paths of files or directories to operate on can be specified.
 * `--auto`
 
   Only send files to remotes that want them, or when there are not
-  yet have the desired number of copies.
+  yet the desired number of copies.
 
 * `--fast`
 
