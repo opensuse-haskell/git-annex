@@ -1,2 +1,4 @@
 `git annex put --json` does not include the uuid of the remote that content
 is sent to. It ought to, since it can send to multiple remotes. --[[Joey]]
+
+> [[fixed|done]] --[[Joey]]
