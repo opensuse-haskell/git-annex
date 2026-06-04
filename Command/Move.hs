@@ -173,7 +173,7 @@ toPerform' mcontentlock lu dest moveaction key afile fastcheck isthere = do
 		Left err -> do
 			showNote (UnquotedString err)
 			stop
-		Right False -> logMove srcuuid destuuid False key $ \deststartedwithcopy -> do
+		Right False -> logMove moveaction srcuuid destuuid False key $ \deststartedwithcopy -> do
 			showAction $ UnquotedString $ "to " ++ Remote.name dest
 			ok <- notifyTransfer Upload afile $
 				upload dest key afile stdRetry
@@ -185,7 +185,7 @@ toPerform' mcontentlock lu dest moveaction key afile fastcheck isthere = do
 					when fastcheck $
 						warning "This could have failed because --fast is enabled."
 					stop
-		Right True -> logMove srcuuid destuuid True key $ \deststartedwithcopy ->
+		Right True -> logMove moveaction srcuuid destuuid True key $ \deststartedwithcopy ->
 			finish deststartedwithcopy $
 				unlessM (expectedPresent dest key) $
 					Remote.logStatus lu dest key InfoPresent
@@ -270,14 +270,14 @@ fromOk src key
 fromPerform :: LiveUpdate -> Remote -> MoveAction -> Key -> AssociatedFile -> CommandPerform
 fromPerform lu src moveaction key afile = do
 	present <- inAnnex key
-	finish <- fromPerform' lu present True src key afile
+	finish <- fromPerform' lu present True src moveaction key afile
 	finish moveaction
 
-fromPerform' :: LiveUpdate -> Bool -> Bool -> Remote -> Key -> AssociatedFile -> Annex (MoveAction -> CommandPerform)
-fromPerform' lu present updatelocationlog src key afile = do
+fromPerform' :: LiveUpdate -> Bool -> Bool -> Remote -> MoveAction -> Key -> AssociatedFile -> Annex (MoveAction -> CommandPerform)
+fromPerform' lu present updatelocationlog src moveaction key afile = do
 	showAction $ UnquotedString $ "from " ++ Remote.name src
 	destuuid <- getUUID
-	logMove (Remote.uuid src) destuuid present key $ \deststartedwithcopy ->
+	logMove moveaction (Remote.uuid src) destuuid present key $ \deststartedwithcopy ->
 		if present
 			then return $ finish deststartedwithcopy True
 			else do
@@ -484,12 +484,12 @@ fromToPerform lu src dest moveaction key afile = do
 								)
 						)
 
-	fromsrc present = fromPerform' lu present False src key afile
+	fromsrc present = fromPerform' lu present False src moveaction key afile
 
 	todest mcontentlock moveaction' = toPerform' mcontentlock lu dest moveaction' key afile False
 
 	dropfromsrc adjusttocheck = case moveaction of
-		Move -> logMove (Remote.uuid src) (Remote.uuid dest) True key $ \deststartedwithcopy ->
+		Move -> logMove moveaction (Remote.uuid src) (Remote.uuid dest) True key $ \deststartedwithcopy ->
 			fromDrop lu src (Remote.uuid dest) deststartedwithcopy key afile adjusttocheck
 		_ -> next (return True)
 
@@ -575,8 +575,8 @@ logMoveCleanup (DestStartedWithCopy _ a) = a
  - copy, and so could refuse to allow the drop. By providing the logged
  - DestStartedWithCopy, this avoids that annoyance.
  -}
-logMove :: UUID -> UUID -> Bool -> Key -> (DestStartedWithCopy -> Annex a) -> Annex a
-logMove srcuuid destuuid deststartedwithcopy key a = go =<< setup
+logMove :: MoveAction -> UUID -> UUID -> Bool -> Key -> (DestStartedWithCopy -> Annex a) -> Annex a
+logMove Move srcuuid destuuid deststartedwithcopy key a = go =<< setup
   where
 	logline = L.fromStrict $ B8.unwords
 		[ fromUUID srcuuid
@@ -614,3 +614,4 @@ logMove srcuuid destuuid deststartedwithcopy key a = go =<< setup
 
 	go' fs deststartedwithcopy' = a $
 		DestStartedWithCopy deststartedwithcopy' (cleanup fs)
+logMove _ _ _ _ _ a = a (DestStartedWithCopy False noop)

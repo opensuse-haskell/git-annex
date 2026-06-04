@@ -1,6 +1,9 @@
 git-annex (10.20260602) UNRELEASED; urgency=medium
 
   * put: New command.
+  * move: Fix bug where an interrupted command other than move could
+    be treated as an interrupted move, resulting in dropping content
+    when not allowed by numcopies.
 
  -- Joey Hess <id@joeyh.name>  Wed, 03 Jun 2026 14:49:39 -0400
 
