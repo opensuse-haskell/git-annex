@@ -1,4 +1,29 @@
 `git-annex put -J2` with the same file needing to go to 2 remotes only runs
-1 transfer at a time. Same with `git-annex push -J2`.
+1 transfer at a time. Same with `git-annex push -J2` and `git-annex copy
+-J2`.
 
 This is because of the use of OnlyActionOn. --[[Joey]]
+
+> That is the thing that prevents it, but there is a good reason for it to
+> be prevented in some cases. Consider `git-annex copy -J2 --auto`, where
+> there are 2 archive remotes. It should only send to 1 of them, not
+> to both. And if the first one it tries to send to fails, it ought to
+> send to the other one. So the second thread needs to block waiting on the
+> first thread and check again if the action ought to be run. Which is what
+> OnlyActionOn does.
+> 
+> So this seems to only make sense to do if preferred content is not being
+> checked, or if the remote does not have a preferred content expression,
+> or if the preferred content expression does not use "copies=" or
+> similar.
+> 
+> Also, this doesn't fully serialize eg `put -J2`, as long as there are
+> several files to put. The 1st file will be sent to the 1st remote
+> and concurrently the 2nd file to the 2nd remote, and once those transfers
+> complete it will move on to sending the 1st file to the 2nd remote and
+> the 2nd file to the 1st remote.
+> 
+> Is it worth supporting this where it can be supported? It might seem
+> like inconsistent behavior.
+> 
+> I think not. [[done]] --[[Joey]]
