@@ -233,7 +233,7 @@ Executable git-annex
    resourcet,
    http-client (>= 0.5.3),
    http-client-tls (>= 0.3.2),
-   http-types (>= 0.7),
+   http-types (>= 0.9),
    http-conduit (>= 2.3.0),
    http-client-restricted (>= 0.0.2),
    conduit,

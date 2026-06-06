@@ -56,6 +56,7 @@ import qualified Utility.FileIO as F
 
 import Network.URI
 import Network.HTTP.Types
+import Network.HTTP.Types.Header (hAcceptEncoding, hContentDisposition, hContentRange)
 import qualified System.FilePath.Posix as UrlPath
 import qualified Data.CaseInsensitive as CI
 import qualified Data.ByteString as B
@@ -669,15 +670,6 @@ parseRequestRelaxed u = case uriAuthority u of
 		| uriPort ua == ":" -> parseRequest $ show $
 			u { uriAuthority = Just $ ua { uriPort = "" } }
 	_ -> parseRequest (show u)
-
-hAcceptEncoding :: CI.CI B.ByteString
-hAcceptEncoding = "Accept-Encoding"
-
-hContentDisposition :: CI.CI B.ByteString
-hContentDisposition = "Content-Disposition"
-
-hContentRange :: CI.CI B.ByteString
-hContentRange = "Content-Range"
 
 resumeFromHeader :: FileSize -> Header
 resumeFromHeader sz = (hRange, renderByteRanges [ByteRangeFrom sz])

@@ -4,6 +4,7 @@ git-annex (10.20260602) UNRELEASED; urgency=medium
   * move: Fix bug where an interrupted command other than move could
     be treated as an interrupted move, resulting in dropping content
     when not allowed by numcopies.
+  * Fix build with http-types-0.12.5
 
  -- Joey Hess <id@joeyh.name>  Wed, 03 Jun 2026 14:49:39 -0400
 
