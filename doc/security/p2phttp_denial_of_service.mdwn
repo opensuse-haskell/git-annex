@@ -1,0 +1,9 @@
+The `git-annex p2phttp` server could be caused to hang by a simple HEAD
+request to it. This denial of service attack was fixed in version
+10.20260525.
+
+Before version 10.20251114, `p2phttp` had several other bugs that could
+cause it to stall. That version also fixed a file descriptor leak.
+
+Since p2phttp is still somewhat new, and the impact is only a DOS,
+no CVEs were assigned for these.
