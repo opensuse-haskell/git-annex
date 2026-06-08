@@ -119,6 +119,16 @@ and will also propagate commits back to the original branch.
   set the `annex.adjustedbranchrefresh` config. Or use `git-annex sync
   --content`, which updates the branch after transferring content.
 
+* `--force`
+
+  Allow overwriting an existing adjusted branch with a new version.
+
+  For example, suppose you started with branch foo checked out
+  and used  `git-annex adjust --unlock`. But then foo was rebased,
+  and you checked out that new version of foo. Running `git-annex adjust
+  --unlock` again would fail because of the existing adjusted branch.
+  Using `--force` would overwrite that adjusted branch.
+
 * Also the [[git-annex-common-options]](1) can be used.
 
 # SEE ALSO
