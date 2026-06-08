@@ -501,26 +501,36 @@ needMerge currbranch headbranch
 		, return []
 		)
 	syncbranch = syncBranch headbranch
+
 	syncbranchchecks = case currbranch of
 		(Just _, madj) -> syncbranchchanged madj
 		(Nothing, _) -> hassyncbranch
+
 	hassyncbranch = inRepo (Git.Ref.exists syncbranch)
-	syncbranchchanged madj =
+
+	syncbranchchanged madj = do
 		let branch' = maybe headbranch (adjBranch . originalToAdjusted headbranch) madj
-		in hassyncbranch <&&> inRepo (Git.Branch.changed branch' syncbranch)
+		inRepo (Git.Ref.sha syncbranch) >>= \case
+			Nothing -> return False
+			Just sha -> ifM (inRepo $ Git.Branch.changed branch' sha)
+				( return True
+				, do
+					removewhenunchanged (Just sha) syncbranch
+					return False
+				)
 
 	-- Remove the ref after merging, but only if its value does not
 	-- change in the meantime. The sync branch can get changes pushed
 	-- to it at any time, and this avoids losing them.
 	removeaftermerge b = do
 		sorig <- inRepo $ Git.Ref.sha b
-		let remove =
-			inRepo (Git.Ref.sha b) >>= \case
-				Just s 
-					| Just s == sorig ->
-						inRepo $ Git.Ref.deleteQuiet s b
-				Nothing -> noop
-		return (b, remove)
+		return (b, removewhenunchanged sorig b)
+	
+	removewhenunchanged sorig b =
+		inRepo (Git.Ref.sha b) >>= \case
+			Just s | Just s == sorig ->
+				inRepo $ Git.Ref.deleteQuiet s b
+			_  -> noop
 
 updateLocal :: SyncOptions -> CurrBranch -> CommandStart
 updateLocal o b = stopUnless (notOnlyAnnex o) $ do
