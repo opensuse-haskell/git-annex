@@ -17,7 +17,7 @@ module Command.Sync (
 	mergeConfig,
 	merge,
 	prepMerge,
-	mergeLocal,
+	mergeLocalLikePull,
 	mergeRemote,
 	commitMsg,
 	pushBranch,
@@ -436,13 +436,15 @@ commitMsg = do
 		++ maybe "unknown" fromUUIDDesc (M.lookup u m)
 
 mergeLocal :: [Git.Merge.MergeConfig] -> SyncOptions -> CurrBranch -> CommandStart
-mergeLocal mergeconfig o currbranch = stopUnless shouldmerge $
-	mergeLocal' mergeconfig o currbranch
-  where
-	shouldmerge = pure (pullOption o) <&&> notOnlyAnnex o
+mergeLocal mergeconfig o currbranch = stopUnless (pure (pullOption o)) $
+	mergeLocalLikePull mergeconfig o currbranch
 
-mergeLocal' :: [Git.Merge.MergeConfig] -> SyncOptions -> CurrBranch -> CommandStart
-mergeLocal' mergeconfig o currbranch@(Just branch, _) =
+mergeLocalLikePull :: [Git.Merge.MergeConfig] -> SyncOptions -> CurrBranch -> CommandStart
+mergeLocalLikePull mergeconfig o currbranch = stopUnless (notOnlyAnnex o) $ 
+	mergeLocal'' mergeconfig o currbranch
+
+mergeLocal'' :: [Git.Merge.MergeConfig] -> SyncOptions -> CurrBranch -> CommandStart
+mergeLocal'' mergeconfig o currbranch@(Just branch, _) =
 	needMerge currbranch branch >>= \case
 		[] -> stop
 		tomerge -> do
@@ -450,7 +452,7 @@ mergeLocal' mergeconfig o currbranch@(Just branch, _) =
 			let si = SeekInput []
 			starting "merge" ai si $
 				next $ merge currbranch mergeconfig o Git.Branch.ManualCommit tomerge
-mergeLocal' _ _ currbranch@(Nothing, _) = inRepo Git.Branch.currentUnsafe >>= \case
+mergeLocal'' _ _ currbranch@(Nothing, _) = inRepo Git.Branch.currentUnsafe >>= \case
 	Just branch -> needMerge currbranch branch >>= \case
 		[] -> stop
 		tomerge -> do

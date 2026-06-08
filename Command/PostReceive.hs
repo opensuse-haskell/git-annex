@@ -14,7 +14,7 @@ import Command
 import qualified Annex
 import Annex.UpdateInstead
 import Annex.CurrentBranch
-import Command.Sync (mergeLocal, prepMerge, mergeConfig, SyncOptions(..))
+import Command.Sync (mergeLocalLikePull, prepMerge, mergeConfig, SyncOptions(..))
 import Annex.Proxy
 import Remote
 import qualified Types.Remote as Remote
@@ -53,7 +53,7 @@ updateInsteadEmulation = do
 	prepMerge
 	let o = def { notOnlyAnnexOption = True }
 	mc <- mergeConfig False
-	mergeLocal mc o =<< getCurrentBranch
+	mergeLocalLikePull mc o =<< getCurrentBranch
 
 proxyExportTree :: CommandSeek
 proxyExportTree = do

@@ -12,7 +12,7 @@ import qualified Annex.Branch
 import qualified Git
 import qualified Git.Branch
 import Annex.CurrentBranch
-import Command.Sync (prepMerge, mergeLocal, mergeConfig, merge, notOnlyAnnexOption, parseUnrelatedHistoriesOption)
+import Command.Sync (prepMerge, mergeLocalLikePull, mergeConfig, merge, notOnlyAnnexOption, parseUnrelatedHistoriesOption)
 import Git.Types
 
 cmd :: Command
@@ -55,7 +55,7 @@ mergeAnnexBranch = starting "merge" ai si $ do
 mergeSyncedBranch :: MergeOptions -> CommandStart
 mergeSyncedBranch o = do
 	mc <- mergeConfig (allowUnrelatedHistories o)
-	mergeLocal mc def =<< getCurrentBranch
+	mergeLocalLikePull mc def =<< getCurrentBranch
 
 mergeBranch :: MergeOptions -> Git.Ref -> CommandStart
 mergeBranch o r = starting "merge" ai si $ do

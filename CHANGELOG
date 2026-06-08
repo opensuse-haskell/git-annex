@@ -5,6 +5,9 @@ git-annex (10.20260602) UNRELEASED; urgency=medium
     be treated as an interrupted move, resulting in dropping content
     when not allowed by numcopies.
   * Fix build with http-types-0.12.5
+  * merge, post-receive: Fix bug that prevented merging any synced/
+    branches into the current branch.
+    (Reversion introduced in 10.20260601)
 
  -- Joey Hess <id@joeyh.name>  Wed, 03 Jun 2026 14:49:39 -0400
 
