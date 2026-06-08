@@ -178,8 +178,12 @@ forEachRef ps repo = map gen . S8.lines <$>
 		in (Ref r, Ref b)
 
 {- Deletes a ref when it contains the specified sha. 
- - This can delete refs that are not branches, which
- - git branch --delete refuses to delete. -}
+ -
+ - This can delete refs that are not branches, which git branch --delete
+ - refuses to delete.
+ -
+ - Displays a warning on stderr if the ref does not contain the specified sha.
+ -}
 delete :: Sha -> Ref -> Repo -> IO ()
 delete oldvalue ref = run
 	[ Param "update-ref"
@@ -187,6 +191,15 @@ delete oldvalue ref = run
 	, Param $ fromRef ref
 	, Param $ fromRef oldvalue
 	]
+
+{- Like delete, but with no output on stderr. -}
+deleteQuiet :: Sha -> Ref -> Repo -> IO ()
+deleteQuiet oldvalue ref r = void $ tryNonAsync $ runQuiet
+	[ Param "update-ref"
+	, Param "-d"
+	, Param $ fromRef ref
+	, Param $ fromRef oldvalue
+	] r
 
 {- Deletes a ref no matter what it contains. -}
 delete' :: Ref -> Repo -> IO ()

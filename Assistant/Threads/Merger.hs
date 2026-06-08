@@ -98,7 +98,7 @@ onChange file
 						mc
 						def
 						cmode
-						[changedbranch]
+						[(changedbranch, noop)]
 			recordCommit
 		| changedbranch == b =
 			-- Record commit so the pusher pushes it out.
