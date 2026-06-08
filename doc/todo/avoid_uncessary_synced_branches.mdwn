@@ -14,3 +14,7 @@ distributed mode. Once those are merged, it should be deleted.
 And a bare repository should never have a synced/master branch.
 
 (synced/git-annex is another matter, and is fine as it is) --[[Joey]]
+
+> [[done]] --[[Joey]]
+
+[[!tag projects/INM7]]
