@@ -20,10 +20,8 @@ it's helpful to add remotes for nearby machines that you want
 to access the same annexed content. Pushing to a non-bare remote will
 not normally update the remote's current branch with changes from the local
 repository. (Unless the remote is configured with
-receive.denyCurrentBranch=updateInstead.)
-
-To make working with such non-bare remotes easier, this command pushes not
-only local `master` to remote `master`, but also to remote `synced/master`
+receive.denyCurrentBranch=updateInstead.) Instead, when it detects
+such a remote, this command pushes to the remote's `synced/master`
 (and similar with other branches). When `git-annex pull` (or `git-annex
 sync`) is later run on the remote, it will merge the `synced/` branches
 that were pushed to it.
@@ -117,14 +115,6 @@ See [[git-annex-preferred-content]](1).
   Removes the local and remote `synced/` branches, which were created
   and pushed by `git-annex push` or `git-annex sync`. This option
   prevents all other activities.
-
-  This can come in handy when you've pushed a change to remotes and now
-  want to reset your master branch back before that change. So you
-  run `git reset` and force-push the master branch to remotes, only
-  to find that the next `git annex merge` or `git annex pull` brings the
-  changes back. Why? Because the `synced/master` branch is hanging
-  around and still has the change in it. Cleaning up the `synced/` branches
-  prevents that problem.
 
 * Also the [[git-annex-common-options]](1) can be used.
 

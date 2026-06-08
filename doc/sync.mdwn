@@ -20,8 +20,10 @@ When you run `git annex sync`, it merges the `synced/master` branch
 into `master`, receiving anything that's been pushed to it. (If there is a
 conflict in this merge, [[automatic_conflict_resolution]] is used to
 resolve it). Then it fetches from each remote, and merges in any changes that
-have been made to the remotes too. Finally, it updates `synced/master`
-to reflect the new state of `master`, and pushes it out to each of the remotes.
+have been made to the remotes too. Finally, pushes the new `master`
+out to each of the remotes. When a remote does not allow a push of
+master due to it being a currently checked out branch, it instead pushes
+to the remote's `synced/master`.
 
 This way, changes propagate around between repositories as `git annex sync`
 is run on each of them. Every repository does not need to be able to talk
@@ -29,8 +31,8 @@ to every other repository; as long as the graph of repositories is
 connected, and `git annex sync` is run from time to time on each, a given
 change, made anywhere, will eventually reach every other repository.
 
-(`git-annex sync` will also attempt to push the master branch to remotes, 
-which does work for bare repositories.)
+For bare repositories, this is not necessary, and the master branch is
+pushed as usual.
 
 The workflow for using `git annex sync` is simple:
 

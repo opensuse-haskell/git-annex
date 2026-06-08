@@ -518,9 +518,6 @@ updateBranches forpull forpush (Just branch, madj) = do
 				when forpull $
 					updateadjustedbranch adj
 			Nothing -> noop
-	
-	-- Update the sync branch to match the new state of the branch
-	inRepo $ updateBranch (syncBranch branch) (fromViewBranch branch)
   where
 	-- The adjusted branch may need to be updated, if the adjustment
 	-- is not stable, and the usual configuration does not update it.
@@ -635,7 +632,7 @@ pullThirdPartyPopulated o remote
 	
 	wantpull = remoteAnnexPull (Remote.gitconfig remote)
 
-{- The remote probably has both a master and a synced/master branch.
+{- The remote often has both a master and a synced/master branch.
  - Which to merge from? Well, the master has whatever latest changes
  - were committed (or pushed changes, if this is a bare remote),
  - while the synced/master may have changes that some
@@ -646,20 +643,22 @@ mergeRemote remote currbranch mergeconfig o = ifM isBareRepo
 	, case currbranch of
 		(Nothing, _) -> do
 			branch <- inRepo Git.Branch.currentUnsafe
-			mergelisted (pure (branchlist branch))
-		(Just branch, _) -> do
-			inRepo $ updateBranch (syncBranch branch) branch
-			mergelisted (tomerge (branchlist (Just branch)))
+			domerge =<< branchlist branch
+		(Just branch, _) ->
+			domerge
+				=<< changedfrom branch
+				=<< branchlist (Just branch)
 	)
   where
-	mergelisted getlist =
-		merge currbranch mergeconfig o Git.Branch.ManualCommit
-			=<< map (remoteBranch remote) <$> getlist
-	tomerge = filterM (changed remote)
-	branchlist Nothing = []
+	domerge = merge currbranch mergeconfig o Git.Branch.ManualCommit
+	changedfrom branch = filterM (inRepo . Git.Branch.changed branch)
+	branchlist Nothing = pure []
 	branchlist (Just branch)
-		| is_branchView branch = []
-		| otherwise = [origBranch branch, syncBranch branch]
+		| is_branchView branch = pure []
+		| otherwise = filterM (inRepo . Git.Ref.exists)
+			[ remoteBranch remote (origBranch branch)
+			, remoteBranch remote (syncBranch branch)
+			]
 
 pushRemote :: SyncOptions -> Remote -> CurrBranch -> CommandStart
 pushRemote _o _remote (Nothing, _) = stop
@@ -685,9 +684,14 @@ pushRemote o remote (Just branch, _) = do
 	needpush mainbranch
 		| remoteAnnexReadOnly gc = return False
 		| not (remoteAnnexPush gc) = return False
-		| otherwise = anyM (newer remote) $ catMaybes
-			[ syncBranch <$> mainbranch
-			, Just (Annex.Branch.name)
+		| otherwise = anyM id $ concat
+			[ case mainbranch of
+				Just b ->
+					[ newer remote b b True
+					, newer remote (syncBranch b) b False
+					]
+				Nothing -> []
+			, [ newer remote Annex.Branch.name Annex.Branch.name True ]
 			]
 	-- Older remotes on crippled filesystems may not have a
 	-- post-receive hook set up, so when updateInstead emulation
@@ -716,7 +720,7 @@ pushRemote o remote (Just branch, _) = do
  - branch directly to it, so that cloning/pulling will get it.
  - On the other hand, if it's not bare, pushing to the checked out branch
  - will generally fail (except with receive.denyCurrentBranch=updateInstead),
- - and this is why we push to its syncBranch.
+ - and this is when it's useful to push to its syncBranch.
  -
  - Git offers no way to tell if a remote is bare or not, so both methods
  - are tried.
@@ -725,8 +729,9 @@ pushRemote o remote (Just branch, _) = do
  - github may treat the first branch pushed to a new repository as the
  - default branch for that repository.
  -
- - The sync push first sends the synced/master branch,
- - and then forces the update of the remote synced/git-annex branch.
+ - The sync push first sends the synced/master branch
+ - (when the direct push failed), and then forces the update of 
+ - the remote synced/git-annex branch.
  -
  - The forcing is necessary if a transition has rewritten the git-annex branch.
  - Normally any changes to the git-annex branch get pulled and merged before
@@ -755,16 +760,18 @@ pushBranch remote mbranch ms g = do
 				pushparams True
 					[ Git.fromRef $ Git.Ref.base $ origBranch branch ]
 			let p' = p { std_err = CreatePipe }
-			bracket (createProcess p') cleanupProcess $ \h -> do
+			exitcode <- bracket (createProcess p') cleanupProcess $ \h -> do
 				filterstderr [] (stderrHandle h) (processHandle h)
-				void $ waitForProcess (processHandle h)
-			return True
-		Nothing -> return False
-				
-	syncpush directpushed =  do
+				waitForProcess (processHandle h)
+			return (True, exitcode == ExitSuccess)
+		Nothing -> return (False, False)
+	
+	syncpush (directpushed, directbranchupdated) =  do
 		let p = flip Git.Command.gitCreateProcess g $
 			pushparams (not directpushed) $ catMaybes
-				[ (syncrefspec . origBranch) <$> mbranch
+				[ if not directbranchupdated
+					then (syncrefspec . origBranch) <$> mbranch
+					else Nothing
 				, Just $ Git.Branch.forcePush $ syncrefspec Annex.Branch.name
 				]
 		-- stderr is relayed through a pipe so that the push
@@ -832,20 +839,12 @@ mergeAnnex = do
 	void Annex.Branch.forceUpdate
 	stop
 
-changed :: Remote -> Git.Ref -> Annex Bool
-changed remote b = do
-	let r = remoteBranch remote b
-	ifM (inRepo $ Git.Ref.exists r)
-		( inRepo $ Git.Branch.changed b r
-		, return False
-		)
-
-newer :: Remote -> Git.Ref -> Annex Bool
-newer remote b = do
-	let r = remoteBranch remote b
+newer :: Remote -> Git.Ref -> Git.Ref -> Bool -> Annex Bool
+newer remote rb b dne = do
+	let r = remoteBranch remote rb
 	ifM (inRepo $ Git.Ref.exists r)
 		( inRepo $ Git.Branch.changed r b
-		, return True
+		, return dne
 		)
 
 {- Without --all, only looks at files in the work tree.
