@@ -1,0 +1,16 @@
+Sending synced/master to a bare git remote is unnecessary because master
+can be pushed directly to it.
+
+This would be good to avoid, because the existence of synced branches
+can complicate situations such as a force push of master that
+discards commits from the tip of the branch. In that case, the user needs
+to worry about cleaning up the synced/master branches, on remote and the
+remote tracking branches, and the local synced/master branch, 
+to avoid them getting merged back in.
+
+Ideally the local synced/master branch should only exist when there are
+un-merged changes that have been pushed from another repository in
+distributed mode. Once those are merged, it should be deleted.
+And a bare repository should never have a synced/master branch.
+
+(synced/git-annex is another matter, and is fine as it is) --[[Joey]]
