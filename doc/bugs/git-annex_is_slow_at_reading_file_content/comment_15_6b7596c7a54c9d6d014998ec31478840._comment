@@ -1,0 +1,8 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 15"""
+ date="2026-06-09T19:46:55Z"
+ content="""
+botan includes the blake3 hash, so [[blake3_hash_support]] could happen
+more or less for free..
+"""]]
