@@ -13,6 +13,7 @@ git-annex (10.20260602) UNRELEASED; urgency=medium
     branches into the current branch.
     (Reversion introduced in 10.20260601)
   * git-annex.cabal: Remove unused dependency on old-locale.
+  * Remove dependencies on securemem and byteable.
 
  -- Joey Hess <id@joeyh.name>  Wed, 03 Jun 2026 14:49:39 -0400
 
