@@ -238,7 +238,6 @@ Executable git-annex
    http-client-restricted (>= 0.0.2),
    conduit,
    time (>= 1.9.1),
-   old-locale,
    persistent-sqlite (>= 2.13.3),
    persistent (>= 2.13.3),
    persistent-template (>= 2.8.0),
