@@ -78,7 +78,7 @@ import qualified Utility.Process
 import qualified Utility.Misc
 import qualified Utility.InodeCache
 import qualified Utility.Matcher
-import qualified Utility.Hash
+import qualified Utility.Hash.Crypton
 import qualified Utility.Scheduled
 import qualified Utility.Scheduled.QuickCheck
 import qualified Utility.HumanTime
@@ -200,8 +200,8 @@ properties = localOption (QuickCheckTests 1000) $ inOrderTestGroup "QuickCheck" 
 	] ++ map (uncurry testProperty) combos
   where
 	combos = concat
-		[ Utility.Hash.props_hashes_stable
-		, Utility.Hash.props_macs_stable
+		[ Utility.Hash.Crypton.props_hashes_stable
+		, Utility.Hash.Crypton.props_macs_stable
 		]
 
 testRemotes :: TestTree

@@ -50,7 +50,7 @@ import Utility.Metered
 import Network.HTTP.Client.Restricted
 import Utility.IPAddress
 import qualified Utility.RawFilePath as R
-import Utility.Hash (IncrementalVerifier(..))
+import Utility.Hash.Incremental
 import Utility.Url.Parse
 import qualified Utility.FileIO as F
 

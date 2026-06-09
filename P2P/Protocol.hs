@@ -21,7 +21,7 @@ import Types.Key
 import Types.UUID
 import Types.Transfer
 import Types.Remote (Verification(..))
-import Utility.Hash (IncrementalVerifier(..))
+import Utility.Hash.Incremental
 import Utility.AuthToken
 import Utility.Applicative
 import Utility.PartialPrelude

@@ -37,7 +37,7 @@ import qualified Annex
 import qualified Utility.Url as U
 import qualified Utility.Url.Parse as U
 import Annex.Hook
-import Utility.Hash (IncrementalVerifier)
+import Utility.Hash.Incremental
 import Utility.IPAddress
 import Utility.Metered
 import Utility.Env

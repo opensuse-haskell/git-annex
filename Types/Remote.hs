@@ -44,7 +44,7 @@ import Types.NumCopies
 import Types.Export
 import Types.Import
 import Types.RemoteConfig
-import Utility.Hash (IncrementalVerifier)
+import Utility.Hash.Incremental
 import Config.Cost
 import Utility.Metered
 import Git.Types (RemoteName)

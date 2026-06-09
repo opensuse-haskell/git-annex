@@ -28,7 +28,7 @@ import Common
 import Key
 import Types.GitConfig
 import Types.Difference
-import Utility.Hash
+import Utility.Hash.Crypton
 import Utility.MD5
 
 type Hasher = Key -> OsPath
@@ -83,7 +83,7 @@ hashDirMixed :: HashLevels -> Hasher
 hashDirMixed n k = hashDirs n 2 $ S.pack $ take 4 $
 	concatMap display_32bits_as_dir $
 		encodeWord32 $ map fromIntegral $ BA.unpack $
-			Utility.Hash.md5s $ serializeKey' $ nonChunkKey k
+			Utility.Hash.Crypton.md5s $ serializeKey' $ nonChunkKey k
   where
 	encodeWord32 (b1:b2:b3:b4:rest) =
 		(shiftL b4 24 .|. shiftL b3 16 .|. shiftL b2 8 .|. b1)

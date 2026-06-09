@@ -14,7 +14,7 @@ import Types.KeySource
 import Utility.Metered
 import Utility.OsPath
 import Utility.FileSystemEncoding
-import Utility.Hash (IncrementalVerifier)
+import Utility.Hash.Incremental
 
 data BackendA a = Backend
 	{ backendVariety :: KeyVariety

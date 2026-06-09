@@ -17,7 +17,7 @@ module Utility.Verifiable (
 import Data.ByteString.UTF8 (fromString)
 import qualified Data.ByteString as S
 
-import Utility.Hash
+import Utility.Hash.Crypton
 import Utility.QuickCheck
 
 type Secret = S.ByteString

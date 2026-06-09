@@ -21,7 +21,7 @@ module Backend.GitRemoteAnnex (
 import Annex.Common
 import Types.Key
 import Types.Backend
-import Utility.Hash
+import Utility.Hash.Crypton
 import Utility.Metered
 import qualified Backend.Hash as Hash
 

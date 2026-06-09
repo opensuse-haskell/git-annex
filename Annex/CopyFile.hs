@@ -15,7 +15,7 @@ import Utility.Metered
 import Utility.CopyFile
 import Utility.FileMode
 import Utility.Touch
-import Utility.Hash (IncrementalVerifier(..))
+import Utility.Hash.Incremental
 import qualified Utility.FileIO as F
 import qualified Utility.RawFilePath as R
 

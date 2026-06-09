@@ -28,7 +28,7 @@ import Utility.Metered
 import Annex.UUID
 import Utility.Env
 import Types.ProposedAccepted
-import Utility.Hash (IncrementalVerifier)
+import Utility.Hash.Incremental
 
 type Vault = String
 type Archive = FilePath

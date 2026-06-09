@@ -54,7 +54,7 @@ import Types.KeySource
 import Messages.Progress
 import Utility.DataUnits
 import Utility.Metered
-import Utility.Hash (sha1s)
+import Utility.Hash.Crypton (sha1s)
 import Logs.Import
 import Logs.Export
 import Logs.Location

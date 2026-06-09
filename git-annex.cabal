@@ -1059,7 +1059,8 @@ Executable git-annex
     Utility.FreeDesktop
     Utility.Glob
     Utility.Gpg
-    Utility.Hash
+    Utility.Hash.Crypton
+    Utility.Hash.Incremental
     Utility.HtmlDetect
     Utility.HumanNumber
     Utility.HumanTime

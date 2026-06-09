@@ -16,7 +16,7 @@ import Types.Backend
 import Logs.EquivilantKeys
 import Backend.Variety
 import Backend.Hash (descChecksum)
-import Utility.Hash
+import Utility.Hash.Crypton
 import Backend.VURL.Utilities
 
 backends :: [Backend]

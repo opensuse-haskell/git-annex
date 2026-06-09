@@ -34,7 +34,7 @@ import Utility.FileMode
 import Utility.OpenFd
 import Utility.LockFile.LockStatus
 import Utility.ThreadScheduler
-import Utility.Hash
+import Utility.Hash.Crypton
 import Utility.FileSystemEncoding
 import Utility.Env
 import Utility.Env.Set

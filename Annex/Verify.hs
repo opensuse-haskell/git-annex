@@ -34,7 +34,7 @@ import Types.Remote (VerifyConfigA(..))
 import qualified Types.Backend
 import qualified Backend
 import Types.Remote (unVerified, Verification(..), RetrievalSecurityPolicy(..))
-import Utility.Hash (IncrementalVerifier(..))
+import Utility.Hash.Incremental
 import Utility.Metered
 import Annex.WorkerPool
 import Types.WorkerPool

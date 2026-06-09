@@ -10,7 +10,7 @@
 module Annex.VariantFile where
 
 import Annex.Common
-import Utility.Hash
+import Utility.Hash.Crypton
 import qualified Utility.OsString as OS
 
 import qualified Data.ByteString as S

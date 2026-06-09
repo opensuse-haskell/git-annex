@@ -1,6 +1,6 @@
 {- Convenience wrapper around crypton's hashing.
  -
- - Copyright 2013-2024 Joey Hess <id@joeyh.name>
+ - Copyright 2013-2026 Joey Hess <id@joeyh.name>
  -
  - License: BSD-2-clause
  -}
@@ -8,7 +8,7 @@
 {-# LANGUAGE BangPatterns, PackageImports #-}
 {-# LANGUAGE RankNTypes #-}
 
-module Utility.Hash (
+module Utility.Hash.Crypton (
 	sha1,
 	sha1_context,
 	sha1s,
@@ -79,6 +79,8 @@ import qualified Data.Text.Encoding as T
 import Data.IORef
 import "crypton" Crypto.MAC.HMAC hiding (Context)
 import "crypton" Crypto.Hash
+
+import Utility.Hash.Incremental
 
 sha1 :: L.ByteString -> Digest SHA1
 sha1 = hashlazy
@@ -288,21 +290,6 @@ props_macs_stable = map (\(desc, mac, result) -> (desc ++ " stable", calcMac sho
 	key = T.encodeUtf8 $ T.pack "foo"
 	msg = T.encodeUtf8 $ T.pack "bar"
 
-data IncrementalHasher = IncrementalHasher
-	{ updateIncrementalHasher :: S.ByteString -> IO ()
-	-- ^ Called repeatedly on each piece of the content.
-	, finalizeIncrementalHasher :: IO (Maybe String)
-	-- ^ Called once the full content has been sent, returns
-	-- the hash. (Nothing if unableIncremental was called.)
-	, unableIncrementalHasher :: IO ()
-	-- ^ Call if the incremental hashing is unable to be done.
-	, positionIncrementalHasher :: IO (Maybe Integer)
-	-- ^ Returns the number of bytes that have been fed to this
-	-- incremental hasher so far. (Nothing if unableIncremental was
-	-- called.)
-	, descIncrementalHasher :: String
-	}
-
 mkIncrementalHasher :: HashAlgorithm h => Context h -> String -> IO IncrementalHasher
 mkIncrementalHasher ctx desc = do
 	v <- newIORef (Just (ctx, 0))
@@ -327,23 +314,7 @@ mkIncrementalHasher ctx desc = do
 		, descIncrementalHasher = desc
 		}
 
-data IncrementalVerifier = IncrementalVerifier
-	{ updateIncrementalVerifier :: S.ByteString -> IO ()
-	, finalizeIncrementalVerifier :: IO (Maybe Bool)
-	, unableIncrementalVerifier :: IO ()
-	, positionIncrementalVerifier :: IO (Maybe Integer)
-	, descIncrementalVerifier :: String
-	}
-
 mkIncrementalVerifier :: HashAlgorithm h => Context h -> String -> (String -> Bool) -> IO IncrementalVerifier
 mkIncrementalVerifier ctx desc samechecksum = do
 	hasher <- mkIncrementalHasher ctx desc
-	return $ IncrementalVerifier
-		{ updateIncrementalVerifier = updateIncrementalHasher hasher
-		, finalizeIncrementalVerifier = 
-			maybe Nothing (Just . samechecksum)
-				<$> finalizeIncrementalHasher hasher
-		, unableIncrementalVerifier = unableIncrementalHasher hasher
-		, positionIncrementalVerifier = positionIncrementalHasher hasher
-		, descIncrementalVerifier = descIncrementalHasher hasher
-		}
+	return $ incrementalHashVerifier hasher samechecksum

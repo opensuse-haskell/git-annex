@@ -32,7 +32,7 @@ import Remote.Helper.Special
 import Remote.Helper.ExportImport
 import Remote.Helper.ReadOnly
 import Utility.Metered
-import Utility.Hash
+import Utility.Hash.Crypton
 import Types.Transfer
 import Logs.PreferredContent.Raw
 import Logs.RemoteState

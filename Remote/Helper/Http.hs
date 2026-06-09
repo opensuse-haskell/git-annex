@@ -13,7 +13,7 @@ import Annex.Common
 import Types.StoreRetrieve
 import Remote.Helper.Special
 import Utility.Metered
-import Utility.Hash (IncrementalVerifier(..))
+import Utility.Hash.Incremental
 import qualified Utility.FileIO as F
 
 import qualified Data.ByteString.Lazy as L

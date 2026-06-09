@@ -20,7 +20,7 @@ module Types.Crypto (
 	calcMac,
 ) where
 
-import Utility.Hash
+import Utility.Hash.Crypton
 import Utility.Gpg (KeyIds(..))
 
 import Data.Typeable
