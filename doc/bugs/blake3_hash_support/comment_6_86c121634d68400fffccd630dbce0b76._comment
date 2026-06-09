@@ -3,7 +3,8 @@
  subject="""comment 6"""
  date="2026-06-09T19:44:56Z"
  content="""
-Another route might be to use botan, which supports blake3.
+Another route might be to use botan, once it supports blake3.
+
 There is some work toward using botan in
 [[git-annex_is_slow_at_reading_file_content]]
 and once it's used, adding blake3 would just be adding another hash.
