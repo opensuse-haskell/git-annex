@@ -1,6 +1,6 @@
 {- git-annex hashing backends
  -
- - Copyright 2011-2024 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -32,6 +32,8 @@ import qualified Data.ByteString as S
 import qualified Data.ByteString.Short as S (toShort, fromShort)
 import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy as L
+import qualified Data.ByteArray.Encoding as BA
+import qualified Botan.Low.Hash as Botan
 import Control.DeepSeq
 import Control.Exception (evaluate)
 
@@ -206,6 +208,16 @@ trivialMigrate' oldkey newbackend afile maxextlen maxexts
 	newvariety = backendVariety newbackend
 
 hashFile :: Hash -> OsPath -> MeterUpdate -> Annex String
+hashFile (SHA2Hash (HashSize 256)) file meterupdate =
+	liftIO $ withMeteredFile file meterupdate $ \b -> do
+		hsh <- Botan.hashInit Botan.SHA256
+		forM_ (L.toChunks b) (Botan.hashUpdate hsh)
+		digest <- Botan.hashFinal hsh
+		let h = decodeBS $ BA.convertToBase BA.Base16 digest
+		-- Force full evaluation of hash so whole file is read
+		-- before returning.
+		evaluate (rnf h)
+		return h
 hashFile hash file meterupdate = 
 	liftIO $ withMeteredFile file meterupdate $ \b -> do
 		let h = (fst $ hasher hash) b
