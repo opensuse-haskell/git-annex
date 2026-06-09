@@ -1,0 +1,22 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 14"""
+ date="2026-06-09T19:34:42Z"
+ content="""
+Botan3 can also accellerate sha1 and sha3 (on machines with AVX-512).
+<https://botan.randombit.net/handbook/hardware_acceleration.html>
+
+I think it would make sense at this point to have a botan build flag
+that uses botan for all hashing. It may be that it's faster at other
+hashes than crypton too.
+
+The build flag would need to not be default, since it needs the C++ library
+to be installed. They seem to be moving toward vendoring the C++ library
+in the haskell package:
+<https://github.com/haskell-cryptography/botan/issues/98>
+At which point the build flag could become the default.
+
+I have some early work toward this in the `botan` branch. A proof of
+concept implementation for SHA256 keys benchmarked roughly  
+twice as fast on my laptop.
+"""]]
