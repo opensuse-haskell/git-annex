@@ -88,7 +88,6 @@ Build-Depends:
 	libghc-servant-server-dev,
 	libghc-servant-client-dev,
 	libghc-servant-client-core-dev,
-	libghc-base16-dev,
 	lsof [linux-any],
 	ikiwiki,
 	libimage-magick-perl,

@@ -8,12 +8,9 @@
 module Utility.Hash.Types where
 
 import qualified Data.ByteString as S
-import Data.Base16.Types
 import Utility.FileSystemEncoding
 
-newtype Hash = Hash (Base16 S.ByteString)
+newtype Hash = Hash S.ByteString
 
 instance Show Hash where
-	show (Hash v) = decodeBS (extractBase16 v)
-
-
+	show (Hash v) = decodeBS v

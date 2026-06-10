@@ -29,11 +29,11 @@ module Utility.Hash.Botan (
 ) where
 
 import qualified Botan.Low.Hash as Botan
-import Data.ByteString.Base16
 import Control.Monad
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString as S
+import qualified Data.ByteArray.Encoding as BA
 
 import Utility.Hash.Types
 
@@ -92,7 +92,7 @@ md5s :: S.ByteString -> Hash
 md5s = hashStrict Botan.MD5
 
 digestToHash :: Botan.HashDigest -> Hash
-digestToHash = Hash . encodeBase16'
+digestToHash = Hash . BA.convertToBase BA.Base16
 
 hashLazy :: Botan.HashName -> L.ByteString -> Hash
 hashLazy h b = unsafePerformIO $ do
