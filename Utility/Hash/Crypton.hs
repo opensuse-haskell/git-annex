@@ -66,9 +66,7 @@ module Utility.Hash.Crypton (
 	Mac(..),
 	calcMac,
 	props_macs_stable,
-	IncrementalHasher(..),
 	mkIncrementalHasher,
-	IncrementalVerifier(..),
 	mkIncrementalVerifier,
 ) where
 
