@@ -9,7 +9,7 @@ module Annex.Balanced where
 
 import Key
 import Types.UUID
-import Utility.Hash.Crypton
+import Utility.HMAC
 
 import Data.Maybe
 import qualified Data.List as L

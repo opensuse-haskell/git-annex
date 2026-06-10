@@ -280,6 +280,7 @@ Executable git-annex
    servant-client-core,
    warp (>= 3.2.8),
    warp-tls (>= 3.2.2),
+   base16,
    botan-low
   CC-Options: -Wall
   GHC-Options: -Wall -fno-warn-tabs  -Wincomplete-uni-patterns
@@ -1059,8 +1060,12 @@ Executable git-annex
     Utility.FreeDesktop
     Utility.Glob
     Utility.Gpg
+    Utility.Hash
+    Utility.Hash.Botan
     Utility.Hash.Crypton
     Utility.Hash.Incremental
+    Utility.Hash.Types
+    Utility.HMAC
     Utility.HtmlDetect
     Utility.HumanNumber
     Utility.HumanTime

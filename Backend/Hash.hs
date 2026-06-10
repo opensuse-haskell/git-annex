@@ -33,8 +33,9 @@ import qualified Data.ByteString as S
 import qualified Data.ByteString.Short as S (toShort, fromShort)
 import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy as L
-import qualified Data.ByteArray.Encoding as BA
 import qualified Botan.Low.Hash as Botan
+import Data.Base16.Types
+import Data.ByteString.Base16
 import Control.DeepSeq
 import Control.Exception (evaluate)
 
@@ -214,7 +215,7 @@ hashFile (SHA2Hash (HashSize 256)) file meterupdate =
 		hsh <- Botan.hashInit Botan.SHA256
 		forM_ (L.toChunks b) (Botan.hashUpdate hsh)
 		digest <- Botan.hashFinal hsh
-		let h = decodeBS $ BA.convertToBase BA.Base16 digest
+		let h = decodeBS $ extractBase16 $ encodeBase16' digest
 		-- Force full evaluation of hash so whole file is read
 		-- before returning.
 		evaluate (rnf h)
