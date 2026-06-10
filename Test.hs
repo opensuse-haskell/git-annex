@@ -78,7 +78,6 @@ import qualified Utility.Misc
 import qualified Utility.InodeCache
 import qualified Utility.Matcher
 import qualified Utility.Hash
-import qualified Utility.Hash.Crypton
 import qualified Utility.HMAC
 import qualified Utility.Scheduled
 import qualified Utility.Scheduled.QuickCheck

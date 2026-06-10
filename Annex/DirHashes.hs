@@ -21,13 +21,13 @@ import Data.Default
 import Data.Bits
 import qualified Data.List.NonEmpty as NE
 import qualified Data.ByteArray as BA
-import qualified Data.ByteArray.Encoding as BA
 import qualified Data.ByteString as S
 
 import Common
 import Key
 import Types.GitConfig
 import Types.Difference
+import Utility.Hash.Types
 import Utility.Hash.Crypton
 import Utility.MD5
 
@@ -71,11 +71,8 @@ hashDirs _ sz s = addTrailingPathSeparator $ toOsPath h </> toOsPath t
 	(h, t) = S.splitAt sz s
 
 hashDirLower :: HashLevels -> Hasher
-hashDirLower n k = hashDirs n 3 $ S.pack $ take 6 $ conv $
+hashDirLower n k = hashDirs n 3 $ S.take 6 $ hashByteString $ digestToHash $
 	md5s $ serializeKey' $ nonChunkKey k
-  where
-	conv v = BA.unpack $
-		(BA.convertToBase BA.Base16 v :: BA.Bytes)
 
 {- This was originally using Data.Hash.MD5 from MissingH. This new version
 - is faster, but ugly as it has to replicate the 4 Word32's that produced. -}

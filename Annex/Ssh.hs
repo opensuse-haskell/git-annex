@@ -34,6 +34,7 @@ import Config
 import Annex.Path
 import Utility.Env
 import Utility.Hash.Crypton
+import Utility.Hash.Types
 import Types.CleanupActions
 import Annex.Concurrent.Utility
 import Types.Concurrency
@@ -351,7 +352,8 @@ hostport2socket host (Just port) = hostport2socket' $
 	fromSshHost host ++ "!" ++ show port
 hostport2socket' :: String -> OsPath
 hostport2socket' s
-	| length s' > lengthofmd5s = toOsPath $ show $ md5 $ encodeBL s'
+	| length s' > lengthofmd5s =
+		toOsPath $ hashByteString $ digestToHash $ md5 $ encodeBL s'
 	| otherwise = toOsPath s'
   where
 	lengthofmd5s = 32

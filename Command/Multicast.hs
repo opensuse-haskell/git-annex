@@ -25,6 +25,7 @@ import qualified Limit
 import Types.FileMatcher
 import qualified Git.LsFiles as LsFiles
 import Utility.Hash.Crypton
+import Utility.Hash.Types
 import Utility.Tmp
 import Utility.Tmp.Dir
 import Utility.Process.Transcript
@@ -239,7 +240,7 @@ uftpKey = KeyFile <$> credsFile (literalOsPath "multicast")
 -- is a 8 digit hex number in the form "0xnnnnnnnn"
 -- Derive it from the UUID.
 uftpUID :: UUID -> String
-uftpUID u = "0x" ++ (take 8 $ show $ sha2_256 $ B8.fromString (fromUUID u))
+uftpUID u = "0x" ++ (take 8 $ show $ digestToHash $ sha2_256 $ B8.fromString (fromUUID u))
 
 withAuthList :: (OsPath -> Annex a) -> Annex a
 withAuthList a = do

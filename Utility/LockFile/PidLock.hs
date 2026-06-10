@@ -35,6 +35,7 @@ import Utility.OpenFd
 import Utility.LockFile.LockStatus
 import Utility.ThreadScheduler
 import Utility.Hash.Crypton
+import Utility.Hash.Types
 import Utility.FileSystemEncoding
 import Utility.Env
 import Utility.Env.Set
@@ -124,7 +125,7 @@ sideLockFile lockfile = do
 	let shortbase = reverse $ take 32 $ reverse base
 	let md5sum = if base == shortbase
 		then ""
-		else show (md5 (encodeBL base))
+		else show (digestToHash (md5 (encodeBL base)))
 	dir <- ifM (doesDirectoryExist (literalOsPath "/dev/shm"))
 		( return (literalOsPath "/dev/shm")
 		, return (literalOsPath "/tmp")

@@ -11,6 +11,7 @@ module Annex.VariantFile where
 
 import Annex.Common
 import Utility.Hash.Crypton
+import Utility.Hash.Types
 import qualified Utility.OsString as OS
 
 import qualified Data.ByteString as S
@@ -44,5 +45,5 @@ variantFile file key
   where
 	doubleconflict = variantMarker `OS.isInfixOf` file
 
-shortHash :: S.ByteString -> String
-shortHash = take 4 . show . md5s
+shortHash :: S.ByteString -> S.ByteString
+shortHash = S.take 4 . hashByteString . digestToHash . md5s

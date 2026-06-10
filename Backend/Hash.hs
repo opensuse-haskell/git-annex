@@ -11,7 +11,7 @@ module Backend.Hash (
 	backends,
 	keyHash,
 	descChecksum,
-	Hash(..),
+	HashType(..),
 	cryptographicallySecure,
 	hashFile,
 	checkKeyChecksum,
@@ -25,6 +25,7 @@ import Backend.Utilities
 import Types.Key
 import Types.Backend
 import Types.KeySource
+import Utility.Hash.Types
 import Utility.Hash.Crypton
 import Utility.Hash.Incremental
 import Utility.Metered
@@ -33,13 +34,11 @@ import qualified Data.ByteString as S
 import qualified Data.ByteString.Short as S (toShort, fromShort)
 import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy as L
-import qualified Botan.Low.Hash as Botan
-import Data.Base16.Types
-import Data.ByteString.Base16
+import Data.Char
 import Control.DeepSeq
 import Control.Exception (evaluate)
 
-data Hash
+data HashType
 	= MD5Hash
 	| SHA1Hash
 	| SHA2Hash HashSize
@@ -50,7 +49,7 @@ data Hash
 	| Blake2sHash HashSize
 	| Blake2spHash HashSize
 
-cryptographicallySecure :: Hash -> Bool
+cryptographicallySecure :: HashType -> Bool
 cryptographicallySecure (SHA2Hash _) = True
 cryptographicallySecure (SHA3Hash _) = True
 cryptographicallySecure (SkeinHash _) = True
@@ -65,7 +64,7 @@ cryptographicallySecure MD5Hash = False
  - uses, and must be cryptographically secure. 
  -
  - Also, want more common sizes earlier than uncommon sizes. -}
-hashes :: [Hash]
+hashes :: [HashType]
 hashes = concat 
 	[ map (SHA2Hash . HashSize) [256, 512, 224, 384]
 	, map (SHA3Hash . HashSize) [256, 512, 224, 384]
@@ -82,7 +81,7 @@ hashes = concat
 backends :: [Backend]
 backends = concatMap (\h -> [genBackendE h, genBackend h]) hashes
 
-genBackend :: Hash -> Backend
+genBackend :: HashType -> Backend
 genBackend hash = Backend
 	{ backendVariety = hashKeyVariety hash (HasExt False)
 	, genKey = Just (keyValue hash)
@@ -96,13 +95,13 @@ genBackend hash = Backend
 		cryptographicallySecure hash
 	}
 
-genBackendE :: Hash -> Backend
+genBackendE :: HashType -> Backend
 genBackendE hash = (genBackend hash)
 	{ backendVariety = hashKeyVariety hash (HasExt True)
 	, genKey = Just (keyValueE hash)
 	}
 
-hashKeyVariety :: Hash -> HasExt -> KeyVariety
+hashKeyVariety :: HashType -> HasExt -> KeyVariety
 hashKeyVariety MD5Hash he = MD5Key he
 hashKeyVariety SHA1Hash he = SHA1Key he
 hashKeyVariety (SHA2Hash size) he = SHA2Key size he
@@ -114,24 +113,24 @@ hashKeyVariety (Blake2sHash size) he = Blake2sKey size he
 hashKeyVariety (Blake2spHash size) he = Blake2spKey size he
 
 {- A key is a hash of its contents. -}
-keyValue :: Hash -> KeySource -> MeterUpdate -> Annex Key
-keyValue hash source meterupdate = do
+keyValue :: HashType -> KeySource -> MeterUpdate -> Annex Key
+keyValue hashtype source meterupdate = do
 	let file = contentLocation source
 	filesize <- liftIO $ getFileSize file
-	s <- hashFile hash file meterupdate
+	hash <- hashFile hashtype file meterupdate
 	return $ mkKey $ \k -> k
-		{ keyName = S.toShort (encodeBS s)
-		, keyVariety = hashKeyVariety hash (HasExt False)
+		{ keyName = S.toShort (hashByteString hash)
+		, keyVariety = hashKeyVariety hashtype (HasExt False)
 		, keySize = Just filesize
 		}
 
 {- Extension preserving keys. -}
-keyValueE :: Hash -> KeySource -> MeterUpdate -> Annex Key
+keyValueE :: HashType -> KeySource -> MeterUpdate -> Annex Key
 keyValueE hash source meterupdate =
 	keyValue hash source meterupdate
 		>>= addE source (const $ hashKeyVariety hash (HasExt True))
 
-checkKeyChecksum :: (Key -> String -> Bool) -> Hash -> Key -> OsPath -> Annex Bool
+checkKeyChecksum :: (Key -> Hash -> Bool) -> HashType -> Key -> OsPath -> Annex Bool
 checkKeyChecksum issame hash key file = catchIOErrorType HardwareFault hwfault $ do
 	showAction (UnquotedString descChecksum)
 	issame key 
@@ -141,18 +140,20 @@ checkKeyChecksum issame hash key file = catchIOErrorType HardwareFault hwfault $
 		warning $ UnquotedString $ "hardware fault: " ++ show e
 		return False
 
-sameCheckSum :: Key -> String -> Bool
-sameCheckSum key s
-	| s == expected = True
+sameCheckSum :: Key -> Hash -> Bool
+sameCheckSum key hash
+	| hash == Hash expected = True
 	{- A bug caused checksums to be prefixed with \ in some
 	 - cases; still accept these as legal now that the bug
 	 - has been fixed. -}
-	| '\\' : s == expected = True
-	| otherwise = False
+	| otherwise = case S.uncons expected of
+		Just (h, t) | h == backslash -> hash == Hash t
+		_ -> False
   where
-	expected = decodeBS (keyHash key)
+	expected = keyHash key
+	backslash = fromIntegral (ord '\\')
 
-checkKeyChecksumIncremental :: Hash -> Key -> Annex IncrementalVerifier
+checkKeyChecksumIncremental :: HashType -> Key -> Annex IncrementalVerifier
 checkKeyChecksumIncremental hash key = liftIO $ (snd $ hasher hash) key
 
 keyHash :: Key -> S.ByteString
@@ -209,17 +210,7 @@ trivialMigrate' oldkey newbackend afile maxextlen maxexts
 	oldvariety = fromKey keyVariety oldkey
 	newvariety = backendVariety newbackend
 
-hashFile :: Hash -> OsPath -> MeterUpdate -> Annex String
-hashFile (SHA2Hash (HashSize 256)) file meterupdate =
-	liftIO $ withMeteredFile file meterupdate $ \b -> do
-		hsh <- Botan.hashInit Botan.SHA256
-		forM_ (L.toChunks b) (Botan.hashUpdate hsh)
-		digest <- Botan.hashFinal hsh
-		let h = decodeBS $ extractBase16 $ encodeBase16' digest
-		-- Force full evaluation of hash so whole file is read
-		-- before returning.
-		evaluate (rnf h)
-		return h
+hashFile :: HashType -> OsPath -> MeterUpdate -> Annex Hash
 hashFile hash file meterupdate = 
 	liftIO $ withMeteredFile file meterupdate $ \b -> do
 		let h = (fst $ hasher hash) b
@@ -228,9 +219,9 @@ hashFile hash file meterupdate =
 		evaluate (rnf h)
 		return h
 
-type Hasher = (L.ByteString -> String, Key -> IO IncrementalVerifier)
+type Hasher = (L.ByteString -> Hash, Key -> IO IncrementalVerifier)
 
-hasher :: Hash -> Hasher
+hasher :: HashType -> Hasher
 hasher MD5Hash = md5Hasher
 hasher SHA1Hash = sha1Hasher
 hasher (SHA2Hash hashsize) = sha2Hasher hashsize
@@ -241,8 +232,8 @@ hasher (Blake2bpHash hashsize) = blake2bpHasher hashsize
 hasher (Blake2sHash hashsize) = blake2sHasher hashsize
 hasher (Blake2spHash hashsize) = blake2spHasher hashsize
 
-mkHasher :: HashAlgorithm h => (L.ByteString -> Digest h) -> Context h -> Hasher
-mkHasher h c = (show . h, mkIncrementalVerifier c descChecksum . sameCheckSum)
+mkHasher :: HashAlgorithm h => (L.ByteString -> HashDigest) -> Context h -> Hasher
+mkHasher h c = (digestToHash . h, mkIncrementalVerifier c descChecksum . sameCheckSum)
 
 sha2Hasher :: HashSize -> Hasher
 sha2Hasher (HashSize hashsize)
@@ -324,12 +315,12 @@ addTestE k = alterKey k $ \d -> d
   where
 	longext = ".this-is-a-test-key"
 
-testKeyHash :: Hash
+testKeyHash :: HashType
 testKeyHash = SHA2Hash (HashSize 256)
 
 genTestKey :: L.ByteString -> Key
 genTestKey content = addTestE $ mkKey $ \kd -> kd
-	{ keyName = S.toShort $ encodeBS $
+	{ keyName = S.toShort $ hashByteString $
 		(fst $ hasher testKeyHash) content
 	, keyVariety = backendVariety testKeyBackend
 	}

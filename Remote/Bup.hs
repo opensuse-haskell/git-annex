@@ -33,6 +33,7 @@ import Remote.Helper.Special
 import Remote.Helper.ExportImport
 import Remote.Helper.Path
 import Utility.Hash.Crypton
+import Utility.Hash.Types
 import Utility.UserInfo
 import Annex.UUID
 import Annex.Ssh
@@ -323,7 +324,7 @@ bup2GitRemote r
 bupRef :: Key -> String
 bupRef k
 	| Git.Ref.legal True shown = shown
-	| otherwise = "git-annex-" ++ show (sha2_256 (fromString shown))
+	| otherwise = "git-annex-" ++ show (digestToHash (sha2_256 (fromString shown)))
   where
 	shown = serializeKey k
 

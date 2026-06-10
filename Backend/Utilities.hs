@@ -12,6 +12,7 @@ module Backend.Utilities where
 import Annex.Common
 import qualified Annex
 import Utility.Hash.Crypton
+import Utility.Hash.Types
 import Types.Key
 import Types.KeySource
 import qualified Utility.OsString as OS
@@ -31,7 +32,7 @@ genKeyName s
 	-- Avoid making keys longer than the length of a SHA256 checksum.
 	| bytelen > sha256len = S.toShort $
 		truncateFilePath (sha256len - md5len - 1) s' 
-			<> "-" <> encodeBS (show (md5 bl))
+			<> "-" <> hashByteString (digestToHash (md5 bl))
 	| otherwise = S.toShort s'
   where
 	s' = encodeBS $ preSanitizeKeyName s

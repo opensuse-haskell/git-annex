@@ -22,6 +22,7 @@ import RemoteDaemon.Types
 import RemoteDaemon.Common
 import Utility.AuthToken
 import Utility.Hash.Crypton
+import Utility.Hash.Types
 import P2P.Protocol as P2P
 import P2P.IO
 import P2P.Annex
@@ -84,7 +85,7 @@ getSocketFile (P2PNetName netname) (UnderlyingP2PAddress address) = do
 	createAnnexDirectory d
 	-- Since unix socket path length is limited, use a md5sum of
 	-- the netname and address.
-	let f = d </> toOsPath (show (md5 (encodeBL (netname ++ ":" ++ address))))
+	let f = d </> toOsPath (hashByteString (digestToHash (md5 (encodeBL (netname ++ ":" ++ address)))))
 	-- Use whichever is shorter of the absolute or relative path.
 	relf <- liftIO $ relPathCwdToFile f
 	absf <- liftIO $ absPath f

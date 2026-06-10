@@ -22,6 +22,7 @@ import Annex.Common
 import Types.Key
 import Types.Backend
 import Utility.Hash.Crypton
+import Utility.Hash.Types
 import Utility.Hash.Incremental
 import Utility.Metered
 import qualified Backend.Hash as Hash
@@ -62,26 +63,28 @@ gitmanifest = Backend
 	}
 
 -- git bundle keys use the sha256 hash.
-hash :: Hash.Hash
+hash :: Hash.HashType
 hash = Hash.SHA2Hash (HashSize 256)
 
 incrementalVerifier :: Key -> IO IncrementalVerifier
 incrementalVerifier = 
 	mkIncrementalVerifier sha2_256_context "checksum" . sameCheckSum
 
-sameCheckSum :: Key -> String -> Bool
-sameCheckSum key s = s == expected
+sameCheckSum :: Key -> Hash -> Bool
+sameCheckSum key h = h == expected
   where
 	-- The checksum comes after a UUID.
-	expected = reverse $ takeWhile (/= '-') $ reverse $
-		decodeBS $ S.fromShort $ fromKey keyName key
+	expected = Hash $ encodeBS $ 
+		reverse $ takeWhile (/= '-') $ reverse $
+			decodeBS $ S.fromShort $ fromKey keyName key
 
 genGitBundleKey :: UUID -> OsPath -> MeterUpdate -> Annex Key
 genGitBundleKey remoteuuid file meterupdate = do
 	filesize <- liftIO $ getFileSize file
-	s <- Hash.hashFile hash file meterupdate
+	h <- Hash.hashFile hash file meterupdate
 	return $ mkKey $ \k -> k
-		{ keyName = S.toShort $ fromUUID remoteuuid <> "-" <> encodeBS s
+		{ keyName = S.toShort $
+			fromUUID remoteuuid <> "-" <> hashByteString h
 		, keyVariety = GitBundleKey
 		, keySize = Just filesize
 		}

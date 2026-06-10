@@ -33,6 +33,7 @@ import Remote.Helper.ExportImport
 import Remote.Helper.ReadOnly
 import Utility.Metered
 import Utility.Hash.Crypton
+import Utility.Hash.Types
 import Types.Transfer
 import Logs.PreferredContent.Raw
 import Logs.RemoteState
@@ -1073,7 +1074,7 @@ getDelegateRemote external ps = do
 	delegatename = concat
 		[ fromMaybe "external" (externalRemoteName external)
 		, "-delegate-"
-		, show $ md5s $ encodeBS $ show ps
+		, show $ digestToHash $ md5s $ encodeBS $ show ps
 		]
 	
 	gendelegate = do

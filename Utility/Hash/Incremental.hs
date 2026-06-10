@@ -7,12 +7,14 @@
 
 module Utility.Hash.Incremental where
 
+import Utility.Hash.Types
+
 import qualified Data.ByteString as S
 
 data IncrementalHasher = IncrementalHasher
 	{ updateIncrementalHasher :: S.ByteString -> IO ()
 	-- ^ Called repeatedly on each piece of the content.
-	, finalizeIncrementalHasher :: IO (Maybe String)
+	, finalizeIncrementalHasher :: IO (Maybe HashDigest)
 	-- ^ Called once the full content has been sent, returns
 	-- the hash. (Nothing if unableIncremental was called.)
 	, unableIncrementalHasher :: IO ()
@@ -21,7 +23,6 @@ data IncrementalHasher = IncrementalHasher
 	-- ^ Returns the number of bytes that have been fed to this
 	-- incremental hasher so far. (Nothing if unableIncremental was
 	-- called.)
-	, descIncrementalHasher :: String
 	}
 
 data IncrementalVerifier = IncrementalVerifier
@@ -32,13 +33,13 @@ data IncrementalVerifier = IncrementalVerifier
 	, descIncrementalVerifier :: String
 	}
 
-incrementalHashVerifier :: IncrementalHasher -> (String -> Bool) -> IncrementalVerifier
-incrementalHashVerifier hasher samechecksum = IncrementalVerifier
+incrementalHashVerifier :: IncrementalHasher -> String -> (Hash -> Bool) -> IncrementalVerifier
+incrementalHashVerifier hasher desc samechecksum = IncrementalVerifier
 	{ updateIncrementalVerifier = updateIncrementalHasher hasher
 	, finalizeIncrementalVerifier = 
-		maybe Nothing (Just . samechecksum)
+		maybe Nothing (Just . samechecksum . digestToHash)
 			<$> finalizeIncrementalHasher hasher
 	, unableIncrementalVerifier = unableIncrementalHasher hasher
 	, positionIncrementalVerifier = positionIncrementalHasher hasher
-	, descIncrementalVerifier = descIncrementalHasher hasher
+	, descIncrementalVerifier = desc
 	}

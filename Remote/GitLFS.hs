@@ -41,6 +41,7 @@ import Backend.Hash
 import Logs.Remote
 import Logs.RemoteState
 import Utility.Hash.Crypton
+import Utility.Hash.Types
 import Utility.SshHost
 import Utility.Url
 import qualified Utility.FileIO as F
@@ -422,7 +423,8 @@ mkUploadRequest rs k content = case (extractKeySha256 k, extractKeySize k) of
 		rememberboth sha256 size
 		ret sha256 size
   where
-	calcsha256 = liftIO $ T.pack . show . sha2_256 <$> F.readFile content
+	calcsha256 = T.pack . show . digestToHash . sha2_256 
+		<$> liftIO (F.readFile content)
 	ret sha256 size = do
 		let obj = LFS.TransferRequestObject
 			{ LFS.req_oid = sha256

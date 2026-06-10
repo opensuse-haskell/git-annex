@@ -21,6 +21,7 @@ module Utility.AuthToken (
 
 import qualified Utility.SimpleProtocol as Proto
 import Utility.Hash.Crypton
+import Utility.Hash.Types
 import Utility.Exception
 
 import Data.Maybe
@@ -87,7 +88,8 @@ genAuthToken len = do
 			Left e -> giveup $ "failed to generate auth token: " ++ show e
 			Right (s, _) -> fromMaybe (giveup "auth token encoding failed") $
 				toAuthToken $ T.pack $ take len $
-					show $ sha2_512 $ L.fromChunks [s]
+					show $ digestToHash $ 
+						sha2_512 $ L.fromChunks [s]
 
 -- | For when several AuthTokens are allowed to be used.
 newtype AllowedAuthTokens = AllowedAuthTokens [AuthToken]
