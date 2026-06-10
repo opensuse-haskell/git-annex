@@ -73,7 +73,6 @@ import qualified Utility.Path.Tests
 import qualified Utility.FileMode
 import qualified BuildInfo
 import qualified Utility.Format
-import qualified Utility.Verifiable
 import qualified Utility.Process
 import qualified Utility.Misc
 import qualified Utility.InodeCache
@@ -180,7 +179,6 @@ properties = localOption (QuickCheckTests 1000) $ inOrderTestGroup "QuickCheck" 
 	, testProperty "prop_HmacSha1WithCipher_sane" Crypto.prop_HmacSha1WithCipher_sane
 	, testProperty "prop_VectorClock_sane" Annex.VectorClock.prop_VectorClock_sane
 	, testProperty "prop_addMapLog_sane" Logs.MapLog.prop_addMapLog_sane
-	, testProperty "prop_verifiable_sane" Utility.Verifiable.prop_verifiable_sane
 	, testProperty "prop_segment_regressionTest" Utility.Misc.prop_segment_regressionTest
 	, testProperty "prop_read_write_transferinfo" Logs.Transfer.prop_read_write_transferinfo
 	, testProperty "prop_read_show_inodecache" Utility.InodeCache.prop_read_show_inodecache
