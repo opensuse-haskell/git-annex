@@ -9,6 +9,7 @@ flags:
     debuglocks: false
     benchmark: true
     ospath: true
+    botan: false
   file-io:
     os-string: true
 packages:
