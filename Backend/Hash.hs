@@ -232,63 +232,63 @@ hasher (Blake2bpHash hashsize) = blake2bpHasher hashsize
 hasher (Blake2sHash hashsize) = blake2sHasher hashsize
 hasher (Blake2spHash hashsize) = blake2spHasher hashsize
 
-mkHasher :: HashAlgorithm h => (L.ByteString -> HashDigest) -> Context h -> Hasher
-mkHasher h c = (digestToHash . h, mkIncrementalVerifier c descChecksum . sameCheckSum)
+mkHasher :: (L.ByteString -> HashDigest) -> IO IncrementalHasher -> Hasher
+mkHasher h i = (digestToHash . h, mkIncrementalVerifier i descChecksum . sameCheckSum)
 
 sha2Hasher :: HashSize -> Hasher
 sha2Hasher (HashSize hashsize)
-	| hashsize == 256 = mkHasher sha2_256 sha2_256_context
-	| hashsize == 224 = mkHasher sha2_224 sha2_224_context
-	| hashsize == 384 = mkHasher sha2_384 sha2_384_context
-	| hashsize == 512 = mkHasher sha2_512 sha2_512_context
+	| hashsize == 256 = mkHasher sha2_256 sha2_256_hasher
+	| hashsize == 224 = mkHasher sha2_224 sha2_224_hasher
+	| hashsize == 384 = mkHasher sha2_384 sha2_384_hasher
+	| hashsize == 512 = mkHasher sha2_512 sha2_512_hasher
 	| otherwise = giveup $ "unsupported SHA2 size " ++ show hashsize
 
 sha3Hasher :: HashSize -> Hasher
 sha3Hasher (HashSize hashsize)
-	| hashsize == 256 = mkHasher sha3_256 sha3_256_context
-	| hashsize == 224 = mkHasher sha3_224 sha3_224_context
-	| hashsize == 384 = mkHasher sha3_384 sha3_384_context
-	| hashsize == 512 = mkHasher sha3_512 sha3_512_context
+	| hashsize == 256 = mkHasher sha3_256 sha3_256_hasher
+	| hashsize == 224 = mkHasher sha3_224 sha3_224_hasher
+	| hashsize == 384 = mkHasher sha3_384 sha3_384_hasher
+	| hashsize == 512 = mkHasher sha3_512 sha3_512_hasher
 	| otherwise = giveup $ "unsupported SHA3 size " ++ show hashsize
 
 skeinHasher :: HashSize -> Hasher
 skeinHasher (HashSize hashsize)
-	| hashsize == 256 = mkHasher skein256 skein256_context
-	| hashsize == 512 = mkHasher skein512 skein512_context
+	| hashsize == 256 = mkHasher skein256 skein256_hasher
+	| hashsize == 512 = mkHasher skein512 skein512_hasher
 	| otherwise = giveup $ "unsupported SKEIN size " ++ show hashsize
 
 blake2bHasher :: HashSize -> Hasher
 blake2bHasher (HashSize hashsize)
-	| hashsize == 256 = mkHasher blake2b_256 blake2b_256_context
-	| hashsize == 512 = mkHasher blake2b_512 blake2b_512_context
-	| hashsize == 160 = mkHasher blake2b_160 blake2b_160_context
-	| hashsize == 224 = mkHasher blake2b_224 blake2b_224_context
-	| hashsize == 384 = mkHasher blake2b_384 blake2b_384_context
+	| hashsize == 256 = mkHasher blake2b_256 blake2b_256_hasher
+	| hashsize == 512 = mkHasher blake2b_512 blake2b_512_hasher
+	| hashsize == 160 = mkHasher blake2b_160 blake2b_160_hasher
+	| hashsize == 224 = mkHasher blake2b_224 blake2b_224_hasher
+	| hashsize == 384 = mkHasher blake2b_384 blake2b_384_hasher
 	| otherwise = giveup $ "unsupported BLAKE2B size " ++ show hashsize
 
 blake2bpHasher :: HashSize -> Hasher
 blake2bpHasher (HashSize hashsize)
-	| hashsize == 512 = mkHasher blake2bp_512 blake2bp_512_context
+	| hashsize == 512 = mkHasher blake2bp_512 blake2bp_512_hasher
 	| otherwise = giveup $ "unsupported BLAKE2BP size " ++ show hashsize
 
 blake2sHasher :: HashSize -> Hasher
 blake2sHasher (HashSize hashsize)
-	| hashsize == 256 = mkHasher blake2s_256 blake2s_256_context
-	| hashsize == 160 = mkHasher blake2s_160 blake2s_160_context
-	| hashsize == 224 = mkHasher blake2s_224 blake2s_224_context
+	| hashsize == 256 = mkHasher blake2s_256 blake2s_256_hasher
+	| hashsize == 160 = mkHasher blake2s_160 blake2s_160_hasher
+	| hashsize == 224 = mkHasher blake2s_224 blake2s_224_hasher
 	| otherwise = giveup $ "unsupported BLAKE2S size " ++ show hashsize
 
 blake2spHasher :: HashSize -> Hasher
 blake2spHasher (HashSize hashsize)
-	| hashsize == 256 = mkHasher blake2sp_256 blake2sp_256_context
-	| hashsize == 224 = mkHasher blake2sp_224 blake2sp_224_context
+	| hashsize == 256 = mkHasher blake2sp_256 blake2sp_256_hasher
+	| hashsize == 224 = mkHasher blake2sp_224 blake2sp_224_hasher
 	| otherwise = giveup $ "unsupported BLAKE2SP size " ++ show hashsize
 
 sha1Hasher :: Hasher
-sha1Hasher = mkHasher sha1 sha1_context
+sha1Hasher = mkHasher sha1 sha1_hasher
 
 md5Hasher :: Hasher
-md5Hasher = mkHasher md5 md5_context
+md5Hasher = mkHasher md5 md5_hasher
 
 descChecksum :: String
 descChecksum = "checksum"

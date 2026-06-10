@@ -14,12 +14,19 @@ import Utility.Hash.Botan as X
 -- Fall back to crypton for hashes not in botan.
 import Utility.Hash.Crypton as X
 	( skein256
+	, skein256_hasher
 	, blake2s_160
+	, blake2s_160_hasher
 	, blake2s_224
+	, blake2s_224_hasher
 	, blake2s_256
+	, blake2s_256_hasher
 	, blake2sp_224
+	, blake2sp_224_hasher
 	, blake2sp_256
+	, blake2sp_256_hasher
 	, blake2bp_512
+	, blake2bp_512_hasher
 	)
 
 import qualified Data.ByteString.Lazy as L

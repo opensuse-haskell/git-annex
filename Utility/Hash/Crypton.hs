@@ -10,52 +10,52 @@
 
 module Utility.Hash.Crypton (
 	sha1,
-	sha1_context,
+	sha1_hasher,
 	sha1s,
 	sha2_224,
-	sha2_224_context,
+	sha2_224_hasher,
 	sha2_256,
-	sha2_256_context,
+	sha2_256_hasher,
 	sha2_384,
-	sha2_384_context,
+	sha2_384_hasher,
 	sha2_512,
-	sha2_512_context,
+	sha2_512_hasher,
 	sha3_224,
-	sha3_224_context,
+	sha3_224_hasher,
 	sha3_256,
-	sha3_256_context,
+	sha3_256_hasher,
 	sha3_384,
-	sha3_384_context,
+	sha3_384_hasher,
 	sha3_512,
-	sha3_512_context,
+	sha3_512_hasher,
 	skein256,
-	skein256_context,
+	skein256_hasher,
 	skein512,
-	skein512_context,
+	skein512_hasher,
 	blake2s_160,
-	blake2s_160_context,
+	blake2s_160_hasher,
 	blake2s_224,
-	blake2s_224_context,
+	blake2s_224_hasher,
 	blake2s_256,
-	blake2s_256_context,
+	blake2s_256_hasher,
 	blake2sp_224,
-	blake2sp_224_context,
+	blake2sp_224_hasher,
 	blake2sp_256,
-	blake2sp_256_context,
+	blake2sp_256_hasher,
 	blake2b_160,
-	blake2b_160_context,
+	blake2b_160_hasher,
 	blake2b_224,
-	blake2b_224_context,
+	blake2b_224_hasher,
 	blake2b_256,
-	blake2b_256_context,
+	blake2b_256_hasher,
 	blake2b_384,
-	blake2b_384_context,
+	blake2b_384_hasher,
 	blake2b_512,
-	blake2b_512_context,
+	blake2b_512_hasher,
 	blake2bp_512,
-	blake2bp_512_context,
+	blake2bp_512_hasher,
 	md5,
-	md5_context,
+	md5_hasher,
 	md5s,
 	hashUpdate,
 	hashFinalize,
@@ -78,8 +78,8 @@ import Utility.Hash.Incremental
 sha1 :: L.ByteString -> HashDigest
 sha1 = hashDigest . (hashlazy :: HashLazy SHA1)
 
-sha1_context :: Context SHA1
-sha1_context = hashInit
+sha1_hasher :: IO IncrementalHasher
+sha1_hasher = mkIncrementalHasher (hashInit :: Context SHA1)
 
 sha1s :: S.ByteString -> HashDigest
 sha1s = hashDigest . (hash :: HashStrict SHA1)
@@ -87,134 +87,134 @@ sha1s = hashDigest . (hash :: HashStrict SHA1)
 sha2_224 :: L.ByteString -> HashDigest
 sha2_224 = hashDigest . (hashlazy :: HashLazy SHA224)
 
-sha2_224_context :: Context SHA224
-sha2_224_context = hashInit
+sha2_224_hasher :: IO IncrementalHasher
+sha2_224_hasher = mkIncrementalHasher (hashInit :: Context SHA224)
 
 sha2_256 :: L.ByteString -> HashDigest
 sha2_256 = hashDigest . (hashlazy :: HashLazy SHA256)
 
-sha2_256_context :: Context SHA256
-sha2_256_context = hashInit
+sha2_256_hasher :: IO IncrementalHasher
+sha2_256_hasher = mkIncrementalHasher (hashInit :: Context SHA256)
 
 sha2_384 :: L.ByteString -> HashDigest
 sha2_384 = hashDigest . (hashlazy :: HashLazy SHA384)
 
-sha2_384_context :: Context SHA384
-sha2_384_context = hashInit
+sha2_384_hasher :: IO IncrementalHasher
+sha2_384_hasher = mkIncrementalHasher (hashInit :: Context SHA384)
 
 sha2_512 :: L.ByteString -> HashDigest
 sha2_512 = hashDigest . (hashlazy :: HashLazy SHA512)
 
-sha2_512_context :: Context SHA512
-sha2_512_context = hashInit
+sha2_512_hasher :: IO IncrementalHasher
+sha2_512_hasher = mkIncrementalHasher (hashInit :: Context SHA512)
 
 sha3_224 :: L.ByteString -> HashDigest
 sha3_224 = hashDigest . (hashlazy :: HashLazy SHA3_224)
 
-sha3_224_context :: Context SHA3_224
-sha3_224_context = hashInit
+sha3_224_hasher :: IO IncrementalHasher
+sha3_224_hasher = mkIncrementalHasher (hashInit :: Context SHA3_224)
 
 sha3_256 :: L.ByteString -> HashDigest
 sha3_256 = hashDigest . (hashlazy :: HashLazy SHA3_256)
 
-sha3_256_context :: Context SHA3_256
-sha3_256_context = hashInit
+sha3_256_hasher :: IO IncrementalHasher
+sha3_256_hasher = mkIncrementalHasher (hashInit :: Context SHA3_256)
 
 sha3_384 :: L.ByteString -> HashDigest
 sha3_384 = hashDigest . (hashlazy :: HashLazy SHA3_384)
 
-sha3_384_context :: Context SHA3_384
-sha3_384_context = hashInit
+sha3_384_hasher :: IO IncrementalHasher
+sha3_384_hasher = mkIncrementalHasher (hashInit :: Context SHA3_384)
 
 sha3_512 :: L.ByteString -> HashDigest
 sha3_512 = hashDigest . (hashlazy :: HashLazy SHA3_512)
 
-sha3_512_context :: Context SHA3_512
-sha3_512_context = hashInit
+sha3_512_hasher :: IO IncrementalHasher
+sha3_512_hasher = mkIncrementalHasher (hashInit :: Context SHA3_512)
 
 skein256 :: L.ByteString -> HashDigest
 skein256 = hashDigest . (hashlazy :: HashLazy Skein256_256)
 
-skein256_context :: Context Skein256_256
-skein256_context = hashInit
+skein256_hasher :: IO IncrementalHasher
+skein256_hasher = mkIncrementalHasher (hashInit :: Context Skein256_256)
 
 skein512 :: L.ByteString -> HashDigest
 skein512 = hashDigest . (hashlazy :: HashLazy Skein512_512)
 
-skein512_context :: Context Skein512_512
-skein512_context = hashInit
+skein512_hasher :: IO IncrementalHasher
+skein512_hasher = mkIncrementalHasher (hashInit :: Context Skein512_512)
 
 blake2s_160 :: L.ByteString -> HashDigest
 blake2s_160 = hashDigest . (hashlazy :: HashLazy Blake2s_160)
 
-blake2s_160_context :: Context Blake2s_160
-blake2s_160_context = hashInit
+blake2s_160_hasher :: IO IncrementalHasher
+blake2s_160_hasher = mkIncrementalHasher (hashInit :: Context Blake2s_160)
 
 blake2s_224 :: L.ByteString -> HashDigest
 blake2s_224 = hashDigest . (hashlazy :: HashLazy Blake2s_224)
 
-blake2s_224_context :: Context Blake2s_224
-blake2s_224_context = hashInit
+blake2s_224_hasher :: IO IncrementalHasher
+blake2s_224_hasher = mkIncrementalHasher (hashInit :: Context Blake2s_224)
 
 blake2s_256 :: L.ByteString -> HashDigest
 blake2s_256 = hashDigest . (hashlazy :: HashLazy Blake2s_256)
 
-blake2s_256_context :: Context Blake2s_256
-blake2s_256_context = hashInit
+blake2s_256_hasher :: IO IncrementalHasher
+blake2s_256_hasher = mkIncrementalHasher (hashInit :: Context Blake2s_256)
 
 blake2sp_224 :: L.ByteString -> HashDigest
 blake2sp_224 = hashDigest . (hashlazy :: HashLazy Blake2sp_224)
 
-blake2sp_224_context :: Context Blake2sp_224
-blake2sp_224_context = hashInit
+blake2sp_224_hasher :: IO IncrementalHasher
+blake2sp_224_hasher = mkIncrementalHasher (hashInit :: Context Blake2sp_224)
 
 blake2sp_256 :: L.ByteString -> HashDigest
 blake2sp_256 = hashDigest . (hashlazy :: HashLazy Blake2sp_256)
 
-blake2sp_256_context :: Context Blake2sp_256
-blake2sp_256_context = hashInit
+blake2sp_256_hasher :: IO IncrementalHasher
+blake2sp_256_hasher = mkIncrementalHasher (hashInit :: Context Blake2sp_256)
 
 blake2b_160 :: L.ByteString -> HashDigest
 blake2b_160 = hashDigest . (hashlazy :: HashLazy Blake2b_160)
 
-blake2b_160_context :: Context Blake2b_160
-blake2b_160_context = hashInit
+blake2b_160_hasher :: IO IncrementalHasher
+blake2b_160_hasher = mkIncrementalHasher (hashInit :: Context Blake2b_160)
 
 blake2b_224 :: L.ByteString -> HashDigest
 blake2b_224 = hashDigest . (hashlazy :: HashLazy Blake2b_224)
 
-blake2b_224_context :: Context Blake2b_224
-blake2b_224_context = hashInit
+blake2b_224_hasher :: IO IncrementalHasher
+blake2b_224_hasher = mkIncrementalHasher (hashInit :: Context Blake2b_224)
 
 blake2b_256 :: L.ByteString -> HashDigest
 blake2b_256 = hashDigest . (hashlazy :: HashLazy Blake2b_256)
 
-blake2b_256_context :: Context Blake2b_256
-blake2b_256_context = hashInit
+blake2b_256_hasher :: IO IncrementalHasher
+blake2b_256_hasher = mkIncrementalHasher (hashInit :: Context Blake2b_256)
 
 blake2b_384 :: L.ByteString -> HashDigest
 blake2b_384 = hashDigest . (hashlazy :: HashLazy Blake2b_384)
 
-blake2b_384_context :: Context Blake2b_384
-blake2b_384_context = hashInit
+blake2b_384_hasher :: IO IncrementalHasher
+blake2b_384_hasher = mkIncrementalHasher (hashInit :: Context Blake2b_384)
 
 blake2b_512 :: L.ByteString -> HashDigest
 blake2b_512 = hashDigest . (hashlazy :: HashLazy Blake2b_512)
 
-blake2b_512_context :: Context Blake2b_512
-blake2b_512_context = hashInit
+blake2b_512_hasher :: IO IncrementalHasher
+blake2b_512_hasher = mkIncrementalHasher (hashInit :: Context Blake2b_512)
 
 blake2bp_512 :: L.ByteString -> HashDigest
 blake2bp_512 = hashDigest . (hashlazy :: HashLazy Blake2bp_512)
 
-blake2bp_512_context :: Context Blake2bp_512
-blake2bp_512_context = hashInit
+blake2bp_512_hasher :: IO IncrementalHasher
+blake2bp_512_hasher = mkIncrementalHasher (hashInit :: Context Blake2bp_512)
 
 md5 ::  L.ByteString -> HashDigest
 md5 = hashDigest . (hashlazy :: HashLazy MD5)
 
-md5_context :: Context MD5
-md5_context = hashInit
+md5_hasher :: IO IncrementalHasher
+md5_hasher = mkIncrementalHasher (hashInit :: Context MD5)
 
 md5s ::  S.ByteString -> HashDigest
 md5s = hashDigest . (hash :: HashStrict MD5)
@@ -247,8 +247,3 @@ mkIncrementalHasher ctx = do
 			Just (_, n) -> return (Just n)
 			Nothing -> return Nothing
 		}
-
-mkIncrementalVerifier :: HashAlgorithm h => Context h -> String -> (Hash -> Bool) -> IO IncrementalVerifier
-mkIncrementalVerifier ctx desc samechecksum = do
-	hasher <- mkIncrementalHasher ctx
-	return $ incrementalHashVerifier hasher desc samechecksum

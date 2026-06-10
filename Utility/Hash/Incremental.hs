@@ -33,13 +33,15 @@ data IncrementalVerifier = IncrementalVerifier
 	, descIncrementalVerifier :: String
 	}
 
-incrementalHashVerifier :: IncrementalHasher -> String -> (Hash -> Bool) -> IncrementalVerifier
-incrementalHashVerifier hasher desc samechecksum = IncrementalVerifier
-	{ updateIncrementalVerifier = updateIncrementalHasher hasher
-	, finalizeIncrementalVerifier = 
-		maybe Nothing (Just . samechecksum . digestToHash)
-			<$> finalizeIncrementalHasher hasher
-	, unableIncrementalVerifier = unableIncrementalHasher hasher
-	, positionIncrementalVerifier = positionIncrementalHasher hasher
-	, descIncrementalVerifier = desc
-	}
+mkIncrementalVerifier :: IO IncrementalHasher -> String -> (Hash -> Bool) -> IO IncrementalVerifier
+mkIncrementalVerifier mkhasher desc samechecksum = do
+	hasher <- mkhasher
+	return $ IncrementalVerifier
+		{ updateIncrementalVerifier = updateIncrementalHasher hasher
+		, finalizeIncrementalVerifier = 
+			maybe Nothing (Just . samechecksum . digestToHash)
+				<$> finalizeIncrementalHasher hasher
+		, unableIncrementalVerifier = unableIncrementalHasher hasher
+		, positionIncrementalVerifier = positionIncrementalHasher hasher
+		, descIncrementalVerifier = desc
+		}

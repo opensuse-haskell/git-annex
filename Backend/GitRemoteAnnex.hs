@@ -68,7 +68,7 @@ hash = Hash.SHA2Hash (HashSize 256)
 
 incrementalVerifier :: Key -> IO IncrementalVerifier
 incrementalVerifier = 
-	mkIncrementalVerifier sha2_256_context "checksum" . sameCheckSum
+	mkIncrementalVerifier sha2_256_hasher "checksum" . sameCheckSum
 
 sameCheckSum :: Key -> Hash -> Bool
 sameCheckSum key h = h == expected
