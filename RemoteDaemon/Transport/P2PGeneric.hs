@@ -21,8 +21,7 @@ import Annex.Perms
 import RemoteDaemon.Types
 import RemoteDaemon.Common
 import Utility.AuthToken
-import Utility.Hash.Crypton
-import Utility.Hash.Types
+import Utility.Hash
 import P2P.Protocol as P2P
 import P2P.IO
 import P2P.Annex

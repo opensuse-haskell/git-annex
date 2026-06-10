@@ -10,6 +10,7 @@
 module Utility.Hash (module X, props_hashes_stable) where
 
 import Utility.Hash.Types as X
+import Utility.Hash.Incremental as X
 import Utility.Hash.Botan as X
 -- Fall back to crypton for hashes not in botan.
 import Utility.Hash.Crypton as X

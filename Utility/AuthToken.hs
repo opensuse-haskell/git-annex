@@ -20,8 +20,7 @@ module Utility.AuthToken (
 ) where
 
 import qualified Utility.SimpleProtocol as Proto
-import Utility.Hash.Crypton
-import Utility.Hash.Types
+import Utility.Hash
 import Utility.Exception
 
 import Data.Maybe

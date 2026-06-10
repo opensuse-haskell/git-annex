@@ -33,8 +33,7 @@ import qualified Git.Url
 import Config
 import Annex.Path
 import Utility.Env
-import Utility.Hash.Crypton
-import Utility.Hash.Types
+import Utility.Hash
 import Types.CleanupActions
 import Annex.Concurrent.Utility
 import Types.Concurrency

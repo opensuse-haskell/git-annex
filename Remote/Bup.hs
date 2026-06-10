@@ -32,8 +32,7 @@ import Annex.SpecialRemote.Config
 import Remote.Helper.Special
 import Remote.Helper.ExportImport
 import Remote.Helper.Path
-import Utility.Hash.Crypton
-import Utility.Hash.Types
+import Utility.Hash
 import Utility.UserInfo
 import Annex.UUID
 import Annex.Ssh

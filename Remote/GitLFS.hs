@@ -40,8 +40,7 @@ import Crypto
 import Backend.Hash
 import Logs.Remote
 import Logs.RemoteState
-import Utility.Hash.Crypton
-import Utility.Hash.Types
+import Utility.Hash
 import Utility.SshHost
 import Utility.Url
 import qualified Utility.FileIO as F

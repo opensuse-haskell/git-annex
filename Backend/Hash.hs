@@ -25,9 +25,7 @@ import Backend.Utilities
 import Types.Key
 import Types.Backend
 import Types.KeySource
-import Utility.Hash.Types
-import Utility.Hash.Crypton
-import Utility.Hash.Incremental
+import Utility.Hash
 import Utility.Metered
 
 import qualified Data.ByteString as S

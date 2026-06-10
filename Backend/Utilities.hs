@@ -11,8 +11,7 @@ module Backend.Utilities where
 
 import Annex.Common
 import qualified Annex
-import Utility.Hash.Crypton
-import Utility.Hash.Types
+import Utility.Hash
 import Types.Key
 import Types.KeySource
 import qualified Utility.OsString as OS

@@ -24,8 +24,7 @@ import Creds
 import qualified Limit
 import Types.FileMatcher
 import qualified Git.LsFiles as LsFiles
-import Utility.Hash.Crypton
-import Utility.Hash.Types
+import Utility.Hash
 import Utility.Tmp
 import Utility.Tmp.Dir
 import Utility.Process.Transcript
