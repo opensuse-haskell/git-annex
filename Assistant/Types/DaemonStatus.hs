@@ -8,7 +8,6 @@
 module Assistant.Types.DaemonStatus where
 
 import Annex.Common
-import Assistant.Pairing
 import Utility.NotificationBroadcaster
 import Types.Transfer
 import Assistant.Types.ThreadName
@@ -57,8 +56,6 @@ data DaemonStatus = DaemonStatus
 	, syncingToCloudRemote :: Bool
 	-- Set of uuids of remotes that are currently connected.
 	, currentlyConnectedRemotes :: S.Set UUID
-	-- Pairing request that is in progress.
-	, pairingInProgress :: Maybe PairingInProgress
 	-- Broadcasts notifications about all changes to the DaemonStatus.
 	, changeNotifier :: NotificationBroadcaster
 	-- Broadcasts notifications when queued or current transfers change.
@@ -105,7 +102,6 @@ newDaemonStatus = DaemonStatus
 	<*> pure []
 	<*> pure False
 	<*> pure S.empty
-	<*> pure Nothing
 	<*> newNotificationBroadcaster
 	<*> newNotificationBroadcaster
 	<*> newNotificationBroadcaster
