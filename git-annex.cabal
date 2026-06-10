@@ -35,6 +35,7 @@ Description:
 -- Include only files that are needed make cabal install git-annex work.
 Extra-Source-Files:
   stack.yaml
+  stack-botan.yaml
   README
   CHANGELOG
   NEWS
