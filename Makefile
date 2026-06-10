@@ -27,6 +27,9 @@ install-home:
 	$(MAKE) install-mans PREFIX=$(HOME)/.local
 	$(MAKE) install-desktop PREFIX=$(HOME)/.local USERDIR=1
 
+build-dependencies:
+	$(BUILDER) build --only-dependencies $(BUILDERCOMMONOPTIONS)
+
 tmp/configure-stamp: Build/TestConfig.hs Build/Configure.hs
 	if [ "$(BUILDER)" = ./Setup ]; then $(GHC) --make Setup; fi
 	if [ "$(BUILDER)" != stack ]; then \
