@@ -53,3 +53,9 @@ NixOS 21.11
 
 
 [[!meta title="cryptonite does not use SHA instructions for sha256"]]
+
+> git-annex can now be built with the Botan build flag, which accellerates
+> SHA3 and also some other hashing. It will take a while for all builds
+> to have it, since the C++ library needs to be installed separately
+> from other dependencies. There is a build warning when building without
+> botab. [[done]] --[[Joey]]
