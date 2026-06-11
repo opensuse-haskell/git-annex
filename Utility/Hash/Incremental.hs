@@ -21,8 +21,8 @@ data IncrementalHasher = IncrementalHasher
 	-- ^ Call if the incremental hashing is unable to be done.
 	, positionIncrementalHasher :: IO (Maybe Integer)
 	-- ^ Returns the number of bytes that have been fed to this
-	-- incremental hasher so far. (Nothing if unableIncremental was
-	-- called.)
+	-- incremental hasher so far. (Nothing if unableIncrementalHasher
+	-- was called.)
 	}
 
 data IncrementalVerifier = IncrementalVerifier
