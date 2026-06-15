@@ -228,7 +228,7 @@ getCache opttemplate = ifM (Annex.getRead Annex.force)
 	, do
 		j <- jsonOutputEnabled
 		unless j $
-			showStartMessage (StartMessage "importfeed" (ActionItemOther (Just "gathering known urls")) (SeekInput []))
+			showStartMessage $ StartMessage "importfeed" ai si
 		h <- Db.openDb
 		unless j
 			showEndOk
@@ -237,6 +237,8 @@ getCache opttemplate = ifM (Annex.getRead Annex.force)
   where
 	tmpl = Utility.Format.gen $ fromMaybe defaultTemplate opttemplate
 	ret h = return $ Cache h tmpl
+	ai = ActionItemOther (Just "gathering known urls")
+	si = SeekInput []
 
 findDownloads :: URLString -> Feed -> [ToDownload]
 findDownloads u f = catMaybes $ map mk (feedItems f)
