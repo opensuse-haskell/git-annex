@@ -1,6 +1,6 @@
 git-annex (10.20260602) UNRELEASED; urgency=medium
 
-  * Added Botan build flag, which speeds up checksumming by up to 4x to 8x.
+  * Added Botan build flag, which speeds up checksumming significantly.
   * Improve handling of synced/master and similar branches, by
     only creating such branches when necessary to push to a non-bare
     remote, and by removing the local synced branch once its changes
