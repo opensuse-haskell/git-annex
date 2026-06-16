@@ -324,7 +324,7 @@ Executable git-annex
 
   if flag(Botan)
     Build-Depends:
-      botan-low
+      botan-low (< 0.3)
     CPP-Options: -DWITH_BOTAN
     Other-Modules:
       Utility.Hash.Botan
