@@ -7,7 +7,6 @@
 
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE BangPatterns #-}
 
 module Backend.Hash (
 	backends,
@@ -37,10 +36,6 @@ import qualified Data.ByteString.Lazy as L
 import Data.Char
 import Control.DeepSeq
 import Control.Exception (evaluate)
-#ifdef WITH_BLAKE3
-import Data.IORef
-import qualified BLAKE3
-#endif
 
 data HashType
 	= MD5Hash
@@ -327,30 +322,7 @@ blake2spHasher (HashSize hashsize)
 
 #ifdef WITH_BLAKE3
 blake3Hasher :: Hasher
-blake3Hasher = (hash, Just incremental) where
-	finalize :: BLAKE3.Hasher -> BLAKE3.Digest BLAKE3.DEFAULT_DIGEST_LEN
-	finalize = BLAKE3.finalize
-
-	hash :: L.ByteString -> Hash
-	hash = Hash . encodeBS . show . finalize . L.foldlChunks ((. pure) . BLAKE3.update) (BLAKE3.init Nothing)
-
-	incremental :: Key -> IO IncrementalVerifier
-	incremental k = do
-		v <- newIORef (Just (BLAKE3.init Nothing, 0))
-		return $ IncrementalVerifier
-			{ updateIncrementalVerifier = \b ->
-				modifyIORef' v $ \case
-					(Just (ctx', n)) ->
-						let !ctx'' = BLAKE3.update ctx' [b]
-						    !n' = n + fromIntegral (S.length b)
-						in (Just (ctx'', n'))
-					Nothing -> Nothing
-			, finalizeIncrementalVerifier =
-				fmap (sameCheckSum k . Hash . encodeBS . show . finalize . fst) <$> readIORef v
-			, unableIncrementalVerifier = writeIORef v Nothing
-			, positionIncrementalVerifier = fmap snd <$> readIORef v
-			, descIncrementalVerifier = descChecksum
-			}
+blake3Hasher = (blake3, Just $ blake3IncrementalVerifier descChecksum . sameCheckSum)
 #endif
 
 #ifdef WITH_XXH3

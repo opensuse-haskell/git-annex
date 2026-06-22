@@ -340,6 +340,8 @@ Executable git-annex
   if flag(Blake3)
     Build-Depends: blake3 (>= 0.3)
     CPP-Options: -DWITH_BLAKE3
+    Other-Modules:
+      Utility.Hash.Blake3
   
   if flag(XXH3)
     Build-Depends:

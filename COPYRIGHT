@@ -51,6 +51,11 @@ Files: Utility/Matcher.hs Utility/Tor.hs Utility/Yesod.hs
 Copyright: © 2010-2023 Joey Hess <id@joeyh.name>
 License: AGPL-3+
 
+Files: Utility.Hash.Blake3
+Copyright 2026 Joey Hess <id@joeyh.name>
+          2022 edef <edef@edef.eu>
+License: AGPL-3+
+
 Files: Utility/*
 Copyright: 2012-2025 Joey Hess <id@joeyh.name>
 License: BSD-2-clause
