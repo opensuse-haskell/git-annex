@@ -79,12 +79,16 @@ The backends below do not guarantee cryptographically that the
 content of an annexed file remains unchanged. git-annex can be configured
 to not allow these, by the `annex.securehashesonly` git-config setting.
 
+* `XXH3` -- Extremely fast checksum.  
+  This is only supported when git-annex is built with the XXH3 build
+  flag. It is currently not available on 32 bit systems.
 * `SHA1`, `SHA1E`, `MD5`, `MD5E` -- Smaller hashes than `SHA256`
-   for those who want a checksum but are not concerned about security.
+   for those who want a checksum but are not concerned about security.  
+   Note that `XXH3` is faster, and an even smaller hash.
 * `WORM` ("Write Once, Read Many") -- This assumes that any file with
   the same filename, size, and modification time has the same content.
-  This is the least expensive backend, recommended for really large
-  files or slow systems.
+  This is the least expensive backend, but not using a checksum based
+  backend has complications and limitations.
 * `URL` -- This is a key that is generated from the url to a file.  
   The key may not contain the full URL; for long URLs, part of the URL may be
   represented by a checksum.  

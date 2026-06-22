@@ -184,7 +184,11 @@ Flag Dbus
   Description: Enable dbus support
 
 Flag Blake3
-  Description: Enable blake3 support
+  Description: Enable BLAKE3 support
+  Default: True
+
+Flag XXH3
+  Description: Enable XXH3 support
   Default: True
 
 source-repository head
@@ -336,6 +340,10 @@ Executable git-annex
   if flag(Blake3)
     Build-Depends: blake3 (>= 0.3)
     CPP-Options: -DWITH_BLAKE3
+  
+  if flag(XXH3)
+    Build-Depends: xxhash-ffi (>= 0.3), hashable
+    CPP-Options: -DWITH_XXH3
 
   if (os(windows))
     Build-Depends:

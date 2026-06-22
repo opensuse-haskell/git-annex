@@ -41,6 +41,13 @@ import Control.Exception (evaluate)
 import Data.IORef
 import qualified BLAKE3
 #endif
+#ifdef WITH_XXH3
+import qualified Data.Digest.XXHash.FFI as XXH3
+import qualified Data.Hashable as Hashable
+import Data.Word
+import Data.Bits
+import Data.ByteString.Builder
+#endif
 
 data HashType
 	= MD5Hash
@@ -55,6 +62,9 @@ data HashType
 #ifdef WITH_BLAKE3
 	| Blake3Hash
 #endif
+#ifdef WITH_XXH3
+	| XXH3Hash
+#endif
 
 cryptographicallySecure :: HashType -> Bool
 cryptographicallySecure (SHA2Hash _) = True
@@ -66,6 +76,9 @@ cryptographicallySecure (Blake2sHash _) = True
 cryptographicallySecure (Blake2spHash _) = True
 #ifdef WITH_BLAKE3
 cryptographicallySecure Blake3Hash = True
+#endif
+#ifdef WITH_XXH3
+cryptographicallySecure XXH3Hash = False
 #endif
 cryptographicallySecure SHA1Hash = False
 cryptographicallySecure MD5Hash = False
@@ -86,6 +99,11 @@ hashes = concat
 #ifdef WITH_BLAKE3
 	, [Blake3Hash]
 #endif
+#ifdef WITH_XXH3
+	, if xxH3Supported
+		then [XXH3Hash]
+		else []
+#endif
 	, [SHA1Hash]
 	, [MD5Hash]
 	]
@@ -99,7 +117,7 @@ genBackend hash = Backend
 	{ backendVariety = hashKeyVariety hash (HasExt False)
 	, genKey = Just (keyValue hash)
 	, verifyKeyContent = Just $ checkKeyChecksum sameCheckSum hash
-	, verifyKeyContentIncrementally = Just $ checkKeyChecksumIncremental hash
+	, verifyKeyContentIncrementally = checkKeyChecksumIncremental hash
 	, canUpgradeKey = Just needsUpgrade
 	, fastMigrate = Just trivialMigrate
 	, isStableKey = const True
@@ -126,6 +144,9 @@ hashKeyVariety (Blake2sHash size) he = Blake2sKey size he
 hashKeyVariety (Blake2spHash size) he = Blake2spKey size he
 #ifdef WITH_BLAKE3
 hashKeyVariety Blake3Hash he = Blake3Key he
+#endif
+#ifdef WITH_XXH3
+hashKeyVariety XXH3Hash he = XXH3Key he
 #endif
 
 {- A key is a hash of its contents. -}
@@ -169,8 +190,10 @@ sameCheckSum key hash
 	expected = keyHash key
 	backslash = fromIntegral (ord '\\')
 
-checkKeyChecksumIncremental :: HashType -> Key -> Annex IncrementalVerifier
-checkKeyChecksumIncremental hash key = liftIO $ (snd $ hasher hash) key
+checkKeyChecksumIncremental :: HashType -> Maybe (Key -> Annex IncrementalVerifier)
+checkKeyChecksumIncremental hash = case snd (hasher hash) of
+	Just iv -> Just (liftIO . iv)
+	Nothing -> Nothing
 
 keyHash :: Key -> S.ByteString
 keyHash = fst . splitKeyNameExtension
@@ -235,7 +258,7 @@ hashFile hash file meterupdate =
 		evaluate (rnf h)
 		return h
 
-type Hasher = (L.ByteString -> Hash, Key -> IO IncrementalVerifier)
+type Hasher = (L.ByteString -> Hash, Maybe (Key -> IO IncrementalVerifier))
 
 hasher :: HashType -> Hasher
 hasher MD5Hash = md5Hasher
@@ -250,9 +273,15 @@ hasher (Blake2spHash hashsize) = blake2spHasher hashsize
 #ifdef WITH_BLAKE3
 hasher Blake3Hash = blake3Hasher
 #endif
+#ifdef WITH_XXH3
+hasher XXH3Hash = xxh3Hasher
+#endif
 
 mkHasher :: (L.ByteString -> HashDigest) -> IO IncrementalHasher -> Hasher
-mkHasher h i = (digestToHash . h, mkIncrementalVerifier i descChecksum . sameCheckSum)
+mkHasher h i = 
+	( digestToHash . h
+	, Just $ mkIncrementalVerifier i descChecksum . sameCheckSum
+	)
 
 sha2Hasher :: HashSize -> Hasher
 sha2Hasher (HashSize hashsize)
@@ -305,7 +334,7 @@ blake2spHasher (HashSize hashsize)
 
 #ifdef WITH_BLAKE3
 blake3Hasher :: Hasher
-blake3Hasher = (hash, incremental) where
+blake3Hasher = (hash, Just incremental) where
 	finalize :: BLAKE3.Hasher -> BLAKE3.Digest BLAKE3.DEFAULT_DIGEST_LEN
 	finalize = BLAKE3.finalize
 
@@ -329,6 +358,31 @@ blake3Hasher = (hash, incremental) where
 			, positionIncrementalVerifier = fmap snd <$> readIORef v
 			, descIncrementalVerifier = descChecksum
 			}
+#endif
+
+#ifdef WITH_XXH3
+xxh3Hasher :: Hasher
+xxh3Hasher = (hash, incremental) where
+	hash = convcanonical . Hashable.hashWithSalt 0 . XXH3.XXH3
+	-- The haskell library does not support incremental verification
+	-- (without going too low-level to be appropriate here).
+	-- https://github.com/haskell-haskey/xxhash-ffi/issues/7
+	incremental = Nothing
+	-- Convert to XXH3 canonical representation.
+	-- This is unfortunately not exposed by xxhash-ffi so has to
+	-- be re-implemented here.
+	-- See https://github.com/haskell-haskey/xxhash-ffi/issues/8
+	convcanonical = digestToHash . HashDigest 
+		. L.toStrict . toLazyByteString 
+		. word64BE . fromint
+	fromint :: Int -> Word64
+	fromint = fromIntegral
+
+-- Due to use of Int, the xxhash-ffi library is currently only suitable
+-- for use on 64 bit (or higher) systems. 
+-- https://github.com/haskell-haskey/xxhash-ffi/issues/6
+xxH3Supported :: Bool
+xxH3Supported = finiteBitSize (0 :: Int) >= 64
 #endif
 
 sha1Hasher :: Hasher

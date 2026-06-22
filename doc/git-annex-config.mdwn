@@ -160,7 +160,7 @@ looks for these.
 
   Set to true to indicate that the repository should only use
   cryptographically secure hashes (SHA2, SHA3) and not insecure
-  hashes (MD5, SHA1) for content.
+  hashes (MD5, SHA1, XXH3) for content.
 
   When this is set, the contents of files using cryptographically
   insecure hashes will not be allowed to be added to the repository.

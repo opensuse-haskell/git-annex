@@ -10,6 +10,8 @@ flags:
     benchmark: true
     ospath: true
     botan: true
+    blake3: true
+    xxh3: true
   file-io:
     os-string: true
 packages:
@@ -21,3 +23,4 @@ extra-deps:
 - botan-low-0.2.0.1
 - botan-bindings-0.3.0.0
 - blake3-0.3
+- xxhash-ffi-0.3.1

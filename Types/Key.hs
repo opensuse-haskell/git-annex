@@ -217,6 +217,9 @@ data KeyVariety
 #ifdef WITH_BLAKE3
 	| Blake3Key HasExt
 #endif
+#ifdef WITH_XXH3
+	| XXH3Key HasExt
+#endif
 	| SHA1Key HasExt
 	| MD5Key HasExt
 	| WORMKey
@@ -256,6 +259,9 @@ hasExt (Blake2spKey _ (HasExt b)) = b
 #ifdef WITH_BLAKE3
 hasExt (Blake3Key (HasExt b)) = b
 #endif
+#ifdef WITH_XXH3
+hasExt (XXH3Key (HasExt b)) = b
+#endif
 hasExt (SHA1Key (HasExt b)) = b
 hasExt (MD5Key (HasExt b)) = b
 hasExt WORMKey = False
@@ -277,6 +283,9 @@ sameExceptExt (Blake2spKey sz1 _) (Blake2spKey sz2 _) = sz1 == sz2
 #ifdef WITH_BLAKE3
 sameExceptExt (Blake3Key _) (Blake3Key _) = True
 #endif
+#ifdef WITH_XXH3
+sameExceptExt (XXH3Key _) (XXH3Key _) = True
+#endif
 sameExceptExt (SHA1Key _) (SHA1Key _) = True
 sameExceptExt (MD5Key _) (MD5Key _) = True
 sameExceptExt _ _ = False
@@ -292,6 +301,9 @@ formatKeyVariety v = case v of
 	Blake2spKey sz e -> adde e (addsz sz "BLAKE2SP")
 #ifdef WITH_BLAKE3
 	Blake3Key e -> adde e "BLAKE3_256"
+#endif
+#ifdef WITH_XXH3
+	XXH3Key e -> adde e "XXH3"
 #endif
 	SHA1Key e -> adde e "SHA1"
 	MD5Key e -> adde e "MD5"
@@ -361,6 +373,10 @@ parseKeyVariety "BLAKE2SP256E" = Blake2spKey (HashSize 256) (HasExt True)
 #ifdef WITH_BLAKE3
 parseKeyVariety "BLAKE3_256"   = Blake3Key (HasExt False)
 parseKeyVariety "BLAKE3_256E"  = Blake3Key (HasExt True)
+#endif
+#ifdef WITH_XXH3
+parseKeyVariety "XXH3"         = XXH3Key (HasExt False)
+parseKeyVariety "XXH3E"        = XXH3Key (HasExt True)
 #endif
 parseKeyVariety "SHA1"         = SHA1Key (HasExt False)
 parseKeyVariety "SHA1E"        = SHA1Key (HasExt True)

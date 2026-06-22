@@ -75,6 +75,11 @@ buildFlags = filter (not . null)
 #else
 #warning Building without Blake3 support.
 #endif
+#ifdef WITH_XXH3
+	, "XXH3"
+#else
+#warning Building without XXH3 support.
+#endif
 	]
 
 -- Not a complete list, let alone a listing transitive deps, but only
