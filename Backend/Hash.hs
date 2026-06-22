@@ -29,6 +29,9 @@ import Types.Backend
 import Types.KeySource
 import Utility.Hash
 import Utility.Metered
+#ifdef WITH_XXH3
+import Utility.Hash.XXH3
+#endif
 
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Short as S (toShort, fromShort)
@@ -40,13 +43,6 @@ import Control.Exception (evaluate)
 #ifdef WITH_BLAKE3
 import Data.IORef
 import qualified BLAKE3
-#endif
-#ifdef WITH_XXH3
-import qualified Data.Digest.XXHash.FFI as XXH3
-import qualified Data.Hashable as Hashable
-import Data.Word
-import Data.Bits
-import Data.ByteString.Builder
 #endif
 
 data HashType
@@ -362,27 +358,7 @@ blake3Hasher = (hash, Just incremental) where
 
 #ifdef WITH_XXH3
 xxh3Hasher :: Hasher
-xxh3Hasher = (hash, incremental) where
-	hash = convcanonical . Hashable.hashWithSalt 0 . XXH3.XXH3
-	-- The haskell library does not support incremental verification
-	-- (without going too low-level to be appropriate here).
-	-- https://github.com/haskell-haskey/xxhash-ffi/issues/7
-	incremental = Nothing
-	-- Convert to XXH3 canonical representation.
-	-- This is unfortunately not exposed by xxhash-ffi so has to
-	-- be re-implemented here.
-	-- See https://github.com/haskell-haskey/xxhash-ffi/issues/8
-	convcanonical = digestToHash . HashDigest 
-		. L.toStrict . toLazyByteString 
-		. word64BE . fromint
-	fromint :: Int -> Word64
-	fromint = fromIntegral
-
--- Due to use of Int, the xxhash-ffi library is currently only suitable
--- for use on 64 bit (or higher) systems. 
--- https://github.com/haskell-haskey/xxhash-ffi/issues/6
-xxH3Supported :: Bool
-xxH3Supported = finiteBitSize (0 :: Int) >= 64
+xxh3Hasher = (digestToHash . xxh3, xxh3Incremental)
 #endif
 
 sha1Hasher :: Hasher

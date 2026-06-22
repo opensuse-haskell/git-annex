@@ -344,6 +344,8 @@ Executable git-annex
   if flag(XXH3)
     Build-Depends: xxhash-ffi (>= 0.3), hashable
     CPP-Options: -DWITH_XXH3
+    Other-Modules:
+      Utility.Hash.XXH3
 
   if (os(windows))
     Build-Depends:
