@@ -342,7 +342,9 @@ Executable git-annex
     CPP-Options: -DWITH_BLAKE3
   
   if flag(XXH3)
-    Build-Depends: xxhash-ffi (>= 0.3), hashable
+    Build-Depends:
+      xxhash-ffi (>= 0.3),
+      hashable
     CPP-Options: -DWITH_XXH3
     Other-Modules:
       Utility.Hash.XXH3
