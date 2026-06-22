@@ -1,0 +1,9 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 10"""
+ date="2026-06-22T14:49:17Z"
+ content="""
+The above patches *did* have a memory leak.
+
+I've fixed that, and merged to master.
+"""]]
