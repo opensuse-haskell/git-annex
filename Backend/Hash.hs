@@ -7,6 +7,7 @@
 
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Backend.Hash (
 	backends,
@@ -38,7 +39,6 @@ import Control.DeepSeq
 import Control.Exception (evaluate)
 #ifdef WITH_BLAKE3
 import Data.IORef
-import Control.Arrow
 import qualified BLAKE3
 #endif
 
@@ -317,7 +317,12 @@ blake3Hasher = (hash, incremental) where
 		v <- newIORef (Just (BLAKE3.init Nothing, 0))
 		return $ IncrementalVerifier
 			{ updateIncrementalVerifier = \b ->
-				modifyIORef' v . fmap $ flip BLAKE3.update [b] *** (fromIntegral (S.length b) +)
+				modifyIORef' v $ \case
+					(Just (ctx', n)) ->
+						let !ctx'' = BLAKE3.update ctx' [b]
+						    !n' = n + fromIntegral (S.length b)
+						in (Just (ctx'', n'))
+					Nothing -> Nothing
 			, finalizeIncrementalVerifier =
 				fmap (sameCheckSum k . Hash . encodeBS . show . finalize . fst) <$> readIORef v
 			, unableIncrementalVerifier = writeIORef v Nothing
