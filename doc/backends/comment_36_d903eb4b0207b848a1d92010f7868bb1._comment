@@ -1,0 +1,16 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""Re: combine worm with partial hash"""
+ date="2026-06-22T15:17:46Z"
+ content="""
+It lowers the probability to only files that happen to start with the same
+prefix. There are many cases where 2 versions of a file start with the same
+data and diverge later, think eg a filesystem image where one file has been
+changed. 
+
+So I think this would give a false sense of protection, kind of like wearing
+a steel toed boot but with a gun still pointed at your foot.
+
+It's better to just not use WORM. Modern computers can hash really fast,
+especially if you use BLAKE3.
+"""]]
