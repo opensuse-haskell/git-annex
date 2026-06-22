@@ -1,0 +1,12 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 11"""
+ date="2026-06-22T14:56:37Z"
+ content="""
+It would be possible to add other blake3 hash lengths, but I have not
+investigated if there is any benefit (eg performance or security) in
+using anything other than `BLAKE3_256`. Will wait to see if anyone comes up
+with a use case for them.
+
+I don't think it will be a problem to adapt the existing code to use them.
+"""]]
