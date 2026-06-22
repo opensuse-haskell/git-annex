@@ -3,7 +3,7 @@
  subject="""comment 9"""
  date="2026-06-22T14:25:51Z"
  content="""
-Updated to blake3 and it is indeed even faster: 6.80s
+Updated to blake3-0.3 and it is indeed even faster: 6.80s
 
 Impressive, that's twice as fast as botan's sha256.
 """]]
