@@ -334,7 +334,7 @@ Executable git-annex
       Utility.Hash.Botan
 
   if flag(Blake3)
-    Build-Depends: blake3 (< 0.3)
+    Build-Depends: blake3 (>= 0.3)
     CPP-Options: -DWITH_BLAKE3
 
   if (os(windows))

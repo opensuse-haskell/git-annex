@@ -310,11 +310,11 @@ blake3Hasher = (hash, incremental) where
 	finalize = BLAKE3.finalize
 
 	hash :: L.ByteString -> Hash
-	hash = Hash . encodeBS . show . finalize . L.foldlChunks ((. pure) . BLAKE3.update) BLAKE3.hasher
+	hash = Hash . encodeBS . show . finalize . L.foldlChunks ((. pure) . BLAKE3.update) (BLAKE3.init Nothing)
 
 	incremental :: Key -> IO IncrementalVerifier
 	incremental k = do
-		v <- newIORef (Just (BLAKE3.hasher, 0))
+		v <- newIORef (Just (BLAKE3.init Nothing, 0))
 		return $ IncrementalVerifier
 			{ updateIncrementalVerifier = \b ->
 				modifyIORef' v . fmap $ flip BLAKE3.update [b] *** (fromIntegral (S.length b) +)
