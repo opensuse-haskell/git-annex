@@ -189,7 +189,7 @@ Flag Blake3
 
 Flag XXH3
   Description: Enable XXH3 support
-  Default: True
+  Default: False
 
 source-repository head
   type: git

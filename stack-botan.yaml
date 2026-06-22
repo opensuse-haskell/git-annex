@@ -14,6 +14,8 @@ flags:
     xxh3: true
   file-io:
     os-string: true
+  xxhash-ffi:
+    pkg-config: false
 packages:
 - '.'
 resolver: lts-24.26
