@@ -20,8 +20,8 @@ import Data.ByteString.Builder
 -- for use on 64 bit (or higher) systems. Trying to use it on
 -- 32 bit systems will produce non-canonical values.
 -- https://github.com/haskell-haskey/xxhash-ffi/issues/6
-xxH3Supported :: Bool
-xxH3Supported = finiteBitSize (0 :: Int) >= 64
+xxh3Supported :: Bool
+xxh3Supported = finiteBitSize (0 :: Int) >= 64
 
 xxh3 :: L.ByteString -> HashDigest
 xxh3 = convcanonical . Hashable.hashWithSalt 0 . XXH3.XXH3

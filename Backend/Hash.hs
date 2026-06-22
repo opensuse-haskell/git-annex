@@ -29,9 +29,6 @@ import Types.Backend
 import Types.KeySource
 import Utility.Hash
 import Utility.Metered
-#ifdef WITH_XXH3
-import Utility.Hash.XXH3
-#endif
 
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Short as S (toShort, fromShort)
@@ -96,7 +93,7 @@ hashes = concat
 	, [Blake3Hash]
 #endif
 #ifdef WITH_XXH3
-	, if xxH3Supported
+	, if xxh3Supported
 		then [XXH3Hash]
 		else []
 #endif
