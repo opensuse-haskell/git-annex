@@ -5,6 +5,7 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings, DeriveGeneric #-}
 
 module Types.Key (
@@ -213,6 +214,9 @@ data KeyVariety
 	| Blake2bpKey HashSize HasExt
 	| Blake2sKey HashSize HasExt
 	| Blake2spKey HashSize HasExt
+#ifdef WITH_BLAKE3
+	| Blake3Key HasExt
+#endif
 	| SHA1Key HasExt
 	| MD5Key HasExt
 	| WORMKey
@@ -249,6 +253,9 @@ hasExt (Blake2bKey _ (HasExt b)) = b
 hasExt (Blake2bpKey _ (HasExt b)) = b
 hasExt (Blake2sKey _ (HasExt b)) = b
 hasExt (Blake2spKey _ (HasExt b)) = b
+#ifdef WITH_BLAKE3
+hasExt (Blake3Key (HasExt b)) = b
+#endif
 hasExt (SHA1Key (HasExt b)) = b
 hasExt (MD5Key (HasExt b)) = b
 hasExt WORMKey = False
@@ -267,6 +274,9 @@ sameExceptExt (Blake2bKey sz1 _) (Blake2bKey sz2 _) = sz1 == sz2
 sameExceptExt (Blake2bpKey sz1 _) (Blake2bpKey sz2 _) = sz1 == sz2
 sameExceptExt (Blake2sKey sz1 _) (Blake2sKey sz2 _) = sz1 == sz2
 sameExceptExt (Blake2spKey sz1 _) (Blake2spKey sz2 _) = sz1 == sz2
+#ifdef WITH_BLAKE3
+sameExceptExt (Blake3Key _) (Blake3Key _) = True
+#endif
 sameExceptExt (SHA1Key _) (SHA1Key _) = True
 sameExceptExt (MD5Key _) (MD5Key _) = True
 sameExceptExt _ _ = False
@@ -280,6 +290,9 @@ formatKeyVariety v = case v of
 	Blake2bpKey sz e -> adde e (addsz sz "BLAKE2BP")
 	Blake2sKey sz e -> adde e (addsz sz "BLAKE2S")
 	Blake2spKey sz e -> adde e (addsz sz "BLAKE2SP")
+#ifdef WITH_BLAKE3
+	Blake3Key e -> adde e "BLAKE3_256"
+#endif
 	SHA1Key e -> adde e "SHA1"
 	MD5Key e -> adde e "MD5"
 	WORMKey -> "WORM"
@@ -345,6 +358,10 @@ parseKeyVariety "BLAKE2SP224"  = Blake2spKey (HashSize 224) (HasExt False)
 parseKeyVariety "BLAKE2SP224E" = Blake2spKey (HashSize 224) (HasExt True)
 parseKeyVariety "BLAKE2SP256"  = Blake2spKey (HashSize 256) (HasExt False)
 parseKeyVariety "BLAKE2SP256E" = Blake2spKey (HashSize 256) (HasExt True)
+#ifdef WITH_BLAKE3
+parseKeyVariety "BLAKE3_256"   = Blake3Key (HasExt False)
+parseKeyVariety "BLAKE3_256E"  = Blake3Key (HasExt True)
+#endif
 parseKeyVariety "SHA1"         = SHA1Key (HasExt False)
 parseKeyVariety "SHA1E"        = SHA1Key (HasExt True)
 parseKeyVariety "MD5"          = MD5Key (HasExt False)

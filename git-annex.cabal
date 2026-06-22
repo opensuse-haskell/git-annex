@@ -183,6 +183,10 @@ Flag DebugLocks
 Flag Dbus
   Description: Enable dbus support
 
+Flag Blake3
+  Description: Enable blake3 support
+  Default: True
+
 source-repository head
   type: git
   location: https://git.joeyh.name/git/git-annex.git/
@@ -328,6 +332,10 @@ Executable git-annex
     CPP-Options: -DWITH_BOTAN
     Other-Modules:
       Utility.Hash.Botan
+
+  if flag(Blake3)
+    Build-Depends: blake3 (>= 0.3)
+    CPP-Options: -DWITH_BLAKE3
 
   if (os(windows))
     Build-Depends:

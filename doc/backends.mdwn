@@ -24,6 +24,8 @@ in `.gitattributes`:
 
 ## recommended backends to use
 
+### SHA-2 and SHA-3
+
 * `SHA256E` -- The default backend for new files, combines a 256 bit SHA-2
   hash of the file's content with the file's extension. This allows
   verifying that the file content is right, and can avoid duplicates of
@@ -39,6 +41,9 @@ in `.gitattributes`:
 * `SKEIN512`, `SKEIN512E`, `SKEIN256`, `SKEIN256E`
   -- [Skein hash](http://en.wikipedia.org/wiki/Skein_hash),
   a well-regarded SHA3 hash competition finalist.
+
+### Blake2 and Blake3
+
 * `BLAKE2B160`, `BLAKE2B224`, `BLAKE2B256`, `BLAKE2B384`, `BLAKE2B512`
   `BLAKE2B160E`, `BLAKE2B224E`, `BLAKE2B256E`, `BLAKE2B384E`, `BLAKE2B512E`
   -- Fast [Blake2 hash](https://blake2.net/) variants optimised for 64 bit
@@ -54,6 +59,15 @@ in `.gitattributes`:
   `BLAKE2SP224E`, `BLAKE2SP256E`
   -- Fast [Blake2 hash](https://blake2.net/) variants optimised for 
   8-way CPUs.
+* `BLAKE3_256`, `BLAKE3_256E`
+  -- Very fast [Blake3 hash](https://github.com/BLAKE3-team/BLAKE3).
+  Unlike the Blake2 family, Blake3 is a single variant optimised for many platforms.
+  It is still faster than Blake2 in most cases.  
+  This is only supported when git-annex is built with the Blake3 build
+  flag.
+
+### Other
+
 * `VURL` -- This is like an `URL` (see below) but the content can
   be verified with a cryptographically secure checksum that is
   recorded in the git-annex branch. It's generated when using 

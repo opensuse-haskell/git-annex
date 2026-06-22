@@ -70,6 +70,11 @@ buildFlags = filter (not . null)
 #else 
 #warning Consider building with the Botan build flag set, it speeds up checksumming by up 4x to 8x.
 #endif
+#ifdef WITH_BLAKE3
+	, "Blake3"
+#else
+#warning Building without Blake3 support.
+#endif
 	]
 
 -- Not a complete list, let alone a listing transitive deps, but only

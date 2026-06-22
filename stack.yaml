@@ -18,3 +18,4 @@ resolver: lts-24.26
 extra-deps:
 - aws-0.25.2
 - file-io-0.2.0
+- blake3-0.3

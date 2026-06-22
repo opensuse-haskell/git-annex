@@ -5,7 +5,9 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Backend.Hash (
 	backends,
@@ -35,6 +37,10 @@ import qualified Data.ByteString.Lazy as L
 import Data.Char
 import Control.DeepSeq
 import Control.Exception (evaluate)
+#ifdef WITH_BLAKE3
+import Data.IORef
+import qualified BLAKE3
+#endif
 
 data HashType
 	= MD5Hash
@@ -46,6 +52,9 @@ data HashType
 	| Blake2bpHash HashSize
 	| Blake2sHash HashSize
 	| Blake2spHash HashSize
+#ifdef WITH_BLAKE3
+	| Blake3Hash
+#endif
 
 cryptographicallySecure :: HashType -> Bool
 cryptographicallySecure (SHA2Hash _) = True
@@ -55,6 +64,9 @@ cryptographicallySecure (Blake2bHash _) = True
 cryptographicallySecure (Blake2bpHash _) = True
 cryptographicallySecure (Blake2sHash _) = True
 cryptographicallySecure (Blake2spHash _) = True
+#ifdef WITH_BLAKE3
+cryptographicallySecure Blake3Hash = True
+#endif
 cryptographicallySecure SHA1Hash = False
 cryptographicallySecure MD5Hash = False
 
@@ -71,6 +83,9 @@ hashes = concat
 	, map (Blake2bpHash . HashSize) [512]
 	, map (Blake2sHash . HashSize) [256, 160, 224]
 	, map (Blake2spHash . HashSize) [256, 224]
+#ifdef WITH_BLAKE3
+	, [Blake3Hash]
+#endif
 	, [SHA1Hash]
 	, [MD5Hash]
 	]
@@ -109,6 +124,9 @@ hashKeyVariety (Blake2bHash size) he = Blake2bKey size he
 hashKeyVariety (Blake2bpHash size) he = Blake2bpKey size he
 hashKeyVariety (Blake2sHash size) he = Blake2sKey size he
 hashKeyVariety (Blake2spHash size) he = Blake2spKey size he
+#ifdef WITH_BLAKE3
+hashKeyVariety Blake3Hash he = Blake3Key he
+#endif
 
 {- A key is a hash of its contents. -}
 keyValue :: HashType -> KeySource -> MeterUpdate -> Annex Key
@@ -229,6 +247,9 @@ hasher (Blake2bHash hashsize) = blake2bHasher hashsize
 hasher (Blake2bpHash hashsize) = blake2bpHasher hashsize
 hasher (Blake2sHash hashsize) = blake2sHasher hashsize
 hasher (Blake2spHash hashsize) = blake2spHasher hashsize
+#ifdef WITH_BLAKE3
+hasher Blake3Hash = blake3Hasher
+#endif
 
 mkHasher :: (L.ByteString -> HashDigest) -> IO IncrementalHasher -> Hasher
 mkHasher h i = (digestToHash . h, mkIncrementalVerifier i descChecksum . sameCheckSum)
@@ -281,6 +302,34 @@ blake2spHasher (HashSize hashsize)
 	| hashsize == 256 = mkHasher blake2sp_256 blake2sp_256_hasher
 	| hashsize == 224 = mkHasher blake2sp_224 blake2sp_224_hasher
 	| otherwise = giveup $ "unsupported BLAKE2SP size " ++ show hashsize
+
+#ifdef WITH_BLAKE3
+blake3Hasher :: Hasher
+blake3Hasher = (hash, incremental) where
+	finalize :: BLAKE3.Hasher -> BLAKE3.Digest BLAKE3.DEFAULT_DIGEST_LEN
+	finalize = BLAKE3.finalize
+
+	hash :: L.ByteString -> Hash
+	hash = Hash . encodeBS . show . finalize . L.foldlChunks ((. pure) . BLAKE3.update) (BLAKE3.init Nothing)
+
+	incremental :: Key -> IO IncrementalVerifier
+	incremental k = do
+		v <- newIORef (Just (BLAKE3.init Nothing, 0))
+		return $ IncrementalVerifier
+			{ updateIncrementalVerifier = \b ->
+				modifyIORef' v $ \case
+					(Just (ctx', n)) ->
+						let !ctx'' = BLAKE3.update ctx' [b]
+						    !n' = n + fromIntegral (S.length b)
+						in (Just (ctx'', n'))
+					Nothing -> Nothing
+			, finalizeIncrementalVerifier =
+				fmap (sameCheckSum k . Hash . encodeBS . show . finalize . fst) <$> readIORef v
+			, unableIncrementalVerifier = writeIORef v Nothing
+			, positionIncrementalVerifier = fmap snd <$> readIORef v
+			, descIncrementalVerifier = descChecksum
+			}
+#endif
 
 sha1Hasher :: Hasher
 sha1Hasher = mkHasher sha1 sha1_hasher
