@@ -4,7 +4,7 @@ git-annex (10.20260602) UNRELEASED; urgency=medium
     for most existing hash backends.
   * Added Blake3 build flag, which is the fastest available
     cryptographically secure hash.
-    Thanks to edef for their patches.
+    Thanks to edef for implementing this.
   * Added XXH3 build flag, which is the fastest available
     non-cryptographically secure hash, and is a smaller hash
     than MD5 or SHA1.
