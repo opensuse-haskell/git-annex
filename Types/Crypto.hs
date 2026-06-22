@@ -20,11 +20,12 @@ module Types.Crypto (
 	calcMac,
 ) where
 
-import Utility.Hash
+import Utility.HMAC
 import Utility.Gpg (KeyIds(..))
 
 import Data.Typeable
 import qualified Data.Map as M
+import Data.ByteString (ByteString)
 
 data EncryptionMethod
 	= NoneEncryption
@@ -32,16 +33,18 @@ data EncryptionMethod
 	| PubKeyEncryption
 	| SharedPubKeyEncryption
 	| HybridEncryption
-	deriving (Typeable, Eq)
+	deriving (Typeable, Eq, Show)
 
+-- A base-64 encoded random value used for encryption.
 -- XXX ideally, this would be a locked memory region
-data Cipher = Cipher String | MacOnlyCipher String
+data Cipher = Cipher ByteString | MacOnlyCipher ByteString
 
 data StorableCipher
-	= EncryptedCipher String EncryptedCipherVariant KeyIds
-	| SharedCipher String
-	| SharedPubKeyCipher String KeyIds
+	= EncryptedCipher ByteString EncryptedCipherVariant KeyIds
+	| SharedCipher ByteString
+	| SharedPubKeyCipher ByteString KeyIds
 	deriving (Ord, Eq)
+
 data EncryptedCipherVariant = Hybrid | PubKey
 	deriving (Ord, Eq)
 

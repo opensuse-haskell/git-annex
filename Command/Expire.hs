@@ -22,9 +22,10 @@ import Data.Time.Clock.POSIX
 import qualified Data.Map as M
 
 cmd :: Command
-cmd = command "expire" SectionMaintenance
-	"expire inactive repositories"
-	paramExpire (seek <$$> optParser)
+cmd = withAnnexOptions [jsonOptions] $
+	command "expire" SectionMaintenance
+		"expire inactive repositories"
+		paramExpire (seek <$$> optParser)
 
 paramExpire :: String
 paramExpire = (paramRepeating $ paramOptional paramRemote ++ ":" ++ paramTime)
@@ -61,25 +62,25 @@ start (Expire expire) noact actlog descs u =
 	case lastact of
 		Just ent | notexpired ent -> checktrust (== DeadTrusted) $
 			starting "unexpire" ai si $ do
-				showNote =<< whenactive
+				showNote . UnquotedString =<< whenactive
 				unless noact $
 					trustSet u SemiTrusted
 				next $ return True
 		_ -> checktrust (/= DeadTrusted) $
 			starting "expire" ai si $ do
-				showNote =<< whenactive
+				showNote . UnquotedString =<< whenactive
 				unless noact $
 					trustSet u DeadTrusted
 				next $ return True
   where
-	lastact = changed <$> M.lookup u actlog
+	lastact = changed <$> M.lookup u (fromMapLog actlog)
 	whenactive = case lastact of
 		Just (VectorClock c) -> do
 			d <- liftIO $ durationSince $ posixSecondsToUTCTime c
 			return $ "last active: " ++ fromDuration d ++ " ago"
 		_  -> return "no activity"
 	desc = fromUUID u ++ " " ++ fromUUIDDesc (fromMaybe mempty (M.lookup u descs))
-	ai = ActionItemOther (Just desc)
+	ai = ActionItemUUID u (UnquotedString desc)
 	si = SeekInput []
 	notexpired ent = case ent of
 		Unknown -> False

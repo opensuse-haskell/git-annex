@@ -5,7 +5,7 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE OverloadedStrings, CPP #-}
 
 module Command.EnableTor where
 
@@ -38,11 +38,11 @@ cmd = noCommit $ dontCheck repoExists $
 		"uid" (withParams seek)
 
 seek :: CmdParams -> CommandSeek
-seek = withWords (commandAction . start)
+seek = withWords (commandAction . start . Just)
 
 -- This runs as root, so avoid making any commits or initializing
 -- git-annex, or doing other things that create root-owned files.
-start :: [String] -> CommandStart
+start :: Maybe [String] -> CommandStart
 #ifndef mingw32_HOST_OS
 start os = do
 #else
@@ -53,15 +53,17 @@ start _os = do
 	let si = SeekInput []
 	curruserid <- liftIO getEffectiveUserID
 	if curruserid == 0
-		then case readish =<< headMaybe os of
-			Nothing -> giveup "Need user-id parameter."
-			Just userid -> go userid
+		then case os of
+			Just os' -> case readish =<< headMaybe os' of
+				Nothing -> giveup "Need user-id parameter."
+				Just userid -> go userid
+			Nothing -> giveup "Cannot run this command as root."
 		else starting "enable-tor" ai si $ do
-			gitannex <- liftIO programPath
+			gitannex <- fromOsPath <$> liftIO programPath
 			let ps = [Param (cmdname cmd), Param (show curruserid)]
 			sucommand <- liftIO $ mkSuCommand gitannex ps
 			cleanenv <- liftIO $ cleanStandaloneEnvironment
-			maybe noop showLongNote
+			maybe noop (showLongNote . UnquotedString)
 				(describePasswordPrompt' sucommand)
 			ifM (liftIO $ runSuCommand sucommand cleanenv)
 				( next checkHiddenService
@@ -102,16 +104,16 @@ checkHiddenService = bracket setup cleanup go
 	go _ = check (150 :: Int) =<< filter istoraddr <$> loadP2PAddresses
 	
 	istoraddr (TorAnnex _ _) = True
+	istoraddr _ = False
 
 	check 0 _ = giveup "Still unable to connect to hidden service. It might not yet be usable by others. Please check Tor's logs for details."
 	check _ [] = giveup "Somehow didn't get an onion address."
-	check n addrs@(addr:_) = do
-		g <- Annex.gitRepo
+	check n addrs@(addr:_) =
 		-- Connect but don't bother trying to auth,
 		-- we just want to know if the tor circuit works.
-		liftIO (tryNonAsync $ connectPeer g addr) >>= \case
+		liftIO (tryNonAsync $ connectPeer Nothing addr) >>= \case
 			Left e -> do
-				warning $ "Unable to connect to hidden service. It may not yet have propigated to the Tor network. (" ++ show e ++ ") Will retry.."
+				warning $ UnquotedString $ "Unable to connect to hidden service. It may not yet have propagated to the Tor network. (" ++ show e ++ ") Will retry.."
 				liftIO $ threadDelaySeconds (Seconds 2)
 				check (n-1) addrs
 			Right conn -> do
@@ -123,22 +125,22 @@ checkHiddenService = bracket setup cleanup go
 	-- service's socket, start a listener. This is only run during the
 	-- check, and it refuses all auth attempts.
 	startlistener = do
-		r <- Annex.gitRepo
 		u <- getUUID
 		msock <- torSocketFile
 		case msock of
 			Just sockfile -> ifM (liftIO $ haslistener sockfile)
 				( liftIO $ async $ return ()
-				, liftIO $ async $ runlistener sockfile u r
+				, liftIO $ async $ runlistener sockfile u
 				)
 			Nothing -> giveup "Could not find socket file in Tor configuration!"
 	
-	runlistener sockfile u r = serveUnixSocket sockfile $ \h -> do
+	runlistener sockfile u = serveUnixSocket sockfile $ \h -> do
 		let conn = P2PConnection
-			{ connRepo = r
+			{ connRepo = Nothing
 			, connCheckAuth = const False
-			, connIhdl = h
-			, connOhdl = h
+			, connIhdl = P2PHandle h
+			, connOhdl = P2PHandle h
+			, connProcess = Nothing
 			, connIdent = ConnIdent Nothing
 			}
 		runst <- mkRunState Client
@@ -147,6 +149,6 @@ checkHiddenService = bracket setup cleanup go
 
 	haslistener sockfile = catchBoolIO $ do
 		soc <- S.socket S.AF_UNIX S.Stream S.defaultProtocol
-		S.connect soc (S.SockAddrUnix sockfile)
+		S.connect soc (S.SockAddrUnix $ fromOsPath sockfile)
 		S.close soc
 		return True

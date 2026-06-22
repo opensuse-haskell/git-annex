@@ -5,6 +5,7 @@
  - License: BSD-2-clause
  -}
 
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE CPP #-}
 
 module Utility.Daemon (
@@ -21,9 +22,11 @@ import Utility.PID
 #ifndef mingw32_HOST_OS
 import Utility.LogFile
 import Utility.Env
+import Utility.OpenFd
 #else
 import System.Win32.Process (terminateProcessById)
 import Utility.LockFile
+import qualified Utility.OsString as OS
 #endif
 
 #ifndef mingw32_HOST_OS
@@ -41,7 +44,7 @@ import System.Posix hiding (getEnv, getEnvironment)
  - Instead, it runs the cmd with provided params, in the background,
  - which the caller should arrange to run this again.
  -}
-daemonize :: String -> [CommandParam] -> IO Fd -> Maybe FilePath -> Bool -> IO () -> IO ()
+daemonize :: String -> [CommandParam] -> Maybe (IO Fd) -> Maybe OsPath -> Bool -> IO () -> IO ()
 daemonize cmd params openlogfd pidfile changedirectory a = do
 	maybe noop checkalreadyrunning pidfile
 	getEnv envvar >>= \case
@@ -49,9 +52,10 @@ daemonize cmd params openlogfd pidfile changedirectory a = do
 			maybe noop lockPidFile pidfile 
 			a
 		_ -> do
-			nullfd <- openFd "/dev/null" ReadOnly Nothing defaultFileFlags
+			nullfd <- openFdWithMode (toRawFilePath "/dev/null") ReadOnly Nothing defaultFileFlags 
+				(CloseOnExecFlag True)
 			redir nullfd stdInput
-			redirLog =<< openlogfd
+			maybe noop (redirLog =<<) openlogfd
 			environ <- getEnvironment
 			_ <- createProcess $
 				(proc cmd (toCommand params))
@@ -67,12 +71,12 @@ daemonize cmd params openlogfd pidfile changedirectory a = do
 	envvar = "DAEMONIZED"
 #endif
 
-{- To run an action that is normally daemonized in the forground. -}
+{- To run an action that is normally daemonized in the foreground. -}
 #ifndef mingw32_HOST_OS
-foreground :: IO Fd -> Maybe FilePath -> IO () -> IO ()
+foreground :: IO Fd -> Maybe OsPath -> IO () -> IO ()
 foreground openlogfd pidfile a = do
 #else
-foreground :: Maybe FilePath -> IO () -> IO ()
+foreground :: Maybe OsPath -> IO () -> IO ()
 foreground pidfile a = do
 #endif
 	maybe noop lockPidFile pidfile
@@ -88,17 +92,20 @@ foreground pidfile a = do
 #endif
 
 {- Locks the pid file, with an exclusive, non-blocking lock,
- - and leaves it locked on return.
+ - and leaves it locked on return. The lock file is not closed on exec, so
+ - when daemonize runs the process again, it inherits it.
  -
  - Writes the pid to the file, fully atomically.
  - Fails if the pid file is already locked by another process. -}
-lockPidFile :: FilePath -> IO ()
+lockPidFile :: OsPath -> IO ()
 lockPidFile pidfile = do
 #ifndef mingw32_HOST_OS
-	fd <- openFd pidfile ReadWrite (Just stdFileMode) defaultFileFlags
+	fd <- openFdWithMode (fromOsPath pidfile) ReadWrite (Just stdFileMode) defaultFileFlags
+		(CloseOnExecFlag False)
 	locked <- catchMaybeIO $ setLock fd (WriteLock, AbsoluteSeek, 0, 0)
-	fd' <- openFd newfile ReadWrite (Just stdFileMode) defaultFileFlags
-		{ trunc = True }
+	fd' <- openFdWithMode (fromOsPath newfile) ReadWrite (Just stdFileMode)
+		(defaultFileFlags { trunc = True })
+		(CloseOnExecFlag True)
 	locked' <- catchMaybeIO $ setLock fd' (WriteLock, AbsoluteSeek, 0, 0)
 	case (locked, locked') of
 		(Nothing, _) -> alreadyRunning
@@ -106,17 +113,17 @@ lockPidFile pidfile = do
 		_ -> do
 			_ <- fdWrite fd' =<< show <$> getPID
 			closeFd fd
-	rename newfile pidfile
+	renameFile newfile pidfile
   where
-	newfile = pidfile ++ ".new"
+	newfile = pidfile <> literalOsPath ".new"
 #else
 	{- Not atomic on Windows, oh well. -}
 	unlessM (isNothing <$> checkDaemon pidfile)
 		alreadyRunning
 	pid <- getPID
-	writeFile pidfile (show pid)
+	writeFileString pidfile (show pid)
 	lckfile <- winLockFile pid pidfile
-	writeFile (fromRawFilePath lckfile) ""
+	writeFileString lckfile ""
 	void $ lockExclusive lckfile
 #endif
 
@@ -127,17 +134,20 @@ alreadyRunning = giveup "Daemon is already running."
  - is locked by the same process that is listed in the pid file.
  -
  - If it's running, returns its pid. -}
-checkDaemon :: FilePath -> IO (Maybe PID)
+checkDaemon :: OsPath -> IO (Maybe PID)
 #ifndef mingw32_HOST_OS
 checkDaemon pidfile = bracket setup cleanup go
   where
 	setup = catchMaybeIO $
-		openFd pidfile ReadOnly (Just stdFileMode) defaultFileFlags
+		openFdWithMode (fromOsPath pidfile) ReadOnly
+			(Just stdFileMode) 
+			defaultFileFlags
+			(CloseOnExecFlag True)
 	cleanup (Just fd) = closeFd fd
 	cleanup Nothing = return ()
 	go (Just fd) = catchDefaultIO Nothing $ do
 		locked <- getLock fd (ReadLock, AbsoluteSeek, 0, 0)
-		p <- readish <$> readFile pidfile
+		p <- readish <$> readFileString pidfile
 		return (check locked p)
 	go Nothing = return Nothing
 
@@ -146,12 +156,12 @@ checkDaemon pidfile = bracket setup cleanup go
 	check (Just (pid, _)) (Just pid')
 		| pid == pid' = Just pid
 		| otherwise = giveup $
-			"stale pid in " ++ pidfile ++ 
+			"stale pid in " ++ fromOsPath pidfile ++ 
 			" (got " ++ show pid' ++ 
 			"; expected " ++ show pid ++ " )"
 #else
 checkDaemon pidfile = maybe (return Nothing) (check . readish)
-	=<< catchMaybeIO (readFile pidfile)
+	=<< catchMaybeIO (readFileString pidfile)
   where
 	check Nothing = return Nothing
 	check (Just pid) = do
@@ -164,7 +174,7 @@ checkDaemon pidfile = maybe (return Nothing) (check . readish)
 #endif
 
 {- Stops the daemon, safely. -}
-stopDaemon :: FilePath -> IO ()
+stopDaemon :: OsPath -> IO ()
 stopDaemon pidfile = go =<< checkDaemon pidfile
   where
 	go Nothing = noop
@@ -180,14 +190,14 @@ stopDaemon pidfile = go =<< checkDaemon pidfile
  - when eg, restarting the daemon.
  -}
 #ifdef mingw32_HOST_OS
-winLockFile :: PID -> FilePath -> IO RawFilePath
+winLockFile :: PID -> OsPath -> IO OsPath
 winLockFile pid pidfile = do
 	cleanstale
-	return $ toRawFilePath $ prefix ++ show pid ++ suffix
+	return $ prefix <> toOsPath (show pid) <> suffix
   where
-	prefix = pidfile ++ "."
-	suffix = ".lck"
+	prefix = pidfile <> literalOsPath "."
+	suffix = literalOsPath ".lck"
 	cleanstale = mapM_ (void . tryIO . removeFile) =<<
-		(filter iswinlockfile <$> dirContents (fromRawFilePath (parentDir (toRawFilePath pidfile))))
-	iswinlockfile f = suffix `isSuffixOf` f && prefix `isPrefixOf` f
+		(filter iswinlockfile <$> dirContents (parentDir pidfile))
+	iswinlockfile f = suffix `OS.isSuffixOf` f && prefix `OS.isPrefixOf` f
 #endif

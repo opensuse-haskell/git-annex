@@ -13,7 +13,7 @@
  -
  - Tahoe has its own encryption, so git-annex's encryption is not used.
  -
- - Copyright 2014-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2014-2025 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -45,17 +45,20 @@ import Utility.UserInfo
 import Utility.Metered
 import Utility.Env
 import Utility.ThreadScheduler
+import Utility.Process.Transcript
+
+import Control.Concurrent
 
 {- The TMVar is left empty until tahoe has been verified to be running. -}
 data TahoeHandle = TahoeHandle TahoeConfigDir (TMVar ())
 
-type TahoeConfigDir = FilePath
+type TahoeConfigDir = OsPath
 type SharedConvergenceSecret = String
 type IntroducerFurl = String
 type Capability = String
 
 remote :: RemoteType
-remote = specialRemoteType $ RemoteType
+remote = RemoteType
 	{ typename = "tahoe"
 	, enumerate = const (findSpecialRemotes "tahoe")
 	, generate = gen
@@ -79,9 +82,11 @@ furlField = Accepted "introducer-furl"
 gen :: Git.Repo -> UUID -> RemoteConfig -> RemoteGitConfig -> RemoteStateHandle -> Annex (Maybe Remote)
 gen r u rc gc rs = do
 	c <- parsedRemoteConfig remote rc
-	cst <- remoteCost gc expensiveRemoteCost
+	cst <- remoteCost gc c expensiveRemoteCost
 	hdl <- liftIO $ TahoeHandle
-		<$> maybe (defaultTahoeConfigDir u) return (remoteAnnexTahoe gc)
+		<$> maybe (defaultTahoeConfigDir u)
+			(return . toOsPath)
+			(remoteAnnexTahoe gc)
 		<*> newEmptyTMVarIO
 	return $ Just $ Remote
 		{ uuid = u
@@ -89,6 +94,9 @@ gen r u rc gc rs = do
 		, name = Git.repoDescribe r
 		, storeKey = store rs hdl
 		, retrieveKeyFile = retrieve rs hdl
+		-- Unsure about whether tahoe might sometimes write chunks
+		-- out of order.
+		, retrieveKeyFileInOrder = pure False
 		, retrieveKeyFileCheap = Nothing
 		-- Tahoe cryptographically verifies content.
 		, retrievalSecurityPolicy = RetrievalAllKeysSecure
@@ -100,6 +108,7 @@ gen r u rc gc rs = do
 		, importActions = importUnsupported
 		, whereisKey = Just (getWhereisKey rs)
 		, remoteFsck = Nothing
+		, repairKey = Nothing
 		, repairRepo = Nothing
 		, config = c
 		, getRepo = return r
@@ -108,7 +117,7 @@ gen r u rc gc rs = do
 		, readonly = False
 		, appendonly = False
 		, untrustworthy = False
-		, availability = GloballyAvailable
+		, availability = pure GloballyAvailable
 		, remotetype = remote
 		, mkUnavailable = return Nothing
 		, getInfo = return []
@@ -117,8 +126,8 @@ gen r u rc gc rs = do
 		, remoteStateHandle = rs
 		}
 
-tahoeSetup :: SetupStage -> Maybe UUID -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
-tahoeSetup _ mu _ c _ = do
+tahoeSetup :: SetupStage -> Maybe UUID -> RemoteName -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
+tahoeSetup _ mu _ _ c _ = do
 	furl <- maybe (fromMaybe missingfurl $ M.lookup furlField c) Proposed
 		<$> liftIO (getEnv "TAHOE_FURL")
 	u <- maybe (liftIO genUUID) return mu
@@ -133,18 +142,19 @@ tahoeSetup _ mu _ c _ = do
 			, (scsField, Proposed scs)
 			]
 		else c
-	gitConfigSpecialRemote u c' [("tahoe", configdir)]
+	gitConfigSpecialRemote u c' [("tahoe", fromOsPath configdir)]
 	return (c', u)
   where
 	missingfurl = giveup "Set TAHOE_FURL to the introducer furl to use."
 
-store :: RemoteStateHandle -> TahoeHandle -> Key -> AssociatedFile -> MeterUpdate -> Annex ()
-store rs hdl k _f _p = sendAnnex k noop $ \src ->
-	parsePut <$> liftIO (readTahoe hdl "put" [File src]) >>= maybe
+store :: RemoteStateHandle -> TahoeHandle -> Key -> AssociatedFile -> Maybe OsPath -> MeterUpdate -> Annex ()
+store rs hdl k _af o _p = sendAnnex k o noop $ \src _sz -> do
+	showOutput
+	parsePut <$> liftIO (readTahoe hdl "put" [File (fromOsPath src)]) >>= maybe
 		(giveup "tahoe failed to store content")
 		(\cap -> storeCapability rs k cap)
 
-retrieve :: RemoteStateHandle -> TahoeHandle -> Key -> AssociatedFile -> FilePath -> MeterUpdate -> VerifyConfig -> Annex Verification
+retrieve :: RemoteStateHandle -> TahoeHandle -> Key -> AssociatedFile -> OsPath -> MeterUpdate -> VerifyConfig -> Annex Verification
 retrieve rs hdl k _f d _p _ = do
 	go =<< getCapability rs k
 	-- Tahoe verifies the content it retrieves using cryptographically
@@ -152,11 +162,13 @@ retrieve rs hdl k _f d _p _ = do
 	return Verified
   where
 	go Nothing = giveup "tahoe capability is not known"
-	go (Just cap) = unlessM (liftIO $ requestTahoe hdl "get" [Param cap, File d]) $
-		giveup "tahoe failed to reteieve content"
+	go (Just cap) = do
+		showOutput
+		unlessM (liftIO $ requestTahoe hdl "get" [Param cap, File (fromOsPath d)]) $
+			giveup "tahoe failed to retrieve content"
 
-remove :: Key -> Annex ()
-remove _k = giveup "content cannot be removed from tahoe remote"
+remove :: Maybe SafeDropProof -> Key -> Annex ()
+remove _ _ = giveup "content cannot be removed from tahoe remote"
 
 -- Since content cannot be removed from tahoe (by git-annex),
 -- nothing needs to be done to lock content there, except for checking that
@@ -164,7 +176,7 @@ remove _k = giveup "content cannot be removed from tahoe remote"
 lockKey :: UUID -> RemoteStateHandle -> TahoeHandle -> Key -> (VerifiedCopy -> Annex a) -> Annex a
 lockKey u rs hrl k callback = 
 	ifM (checkKey rs hrl k)
-		( withVerifiedCopy LockedCopy u (return True) callback
+		( withVerifiedCopy LockedCopy u (return (Right True)) callback
 		, giveup $ "content seems to be missing from tahoe remote"
 		)
 
@@ -182,7 +194,7 @@ checkKey rs hdl k = go =<< getCapability rs k
 defaultTahoeConfigDir :: UUID -> IO TahoeConfigDir
 defaultTahoeConfigDir u = do
 	h <- myHomeDir 
-	return $ h </> ".tahoe-git-annex" </> fromUUID u
+	return $ toOsPath h </> literalOsPath ".tahoe-git-annex" </> fromUUID u
 
 tahoeConfigure :: TahoeConfigDir -> IntroducerFurl -> Maybe SharedConvergenceSecret -> IO SharedConvergenceSecret
 tahoeConfigure configdir furl mscs = do
@@ -194,8 +206,7 @@ tahoeConfigure configdir furl mscs = do
 
 createClient :: TahoeConfigDir -> IntroducerFurl -> IO Bool
 createClient configdir furl = do
-	createDirectoryIfMissing True $
-		fromRawFilePath $ parentDir $ toRawFilePath configdir
+	createDirectoryIfMissing True $ parentDir configdir
 	boolTahoe configdir "create-client"
 		[ Param "--nickname", Param "git-annex"
 		, Param "--introducer", Param furl
@@ -203,7 +214,8 @@ createClient configdir furl = do
 
 writeSharedConvergenceSecret :: TahoeConfigDir -> SharedConvergenceSecret -> IO ()
 writeSharedConvergenceSecret configdir scs = 
-	writeFile (convergenceFile configdir) (unlines [scs])
+	writeFileString (convergenceFile configdir)
+		(unlines [scs])
 
 {- The tahoe daemon writes the convergenceFile shortly after it starts
  - (it does not need to connect to the network). So, try repeatedly to read
@@ -214,9 +226,9 @@ getSharedConvergenceSecret configdir = go (60 :: Int)
   where
 	f = convergenceFile configdir
 	go n
-		| n == 0 = giveup $ "tahoe did not write " ++ f ++ " after 1 minute. Perhaps the daemon failed to start?"
+		| n == 0 = giveup $ "tahoe did not write " ++ fromOsPath f ++ " after 1 minute. Perhaps the daemon failed to start?"
 		| otherwise = do
-			v <- catchMaybeIO (readFile f)
+			v <- catchMaybeIO (readFileString f)
 			case v of
 				Just s | "\n" `isSuffixOf` s || "\r" `isSuffixOf` s ->
 					return $ takeWhile (`notElem` ("\n\r" :: String)) s
@@ -224,11 +236,46 @@ getSharedConvergenceSecret configdir = go (60 :: Int)
 					threadDelaySeconds (Seconds 1)
 					go (n - 1)
 
-convergenceFile :: TahoeConfigDir -> FilePath
-convergenceFile configdir = configdir </> "private" </> "convergence"
+convergenceFile :: TahoeConfigDir -> OsPath
+convergenceFile configdir = 
+	configdir </> literalOsPath "private" </> literalOsPath "convergence"
 
+{- tahoe run stays in the foreground, but behaves as a daemon, servicing
+ - requests. Attempting to start a second tahoe run process will fail. So,
+ - in order to support multiple git-annex processes, it is run in the
+ - background, and left running on exit.
+ -
+ - It can take a while for tahoe to begin accepting connections.
+ - This function waits for it to get ready.
+ -}
 startTahoeDaemon :: TahoeConfigDir -> IO ()
-startTahoeDaemon configdir = void $ boolTahoe configdir "start" []
+startTahoeDaemon configdir = withNullHandle $ \nullh -> do
+	let ps = tahoeParams configdir "run" [Param "--allow-stdin-close"]
+	let p = (proc "tahoe" $ toCommand ps)
+		{ std_in = UseHandle nullh
+		, std_out = UseHandle nullh
+		, std_err = UseHandle nullh
+		}
+	void $ forkIO $ void $ createProcess p
+	waitready (5 :: Int)
+	hClose nullh
+  where
+	waitready n
+		| n <= 0 = giveup "The tahoe run process is not responding to requests. Waited 5 seconds for it to start."
+		| otherwise = do
+			-- Need something that will always succeed
+			-- once the server has started and is accepting
+			-- requests, and this seems to do the trick.
+			let ps = tahoeParams configdir "check"
+				[ Param "--raw", Param "URI:LIT:"]
+			(_, ok) <- processTranscript "tahoe" 
+				(toCommand ps)
+				Nothing
+			if ok
+				then return ()
+				else do
+					threadDelaySeconds (Seconds 1)
+					waitready (pred n)
 
 {- Ensures that tahoe has been started, before running an action
  - that uses it. -}
@@ -264,7 +311,7 @@ readTahoe hdl command params = withTahoeConfigDir hdl $ \configdir ->
 
 tahoeParams :: TahoeConfigDir -> String -> [CommandParam] -> [CommandParam]
 tahoeParams configdir command params = 
-	Param "-d" : File configdir : Param command : params
+	Param "-d" : File (fromOsPath configdir) : Param command : params
 
 storeCapability :: RemoteStateHandle -> Key -> Capability -> Annex ()
 storeCapability rs k cap = setRemoteState rs k cap

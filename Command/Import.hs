@@ -1,11 +1,11 @@
 {- git-annex command
  -
- - Copyright 2012-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2012-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
-{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE ApplicativeDo, OverloadedStrings #-}
 
 module Command.Import where
 
@@ -37,6 +37,7 @@ import Utility.Metered
 import qualified Utility.RawFilePath as R
 
 import Control.Concurrent.STM
+import System.PosixCompat.Files (isDirectory, isSymbolicLink, isRegularFile)
 
 cmd :: Command
 cmd = notBareRepo $
@@ -69,18 +70,23 @@ data ImportOptions
 		, importToSubDir :: Maybe FilePath
 		, importContent :: Bool
 		, checkGitIgnoreOption :: CheckGitIgnore
+		, messageOption :: [String]
 		}
 
 optParser :: CmdParamsDesc -> Parser ImportOptions
 optParser desc = do
 	ps <- cmdParams desc
-	mfromremote <- optional $ parseRemoteOption <$> parseFromOption
+	mfromremote <- optional $ mkParseRemoteOption <$> parseFromOption
 	content <- invertableSwitch "content" True
 		( help "do not get contents of imported files"
 		)
 	dupmode <- fromMaybe Default <$> optional duplicateModeParser
 	ic <- Command.Add.checkGitIgnoreSwitch
-	return $ case mfromremote of
+	message <- many (strOption
+		( long "message" <> short 'm' <> metavar "MSG"
+		<> help "commit message"
+		))
+	pure $ case mfromremote of
 		Nothing -> LocalImportOptions ps dupmode ic
 		Just r -> case ps of
 			[bs] -> 
@@ -90,6 +96,7 @@ optParser desc = do
 					(if null subdir then Nothing else Just subdir)
 					content
 					ic
+					message
 			_ -> giveup "expected BRANCH[:SUBDIR]"
 
 data DuplicateMode = Default | Duplicate | DeDuplicate | CleanDuplicates | SkipDuplicates | ReinjectDuplicates
@@ -122,9 +129,12 @@ seek :: ImportOptions -> CommandSeek
 seek o@(LocalImportOptions {}) = startConcurrency commandStages $ do
 	repopath <- liftIO . absPath =<< fromRepo Git.repoPath
 	inrepops <- liftIO $ filter (dirContains repopath)
-		<$> mapM (absPath . toRawFilePath) (importFiles o)
+		<$> mapM (absPath . toOsPath) (importFiles o)
 	unless (null inrepops) $ do
-		giveup $ "cannot import files from inside the working tree (use git annex add instead): " ++ unwords (map fromRawFilePath inrepops)
+		qp <- coreQuotePath <$> Annex.getGitConfig
+		giveup $ decodeBS $ quote qp $ 
+			"cannot import files from inside the working tree (use git annex add instead): "
+				<> quotedPaths inrepops
 	largematcher <- largeFilesMatcher
 	addunlockedmatcher <- addUnlockedMatcher
 	(commandAction . startLocal o addunlockedmatcher largematcher (duplicateMode o))
@@ -135,13 +145,17 @@ seek o@(RemoteImportOptions {}) = startConcurrency commandStages $ do
 		giveup "That remote does not support imports."
 	subdir <- maybe
 		(pure Nothing)
-		(Just <$$> inRepo . toTopFilePath . toRawFilePath)
+		(Just <$$> inRepo . toTopFilePath . toOsPath)
 		(importToSubDir o)
-	seekRemote r (importToBranch o) subdir (importContent o) (checkGitIgnoreOption o)
+	addunlockedmatcher <- addUnlockedMatcher
+	seekRemote r (importToBranch o) subdir (importContent o) 
+		(checkGitIgnoreOption o)
+		addunlockedmatcher
+		(messageOption o)
 
-startLocal :: ImportOptions -> AddUnlockedMatcher -> GetFileMatcher -> DuplicateMode -> (RawFilePath, RawFilePath) -> CommandStart
+startLocal :: ImportOptions -> AddUnlockedMatcher -> GetFileMatcher -> DuplicateMode -> (OsPath, OsPath) -> CommandStart
 startLocal o addunlockedmatcher largematcher mode (srcfile, destfile) =
-	ifM (liftIO $ isRegularFile <$> R.getSymbolicLinkStatus srcfile)
+	ifM (liftIO $ isRegularFile <$> R.getSymbolicLinkStatus (fromOsPath srcfile))
 		( starting "import" ai si pickaction
 		, stop
 		)
@@ -150,10 +164,10 @@ startLocal o addunlockedmatcher largematcher mode (srcfile, destfile) =
 	si = SeekInput []
 
 	deletedup k = do
-		showNote $ "duplicate of " ++ serializeKey k
+		showNote $ UnquotedString $ "duplicate of " ++ serializeKey k
 		verifyExisting k destfile
 			( do
-				liftIO $ R.removeLink srcfile
+				liftIO $ removeFile srcfile
 				next $ return True
 			, do
 				warning "Could not verify that the content is still present in the annex; not removing from the import location."
@@ -166,35 +180,35 @@ startLocal o addunlockedmatcher largematcher mode (srcfile, destfile) =
 		ignored <- checkIgnored (checkGitIgnoreOption o) destfile
 		if ignored
 			then do
-				warning $ "not importing " ++ fromRawFilePath destfile ++ " which is .gitignored (use --no-check-gitignore to override)"
+				warning $ "not importing " <> QuotedPath destfile <> " which is .gitignored (use --no-check-gitignore to override)"
 				stop
 			else do
-				existing <- liftIO (catchMaybeIO $ R.getSymbolicLinkStatus destfile)
+				existing <- liftIO (catchMaybeIO $ R.getSymbolicLinkStatus (fromOsPath destfile))
 				case existing of
 					Nothing -> importfilechecked ld k
 					Just s
 						| isDirectory s -> notoverwriting "(is a directory)"
 						| isSymbolicLink s -> ifM (Annex.getRead Annex.force)
 							( do
-								liftIO $ removeWhenExistsWith R.removeLink destfile
+								liftIO $ removeWhenExistsWith removeFile destfile
 								importfilechecked ld k
 							, notoverwriting "(is a symlink)"
 							)
 						| otherwise -> ifM (Annex.getRead Annex.force)
 							( do
-								liftIO $ removeWhenExistsWith R.removeLink destfile
+								liftIO $ removeWhenExistsWith removeFile destfile
 								importfilechecked ld k
 							, notoverwriting "(use --force to override, or a duplication option such as --deduplicate to clean up)"
 							)
 	checkdestdir cont = do
 		let destdir = parentDir destfile
-		existing <- liftIO (catchMaybeIO $ R.getSymbolicLinkStatus destdir)
+		existing <- liftIO (catchMaybeIO $ R.getSymbolicLinkStatus (fromOsPath destdir))
 		case existing of
 			Nothing -> cont
 			Just s
 				| isDirectory s -> cont
 				| otherwise -> do
-					warning $ "not importing " ++ fromRawFilePath destfile ++ " because " ++ fromRawFilePath destdir ++ " is not a directory"
+					warning $ "not importing " <> QuotedPath destfile <> " because " <> QuotedPath destdir <> " is not a directory"
 					stop
 
 	importfilechecked ld k = do
@@ -203,10 +217,8 @@ startLocal o addunlockedmatcher largematcher mode (srcfile, destfile) =
 		createWorkTreeDirectory (parentDir destfile)
 		unwind <- liftIO $ if mode == Duplicate || mode == SkipDuplicates
 			then do
-				void $ copyFileExternal CopyAllMetaData 
-					(fromRawFilePath srcfile)
-					(fromRawFilePath destfile)
-				return $ removeWhenExistsWith R.removeLink destfile
+				void $ copyFileExternal CopyAllMetaData srcfile destfile
+				return $ removeWhenExistsWith removeFile destfile
 			else do
 				moveFile srcfile destfile
 				return $ moveFile destfile srcfile
@@ -220,13 +232,14 @@ startLocal o addunlockedmatcher largematcher mode (srcfile, destfile) =
 			checkLockedDownWritePerms destfile srcfile >>= \case
 				Just err -> do
 					liftIO unwind
-					giveup err
+					qp <- coreQuotePath <$> Annex.getGitConfig
+					giveup (decodeBS $ quote qp err)
 				Nothing -> noop
 		-- Get the inode cache of the dest file. It should be
 		-- weakly the same as the originally locked down file's
 		-- inode cache. (Since the file may have been copied,
 		-- its inodes may not be the same.)
-		s <- liftIO $ R.getSymbolicLinkStatus destfile
+		s <- liftIO $ R.getSymbolicLinkStatus (fromOsPath destfile)
 		newcache <- withTSDelta $ \d -> liftIO $ toInodeCache d destfile s
 		let unchanged = case (newcache, inodeCache (keySource ld)) of
 			(_, Nothing) -> True
@@ -243,15 +256,15 @@ startLocal o addunlockedmatcher largematcher mode (srcfile, destfile) =
 				, inodeCache = newcache
 				}
 			}
-		ifM (checkFileMatcher largematcher destfile)
+		ifM (checkFileMatcher NoLiveUpdate largematcher destfile)
 			( ingestAdd' nullMeterUpdate (Just ld') (Just k)
 				>>= maybe
 					stop
 					(\addedk -> next $ Command.Add.cleanup addedk True)
-			, Command.Add.addSmall (DryRun False) destfile s
+			, Command.Add.addSmall False (DryRun False) destfile s
 			)
 	notoverwriting why = do
-		warning $ "not overwriting existing " ++ fromRawFilePath destfile ++ " " ++ why
+		warning $ "not overwriting existing " <> QuotedPath destfile <> " " <> UnquotedString why
 		stop
 	lockdown a = do
 		let mi = MatchingFile $ FileInfo
@@ -272,7 +285,7 @@ startLocal o addunlockedmatcher largematcher mode (srcfile, destfile) =
 			-- the file gets copied into the repository.
 			, checkWritePerms = False
 			}
-		v <- lockDown cfg (fromRawFilePath srcfile)
+		v <- lockDown cfg srcfile
 		case v of
 			Just ld -> do
 				backend <- chooseBackend destfile
@@ -295,20 +308,22 @@ startLocal o addunlockedmatcher largematcher mode (srcfile, destfile) =
 			(reinject k)
 			(importfile ld k)
 		_ -> importfile ld k
-	skipbecause s = showNote (s ++ "; skipping") >> next (return True)
+	skipbecause s = do
+		showNote (s <> "; skipping")
+		next (return True)
 
-verifyExisting :: Key -> RawFilePath -> (CommandPerform, CommandPerform) -> CommandPerform
+verifyExisting :: Key -> OsPath -> (CommandPerform, CommandPerform) -> CommandPerform
 verifyExisting key destfile (yes, no) = do
 	-- Look up the numcopies setting for the file that it would be
 	-- imported to, if it were imported.
 	(needcopies, mincopies) <- getFileNumMinCopies destfile
 
 	(tocheck, preverified) <- verifiableCopies key []
-	verifyEnoughCopiesToDrop [] key Nothing needcopies mincopies [] preverified tocheck
+	verifyEnoughCopiesToDrop [] key Nothing Nothing needcopies mincopies [] preverified tocheck
 		(const yes) no
 
-seekRemote :: Remote -> Branch -> Maybe TopFilePath -> Bool -> CheckGitIgnore -> CommandSeek
-seekRemote remote branch msubdir importcontent ci = do
+seekRemote :: Remote -> Branch -> Maybe TopFilePath -> Bool -> CheckGitIgnore -> AddUnlockedMatcher -> [String] -> CommandSeek
+seekRemote remote branch msubdir importcontent ci addunlockedmatcher importmessages = do
 	importtreeconfig <- case msubdir of
 		Nothing -> return ImportTree
 		Just subdir ->
@@ -321,24 +336,26 @@ seekRemote remote branch msubdir importcontent ci = do
 	
 	trackingcommit <- fromtrackingbranch Git.Ref.sha
 	cmode <- annexCommitMode <$> Annex.getGitConfig
-	let importcommitconfig = ImportCommitConfig trackingcommit cmode importmessage
-	let commitimport = commitRemote remote branch tb trackingcommit importtreeconfig importcommitconfig
+	let importcommitconfig = ImportCommitConfig trackingcommit cmode importmessages'
+	let commitimport = commitRemote remote branch tb trackingcommit importtreeconfig importcommitconfig addunlockedmatcher
 
 	importabletvar <- liftIO $ newTVarIO Nothing
 	void $ includeCommandAction (listContents remote importtreeconfig ci importabletvar)
 	liftIO (atomically (readTVar importabletvar)) >>= \case
 		Nothing -> return ()
-		Just importable -> importKeys remote importtreeconfig importcontent False importable >>= \case
-			Nothing -> warning $ concat
+		Just importable -> importChanges remote importtreeconfig importcontent False importable >>= \case
+			ImportUnfinished -> warning $ UnquotedString $ concat
 				[ "Failed to import some files from "
 				, Remote.name remote
 				, ". Re-run command to resume import."
 				]
-			Just imported -> void $
-				includeCommandAction $ 
-					commitimport imported
+			ImportFinished postexportlogupdate imported ->
+				void $ includeCommandAction $ 
+					commitimport imported postexportlogupdate
   where
-	importmessage = "import from " ++ Remote.name remote
+	importmessages'
+		| null importmessages = ["import from " ++ Remote.name remote]
+		| otherwise = importmessages
 
 	tb = mkRemoteTrackingBranch remote branch
 
@@ -350,7 +367,7 @@ listContents remote importtreeconfig ci tvar = starting "list" ai si $
 		liftIO $ atomically $ writeTVar tvar importable
 		next $ return True
   where
-	ai = ActionItemOther (Just (Remote.name remote))
+	ai = ActionItemOther (Just (UnquotedString (Remote.name remote)))
 	si = SeekInput []
 
 listContents' :: Remote -> ImportTreeConfig -> CheckGitIgnore -> (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, Remote.ByteSize)) -> Annex a) -> Annex a
@@ -366,13 +383,13 @@ listContents' remote importtreeconfig ci a =
 			, err
 			]
 
-commitRemote :: Remote -> Branch -> RemoteTrackingBranch -> Maybe Sha -> ImportTreeConfig -> ImportCommitConfig -> ImportableContentsChunkable Annex (Either Sha Key) -> CommandStart
-commitRemote remote branch tb trackingcommit importtreeconfig importcommitconfig importable =
+commitRemote :: Remote -> Branch -> RemoteTrackingBranch -> Maybe Sha -> ImportTreeConfig -> ImportCommitConfig -> AddUnlockedMatcher -> Imported -> PostExportLogUpdate -> CommandStart
+commitRemote remote branch tb trackingcommit importtreeconfig importcommitconfig addunlockedmatcher imported postexportlogupdate =
 	starting "update" ai si $ do
-		importcommit <- buildImportCommit remote importtreeconfig importcommitconfig importable
+		importcommit <- buildImportCommit remote importtreeconfig importcommitconfig addunlockedmatcher imported postexportlogupdate
 		next $ updateremotetrackingbranch importcommit
   where
-	ai = ActionItemOther (Just $ fromRef $ fromRemoteTrackingBranch tb)
+	ai = ActionItemOther (Just $ UnquotedString $ fromRef $ fromRemoteTrackingBranch tb)
 	si = SeekInput []
 	-- Update the tracking branch. Done even when there
 	-- is nothing new to import, to make sure it exists.
@@ -382,5 +399,5 @@ commitRemote remote branch tb trackingcommit importtreeconfig importcommitconfig
 				setRemoteTrackingBranch tb c
 				return True
 			Nothing -> do
-				warning $ "Nothing to import and " ++ fromRef branch ++ " does not exist."
+				warning $ UnquotedString $ "Nothing to import and " ++ fromRef branch ++ " does not exist."
 				return False

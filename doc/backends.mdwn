@@ -45,8 +45,7 @@ in `.gitattributes`:
   platforms.
 * `BLAKE2S160`, `BLAKE2S224`, `BLAKE2S256`
   `BLAKE2S160E`, `BLAKE2S224E`, `BLAKE2S256E`
-  -- Fas:w
-  t [Blake2 hash](https://blake2.net/) variants optimised for 32 bit
+  -- Fast [Blake2 hash](https://blake2.net/) variants optimised for 32 bit
   platforms.
 * `BLAKE2BP512`, `BLAKE2BP512E`
   -- Fast [Blake2 hash](https://blake2.net/) variants optimised for
@@ -55,6 +54,10 @@ in `.gitattributes`:
   `BLAKE2SP224E`, `BLAKE2SP256E`
   -- Fast [Blake2 hash](https://blake2.net/) variants optimised for 
   8-way CPUs.
+* `VURL` -- This is like an `URL` (see below) but the content can
+  be verified with a cryptographically secure checksum that is
+  recorded in the git-annex branch. It's generated when using 
+  eg `git-annex addurl --fast/--relaxed`.
 
 ## non-cryptograpgically secure backends
 
@@ -67,18 +70,16 @@ content of an annexed file remains unchanged.
   the same filename, size, and modification time has the same content.
   This is the least expensive backend, recommended for really large
   files or slow systems.
-* `URL` -- This is a key that is generated from the url to a file.
-  It's generated when using eg, `git annex addurl --fast`, when the file
-  content is not available for hashing.  The key may not contain the full
-  URL; for long URLs, part of the URL may be represented by a checksum.
+* `URL` -- This is a key that is generated from the url to a file.  
+  The key may not contain the full URL; for long URLs, part of the URL may be
+  represented by a checksum.  
   The URL key may contain `&` characters; be sure to quote the key if
-  passing it to a shell script.  The URL-backend key is distinct from URLs/URIs
+  passing it to a shell script. These types of keys are distinct from URLs/URIs
   that may be attached to a key (using any backend) indicating the key's location
-  on the web or in one of [[special_remotes]].
-* `GIT` -- This is used internally by git-annex when exporting trees
-  containing files stored in git, rather than git-annex. It represents a
-  git sha. This is never used for git-annex links, but information about
-  keys of this type is stored in the git-annex branch.
+  on the web or in one of [[special_remotes]].  
+  Older versions of git-annex generated this when using 
+  `git annex addurl --fast/--relaxed`, and `git-annex registerurl` still
+  generates this.  
 
 ## external backends
 
@@ -95,6 +96,19 @@ Here's a list of external backends. Edit this page to add yours to the list.
 Like with git-annex's builtin backends, you can add "E" to the end of the
 name of an external backend, to get a version that includes the file
 extension in the key.
+
+## internal use backends
+
+Keys using these backends can sometimes be visible, but they are used by
+git-annex for its own purposes, and not for your annexed files.
+
+* `GIT` -- This is used internally by git-annex when exporting trees
+  containing files stored in git, rather than git-annex. It represents a
+  git sha. This is never used for git-annex links, but information about
+  keys of this type is stored in the git-annex branch.
+* `GITBUNDLE` and `GITMANIFEST` -- Used by [[git-remote-annex]] to store
+  a git repository in a special remote. See 
+  [[this_page|internals/git-remote-annex]] for details about these.
 
 ## notes
 

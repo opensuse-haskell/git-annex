@@ -54,7 +54,6 @@ import Git.Types
 import Git.HashObject
 import qualified Git.LsTree as LsTree
 import qualified Utility.CoProcess as CoProcess
-import qualified Git.BuildVersion as BuildVersion
 import Utility.Tuple
 
 data CatFileHandle = CatFileHandle 
@@ -99,11 +98,11 @@ catFileMetaDataStop :: CatFileMetaDataHandle -> IO ()
 catFileMetaDataStop = CoProcess.stop . checkFileProcess
 
 {- Reads a file from a specified branch. -}
-catFile :: CatFileHandle -> Branch -> RawFilePath -> IO L.ByteString
+catFile :: CatFileHandle -> Branch -> OsPath -> IO L.ByteString
 catFile h branch file = catObject h $
 	Git.Ref.branchFileRef branch file
 
-catFileDetails :: CatFileHandle -> Branch -> RawFilePath -> IO (Maybe (L.ByteString, Sha, ObjectType))
+catFileDetails :: CatFileHandle -> Branch -> OsPath -> IO (Maybe (L.ByteString, Sha, ObjectType))
 catFileDetails h branch file = catObjectDetails h $ 
 	Git.Ref.branchFileRef branch file
 
@@ -120,7 +119,7 @@ catObjectDetails h object = query (catFileProcess h) object newlinefallback $ \f
 			content <- readObjectContent from r
 			return $ Just (content, sha, objtype)
 		Just DNE -> return Nothing
-		Nothing -> error $ "unknown response from git cat-file " ++ show (header, object)
+		Nothing -> giveup $ "unknown response from git cat-file " ++ show (header, object)
   where
 	-- Slow fallback path for filenames containing newlines.
 	newlinefallback = queryObjectType object (catFileGitRepo h) >>= \case
@@ -144,7 +143,7 @@ readObjectContent h (ParsedResp _ _ size) = do
 	eatchar expected = do
 		c <- hGetChar h
 		when (c /= expected) $
-			error $ "missing " ++ (show expected) ++ " from git cat-file"
+			giveup $ "missing " ++ (show expected) ++ " from git cat-file"
 readObjectContent _ DNE = error "internal"
 
 {- Gets the size and type of an object, without reading its content. -}
@@ -330,9 +329,12 @@ catObjectStream
 	:: (MonadMask m, MonadIO m)
 	=> Repo
 	-> (
-	    ((v, Ref) -> IO ()) -- ^ call to feed values in
-	    -> IO () -- call once all values are fed in
-	    -> IO (Maybe (v, Maybe L.ByteString)) -- call to read results
+	    ((v, Ref) -> IO ())
+	    -- ^ call to feed values in
+	    -> IO ()
+	    -- ^ call once all values are fed in
+	    -> IO (Maybe (v, Maybe L.ByteString))
+	    -- ^ call to read results
 	    -> m a
 	   )
 	-> m a
@@ -350,9 +352,12 @@ catObjectMetaDataStream
 	:: (MonadMask m, MonadIO m)
 	=> Repo
 	-> (
-	    ((v, Ref) -> IO ()) -- ^ call to feed values in
-	    -> IO () -- call once all values are fed in
-	    -> IO (Maybe (v, Maybe (Sha, FileSize, ObjectType))) -- call to read results
+	    ((v, Ref) -> IO ())
+	    -- ^ call to feed values in
+	    -> IO ()
+	    -- ^ call once all values are fed in
+	    -> IO (Maybe (v, Maybe (Sha, FileSize, ObjectType)))
+	    -- ^ call to read results
 	    -> m a
 	   )
 	-> m a
@@ -397,14 +402,10 @@ withCatFileStream
 withCatFileStream check repo reader = assertLocal repo $
 	bracketIO start stop $ \(c, hin, hout, _) -> reader c hin hout
   where
-	params = catMaybes
-		[ Just $ Param "cat-file"
-		, Just $ Param ("--batch" ++ (if check then "-check" else "") ++ "=" ++ batchFormat)
-		-- This option makes it faster, but is not present in
-		-- older versions of git.
-		, if BuildVersion.older "2.4.3"
-			then Nothing
-			else Just $ Param "--buffer"
+	params =
+		[ Param "cat-file"
+		, Param ("--batch" ++ (if check then "-check" else "") ++ "=" ++ batchFormat)
+		, Param "--buffer" -- makes it faster
 		]
 
 	start = do

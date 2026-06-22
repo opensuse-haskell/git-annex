@@ -21,6 +21,7 @@ import Types.NumCopies
 import qualified Annex
 import qualified Git
 import qualified Git.Types as Git
+import qualified Git.Config
 import qualified Git.Url
 import qualified Git.Remote
 import qualified Git.GCrypt
@@ -37,19 +38,14 @@ import Annex.Ssh
 import Annex.UUID
 import Crypto
 import Backend.Hash
+import Logs.Remote
+import Logs.RemoteState
 import Utility.Hash
 import Utility.SshHost
 import Utility.Url
-import Logs.Remote
-import Logs.RemoteState
-import qualified Git.Config
+import qualified Utility.FileIO as F
 
-#ifdef WITH_GIT_LFS
 import qualified Network.GitLFS as LFS
-#else
-import qualified Utility.GitLFS as LFS
-#endif
-
 import Control.Concurrent.STM
 import Data.String
 import Network.HTTP.Types
@@ -71,6 +67,8 @@ remote = specialRemoteType $ RemoteType
 	, configParser = mkRemoteConfigParser
 		[ optionalStringParser urlField
 			(FieldDesc "url of git-lfs repository")
+		, optionalStringParser apiUrlField
+			(FieldDesc "url of LFS API endpoint (when not specified derives from url)")
 		]
 	, setup = mySetup
 	, exportSupported = exportUnsupported
@@ -81,10 +79,13 @@ remote = specialRemoteType $ RemoteType
 urlField :: RemoteConfigField
 urlField = Accepted "url"
 
+apiUrlField :: RemoteConfigField
+apiUrlField = Accepted "apiurl"
+
 gen :: Git.Repo -> UUID -> RemoteConfig -> RemoteGitConfig -> RemoteStateHandle -> Annex (Maybe Remote)
 gen r u rc gc rs = do
 	c <- parsedRemoteConfig remote rc
-	-- If the repo uses gcrypt, get the underlaying repo without the
+	-- If the repo uses gcrypt, get the underlying repo without the
 	-- gcrypt url, to do LFS endpoint discovery on.
 	r' <- if Git.GCrypt.isEncrypted r
 		then do
@@ -92,15 +93,15 @@ gen r u rc gc rs = do
 			liftIO $ Git.GCrypt.encryptedRemote g r
 		else pure r
 	sem <- liftIO $ MSemN.new 1
-	h <- liftIO $ newTVarIO $ LFSHandle Nothing Nothing sem r' gc
-	cst <- remoteCost gc expensiveRemoteCost
+	h <- liftIO $ newTVarIO $ LFSHandle Nothing Nothing sem r' gc c
+	cst <- remoteCost gc c expensiveRemoteCost
 	let specialcfg = (specialRemoteCfg c)
 		-- chunking would not improve git-lfs
 		{ chunkConfig = NoChunks
 		}
 	return $ Just $ specialRemote' specialcfg c
 		(store rs h)
-		(retrieve rs h)
+		(retrieve gc rs h)
 		(remove h)
 		(checkKey rs h)
 		(this c cst h)
@@ -111,6 +112,7 @@ gen r u rc gc rs = do
 		, name = Git.repoDescribe r
 		, storeKey = storeKeyDummy
 		, retrieveKeyFile = retrieveKeyFileDummy
+		, retrieveKeyFileInOrder = pure True
 		, retrieveKeyFileCheap = Nothing
 		-- content stored on git-lfs is hashed with SHA256
 		-- no matter what git-annex key it's for, and the hash
@@ -124,13 +126,14 @@ gen r u rc gc rs = do
 		, importActions = importUnsupported
 		, whereisKey = Nothing
 		, remoteFsck = Nothing
+		, repairKey = Nothing
 		, repairRepo = Nothing
 		, config = c
 		, getRepo = return r
 		, gitconfig = gc
 		, localpath = Nothing
 		, remotetype = remote
-		, availability = GloballyAvailable
+		, availability = pure GloballyAvailable
 		, readonly = False
 		-- content cannot be removed from a git-lfs repo
 		, appendonly = True
@@ -142,11 +145,11 @@ gen r u rc gc rs = do
 		, remoteStateHandle = rs
 		}
 
-mySetup :: SetupStage -> Maybe UUID -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
-mySetup ss mu _ c gc = do
+mySetup :: SetupStage -> Maybe UUID -> RemoteName -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
+mySetup ss mu _ _ c gc = do
 	u <- maybe (liftIO genUUID) return mu
 
-	(c', _encsetup) <- encryptionSetup c gc
+	(c', _encsetup) <- encryptionSetup ss c gc
 	pc <- either giveup return . parseRemoteConfig c' =<< configParser remote c'
 	let failinitunlessforced msg = case ss of
 		Init -> unlessM (Annex.getRead Annex.force) (giveup msg)
@@ -203,7 +206,7 @@ configKnownUrl r
 			<$> M.lookup Annex.SpecialRemote.Config.typeField c
 		u <- fromProposedAccepted
 			<$> M.lookup urlField c
-		let u' = Git.Remote.parseRemoteLocation u g
+		let u' = Git.Remote.parseRemoteLocation u False g
 		return $ Git.Remote.RemoteUrl (Git.repoLocation r) == u' 
 			&& t == typename remote
 	go u mcu = do
@@ -223,6 +226,7 @@ data LFSHandle = LFSHandle
 	, getEndPointLock :: MSemN.MSemN Int 
 	, remoteRepo :: Git.Repo
 	, remoteGitConfig :: RemoteGitConfig
+	, remoteConfigs :: ParsedRemoteConfig
 	}
 
 -- Only let one thread at a time do endpoint discovery.
@@ -234,15 +238,29 @@ withEndPointLock h = bracket_
 	l = getEndPointLock h
 
 discoverLFSEndpoint :: LFS.TransferRequestOperation -> LFSHandle -> Annex (Maybe LFS.Endpoint)
-discoverLFSEndpoint tro h
-	| Git.repoIsSsh r = gossh
-	| Git.repoIsHttp r = gohttp
-	| otherwise = unsupportedurischeme
+discoverLFSEndpoint tro h =
+	case fmap fromProposedAccepted $ M.lookup apiUrlField (unparsedRemoteConfig (remoteConfigs h)) of
+		Just apiurl | not (null apiurl) -> case parseURIRelaxed apiurl of
+			Nothing -> unsupportedurischeme
+#if MIN_VERSION_git_lfs(1,2,5)
+			Just apiuri -> case LFS.mkEndpoint apiuri of
+				Just endpoint -> checkhttpauth endpoint
+				Nothing -> unsupportedurischeme
+#else
+#warning Building with old version of git-lfs, apiurl= will not be supported
+			Just _ -> do
+				warning $ "Unable to use configured apiurl because this git-annex is not built with version 1.2.5 of the haskell git-lfs library."
+				return Nothing
+#endif
+		_
+			| Git.repoIsSsh r -> gossh
+			| Git.repoIsHttp r -> gohttp
+			| otherwise -> unsupportedurischeme
   where
   	r = remoteRepo h
 	lfsrepouri = case Git.location r of
 		Git.Url u -> u
-		_ -> giveup $ "unsupported git-lfs remote location " ++ Git.repoLocation r
+		_ -> giveup $ "unsupported git-lfs remote location " ++ Git.repoLocationUserVisible r
 	
 	unsupportedurischeme = do
 		warning "git-lfs endpoint has unsupported URI scheme"
@@ -253,7 +271,7 @@ discoverLFSEndpoint tro h
 			warning "Unable to parse ssh url for git-lfs remote."
 			return Nothing
 		Just (Left err) -> do
-			warning err
+			warning (UnquotedString err)
 			return Nothing
 		Just (Right hostuser) -> do
 			let port = Git.Url.port r
@@ -275,38 +293,43 @@ discoverLFSEndpoint tro h
 			(sshcommand, sshparams) <- sshCommand NoConsumeStdin (hostuser, port) (remoteGitConfig h) remotecmd
 			liftIO (tryIO (readProcess sshcommand (toCommand sshparams))) >>= \case
 				Left err -> do
-					warning $ "ssh connection to git-lfs remote failed: " ++ show err
+					warning $ UnquotedString $ "ssh connection to git-lfs remote failed: " ++ show err
 					return Nothing
 				Right resp -> case LFS.parseSshDiscoverEndpointResponse (fromString resp) of
 					Nothing -> do
-						warning $ "unexpected response from git-lfs remote when doing ssh endpoint discovery"
+						warning "unexpected response from git-lfs remote when doing ssh endpoint discovery"
 						return Nothing
 					Just endpoint -> return (Just endpoint)
-	
+
+	gohttp = case LFS.guessEndpoint lfsrepouri of
+		Nothing -> unsupportedurischeme
+		Just endpoint -> checkhttpauth endpoint
+
 	-- The endpoint may or may not need http basic authentication,
 	-- which involves using git-credential to prompt for the password.
 	--
 	-- To determine if it does, make a download or upload request to
 	-- it, not including any objects in the request, and see if
 	-- the server requests authentication.
-	gohttp = case LFS.guessEndpoint lfsrepouri of
-		Nothing -> unsupportedurischeme
-		Just endpoint -> do
-			let testreq = LFS.startTransferRequest endpoint transfernothing
-			flip catchNonAsync (const (returnendpoint endpoint)) $ do
-				resp <- makeSmallAPIRequest testreq
-				if needauth (responseStatus resp)
-					then do
-						cred <- prompt $ inRepo $ Git.getUrlCredential (show lfsrepouri)
-						let endpoint' = addbasicauth (Git.credentialBasicAuth cred) endpoint
-						let testreq' = LFS.startTransferRequest endpoint' transfernothing
-						flip catchNonAsync (const (returnendpoint endpoint')) $ do
-							resp' <- makeSmallAPIRequest testreq'
-							inRepo $ if needauth (responseStatus resp')
-								then Git.rejectUrlCredential cred
-								else Git.approveUrlCredential cred
-							returnendpoint endpoint'
-					else returnendpoint endpoint
+	checkhttpauth endpoint = do
+		let testreq = LFS.startTransferRequest endpoint transfernothing
+		flip catchNonAsync (const (returnendpoint endpoint)) $ do
+			resp <- makeSmallAPIRequest testreq
+			if needauth (responseStatus resp)
+				then do
+					cred <- prompt $ inRepo $
+						Git.getUrlCredential
+							(show lfsrepouri)
+							(responseHeaders resp)
+					let endpoint' = addbasicauth (Git.credentialBasicAuth cred) endpoint
+					let testreq' = LFS.startTransferRequest endpoint' transfernothing
+					flip catchNonAsync (const (returnendpoint endpoint')) $ do
+						resp' <- makeSmallAPIRequest testreq'
+						inRepo $ if needauth (responseStatus resp')
+							then Git.rejectUrlCredential cred
+							else Git.approveUrlCredential cred
+						returnendpoint endpoint'
+				else returnendpoint endpoint
 	  where
 	  	transfernothing = LFS.TransferRequest
 			{ LFS.req_operation = tro
@@ -318,10 +341,10 @@ discoverLFSEndpoint tro h
 
 		needauth status = status == unauthorized401
 
-		addbasicauth (Just ba) endpoint =
-			LFS.modifyEndpointRequest endpoint $
+		addbasicauth (Just ba) endpoint' =
+			LFS.modifyEndpointRequest endpoint' $
 				applyBasicAuth' ba
-		addbasicauth Nothing endpoint = endpoint
+		addbasicauth Nothing endpoint' = endpoint'
 
 -- The endpoint is cached for later use.
 getLFSEndpoint :: LFS.TransferRequestOperation -> TVar LFSHandle -> Annex (Maybe LFS.Endpoint)
@@ -348,7 +371,7 @@ getLFSEndpoint tro hv = do
 -- Not for use in downloading an object.
 makeSmallAPIRequest :: Request -> Annex (Response L.ByteString)
 makeSmallAPIRequest req = do
-	uo <- getUrlOptions
+	uo <- getUrlOptions Nothing
 	let req' = applyRequest uo req
 	fastDebug "Remote.GitLFS" (show req')
 	resp <- liftIO $ httpLbs req' (httpManager uo)
@@ -385,7 +408,7 @@ extractKeySize k
 	| isEncKey k = Nothing
 	| otherwise = fromKey keySize k
 
-mkUploadRequest :: RemoteStateHandle -> Key -> FilePath -> Annex (LFS.TransferRequest, LFS.SHA256, Integer)
+mkUploadRequest :: RemoteStateHandle -> Key -> OsPath -> Annex (LFS.TransferRequest, LFS.SHA256, Integer)
 mkUploadRequest rs k content = case (extractKeySha256 k, extractKeySize k) of
 	(Just sha256, Just size) ->
 		ret sha256 size
@@ -395,11 +418,12 @@ mkUploadRequest rs k content = case (extractKeySha256 k, extractKeySize k) of
 		ret sha256 size
 	_ -> do
 		sha256 <- calcsha256
-		size <- liftIO $ getFileSize (toRawFilePath content)
+		size <- liftIO $ getFileSize content
 		rememberboth sha256 size
 		ret sha256 size
   where
-	calcsha256 = liftIO $ T.pack . show . sha2_256 <$> L.readFile content
+	calcsha256 = T.pack . show . digestToHash . sha2_256 
+		<$> liftIO (F.readFile content)
 	ret sha256 size = do
 		let obj = LFS.TransferRequestObject
 			{ LFS.req_oid = sha256
@@ -480,8 +504,8 @@ store rs h = fileStorer $ \k src p -> getLFSEndpoint LFS.RequestUpload h >>= \ca
 					Just reqs -> forM_ reqs $
 						makeSmallAPIRequest . setRequestCheckStatus
 
-retrieve :: RemoteStateHandle -> TVar LFSHandle -> Retriever
-retrieve rs h = fileRetriever' $ \dest k p iv -> getLFSEndpoint LFS.RequestDownload h >>= \case
+retrieve :: RemoteGitConfig -> RemoteStateHandle -> TVar LFSHandle -> Retriever
+retrieve gc rs h = fileRetriever' $ \dest k p iv -> getLFSEndpoint LFS.RequestDownload h >>= \case
 	Nothing -> giveup "unable to connect to git-lfs endpoint"
 	Just endpoint -> mkDownloadRequest rs k >>= \case
 		Nothing -> giveup "unable to download this object from git-lfs"
@@ -501,8 +525,8 @@ retrieve rs h = fileRetriever' $ \dest k p iv -> getLFSEndpoint LFS.RequestDownl
 			Just op -> case LFS.downloadOperationRequest op of
 				Nothing -> giveup "unable to parse git-lfs server download url"
 				Just req -> do
-					uo <- getUrlOptions
-					liftIO $ downloadConduit p iv req (fromRawFilePath dest) uo
+					uo <- getUrlOptions (Just gc)
+					liftIO $ downloadConduit p iv req dest uo
 
 -- Since git-lfs does not support removing content, nothing needs to be
 -- done to lock content in the remote, except for checking that the content
@@ -510,7 +534,7 @@ retrieve rs h = fileRetriever' $ \dest k p iv -> getLFSEndpoint LFS.RequestDownl
 lockKey :: Remote -> RemoteStateHandle -> TVar LFSHandle -> Key -> (VerifiedCopy -> Annex a) -> Annex a
 lockKey r rs h key callback = 
 	ifM (checkKey rs h key)
-		( withVerifiedCopy LockedCopy (uuid r) (return True) callback
+		( withVerifiedCopy LockedCopy (uuid r) (return (Right True)) callback
 		, giveup $ "content seems to be missing from " ++ name r
 		)
 

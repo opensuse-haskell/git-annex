@@ -13,6 +13,7 @@ import Assistant.Common
 import Assistant.Alert.Utility
 import Utility.Tmp
 import Utility.NotificationBroadcaster
+import Types.Availability
 import Types.Transfer
 import Logs.Transfer
 import Logs.Trust
@@ -21,6 +22,7 @@ import qualified Remote
 import qualified Types.Remote as Remote
 import Config.DynamicConfig
 import Annex.SpecialRemote.Config
+import qualified Utility.FileIO as F
 
 import Control.Concurrent.STM
 import System.Posix.Types
@@ -59,17 +61,22 @@ calcSyncRemotes = do
 	let (exportremotes, nonexportremotes) = partition (exportTree . Remote.config) contentremotes
 	let isimport r = importTree (Remote.config r) || Remote.thirdPartyPopulated (Remote.remotetype r)
 	let dataremotes = filter (not . isimport) nonexportremotes
+	tocloud <- anyM iscloud contentremotes
 
 	return $ \dstatus -> dstatus
 		{ syncRemotes = syncable
-		, syncGitRemotes = filter (Remote.gitSyncableRemoteType . Remote.remotetype) syncable
+		, syncGitRemotes = filter Remote.gitSyncableRemote syncable
 		, syncDataRemotes = dataremotes
 		, exportRemotes = exportremotes
 		, downloadRemotes = contentremotes
-		, syncingToCloudRemote = any iscloud contentremotes
+		, syncingToCloudRemote = tocloud
 		}
   where
-	iscloud r = not (Remote.readonly r) && Remote.availability r == Remote.GloballyAvailable
+	iscloud r
+		| Remote.readonly r = pure False
+		| otherwise = tryNonAsync (Remote.availability r) >>= return . \case
+			Right GloballyAvailable -> True
+			_ -> False
 
 {- Updates the syncRemotes list from the list of all remotes in Annex state. -}
 updateSyncRemotes :: Assistant ()
@@ -115,9 +122,9 @@ startDaemonStatus = do
  - and parts of it are not relevant. -}
 writeDaemonStatusFile :: FilePath -> DaemonStatus -> IO ()
 writeDaemonStatusFile file status = 
-	viaTmp writeFile file =<< serialized <$> getPOSIXTime
+	viaTmp F.writeFile' (toOsPath (toRawFilePath file)) =<< serialized <$> getPOSIXTime
   where
-	serialized now = unlines
+	serialized now = encodeBS $ unlines
 		[ "lastRunning:" ++ show now
 		, "scanComplete:" ++ show (scanComplete status)
 		, "sanityCheckRunning:" ++ show (sanityCheckRunning status)
@@ -125,17 +132,17 @@ writeDaemonStatusFile file status =
 		]
 
 readDaemonStatusFile :: FilePath -> IO DaemonStatus
-readDaemonStatusFile file = parse <$> newDaemonStatus <*> readFile file
+readDaemonStatusFile file = parse <$> newDaemonStatus <*> readFileString (toOsPath file)
   where
 	parse status = foldr parseline status . lines
 	parseline line status
-		| key == "lastRunning" = parseval parsePOSIXTime $ \v ->
+		| key == "lastRunning" = parseval (parsePOSIXTime . encodeBS) $ \v ->
 			status { lastRunning = Just v }
 		| key == "scanComplete" = parseval readish $ \v ->
 			status { scanComplete = v }
 		| key == "sanityCheckRunning" = parseval readish $ \v ->
 			status { sanityCheckRunning = v }
-		| key == "lastSanityCheck" = parseval parsePOSIXTime $ \v ->
+		| key == "lastSanityCheck" = parseval (parsePOSIXTime . encodeBS) $ \v ->
 			status { lastSanityCheck = Just v }
 		| otherwise = status -- unparsable line
 	  where

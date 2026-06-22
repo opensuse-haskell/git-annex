@@ -1,0 +1,14 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 8"""
+ date="2026-05-12T17:21:47Z"
+ content="""
+It seems like a good idea for git-annex to support the same configuration
+as git does for the CA cert locations. So I've made git-annex support
+`GIT_SSL_CAINFO` (etc) for its own https connections.
+
+That doesn't address the bug, but it does mean that generally, if the linux
+standalone build is having problems with finding system CA certs,
+setting one environment variable is enough to tell both git and git-annex
+where to look.
+"""]]

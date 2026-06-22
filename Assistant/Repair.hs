@@ -5,6 +5,7 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE CPP #-}
 
 module Assistant.Repair where
@@ -30,7 +31,7 @@ import qualified Data.Text as T
 #endif
 import qualified Utility.Lsof as Lsof
 import Utility.ThreadScheduler
-import qualified Utility.RawFilePath as R
+import qualified Utility.OsString as OS
 
 import Control.Concurrent.Async
 
@@ -95,7 +96,7 @@ runRepair u mrmt destructiverepair = do
 			thisrepopath <- liftIO . absPath
 				=<< liftAnnex (fromRepo Git.repoPath)
 			a <- liftAnnex $ mkrepair $
-				repair fsckresults (Just (fromRawFilePath thisrepopath))
+				repair fsckresults (Just (fromOsPath thisrepopath))
 			liftIO $ catchBoolIO a
 
 	repair fsckresults referencerepo = do
@@ -107,7 +108,7 @@ runRepair u mrmt destructiverepair = do
 	
 	backgroundfsck params = liftIO $ void $ async $ do
 		program <- programPath
-		batchCommand program (Param "fsck" : params)
+		batchCommand (fromOsPath program) (Param "fsck" : params)
 
 {- Detect when a git lock file exists and has no git process currently
  - writing to it. This strongly suggests it is a stale lock file.
@@ -127,35 +128,29 @@ runRepair u mrmt destructiverepair = do
  -}
 repairStaleGitLocks :: Git.Repo -> Assistant Bool
 repairStaleGitLocks r = do
-	lockfiles <- liftIO $ filter islock <$> findgitfiles r
+	lockfiles <- liftIO $ filter islock
+		<$> emptyWhenDoesNotExist (findgitfiles r)
 	repairStaleLocks lockfiles
 	return $ not $ null lockfiles
   where
-	findgitfiles = dirContentsRecursiveSkipping (== dropTrailingPathSeparator (fromRawFilePath annexDir)) True . fromRawFilePath . Git.localGitDir
+	findgitfiles = dirContentsRecursiveSkipping (== dropTrailingPathSeparator (annexDir standardGitLocationMaker)) True . Git.localGitDir
 	islock f
-		| "gc.pid" `isInfixOf` f = False
-		| ".lock" `isSuffixOf` f = True
-		| takeFileName f == "MERGE_HEAD" = True
+		| literalOsPath "gc.pid" `OS.isInfixOf` f = False
+		| literalOsPath ".lock" `OS.isSuffixOf` f = True
+		| takeFileName f == literalOsPath "MERGE_HEAD" = True
 		| otherwise = False
 
-repairStaleLocks :: [FilePath] -> Assistant ()
+repairStaleLocks :: [OsPath] -> Assistant ()
 repairStaleLocks lockfiles = go =<< getsizes
   where
 	getsize lf = catchMaybeIO $ (\s -> (lf, s))
-		<$> getFileSize (toRawFilePath lf)
+		<$> getFileSize lf
 	getsizes = liftIO $ catMaybes <$> mapM getsize lockfiles
 	go [] = return ()
-	go l = ifM (liftIO $ null <$> Lsof.query ("--" : map fst l))
-		( do
-			waitforit "to check stale git lock file"
-			l' <- getsizes
-			if l' == l
-				then liftIO $ mapM_ (removeWhenExistsWith R.removeLink . toRawFilePath . fst) l
-				else go l'
-		, do
-			waitforit "for git lock file writer"
-			go =<< getsizes
-		)
-	waitforit why = do
-		debug ["Waiting for 60 seconds", why]
+	go l = whenM (liftIO $ null <$> Lsof.query ("--" : map (fromOsPath . fst) l)) $ do
+		debug ["Waiting for 60 seconds to check stale git lock file"]
 		liftIO $ threadDelaySeconds $ Seconds 60
+		l' <- getsizes
+		if l' == l
+			then liftIO $ mapM_ (removeWhenExistsWith removeFile . fst) l
+			else go l'

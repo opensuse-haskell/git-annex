@@ -1,0 +1,72 @@
+### Please describe the problem.
+
+I added a YT vid via addurl and then intentionally corrupted it by rewriting the underlying contents. After doing so, the video was clearly broken, but `git annex fsck` did not detect this.
+
+
+### What steps will reproduce the problem?
+
+```
+$ git annex addurl 'https://www.youtube.com/watch?v=zGDzdps75ns'
+addurl https://www.youtube.com/watch?v=zGDzdps75ns 
+(using yt-dlp) (to Small short test video [zGDzdps75ns].webm) 
+ok                                   
+(recording state in git...)
+$ git commit -m 'test'
+$ echo test | sudo tee './Small short test video [zGDzdps75ns].webm'
+test
+$ git annex fsck './Small short test video [zGDzdps75ns].webm'
+fsck Small short test video [zGDzdps75ns].webm ok
+(recording state in git...)
+$ file -L ./Small\ short\ test\ video\ \[zGDzdps75ns\].webm
+./Small short test video [zGDzdps75ns].webm: ASCII text
+```
+
+The fsck reports the file is "ok". Even an fsck `--from=web` reports the video is OK:
+
+```
+$ git annex fsck './Small short test video [zGDzdps75ns].webm' --from=web
+fsck Small short test video [zGDzdps75ns].webm 
+ok                                    
+(recording state in git...)
+```
+
+In contrast, doing the same thing to a non-youtube video via addurl _does_ get detected by fsck:
+
+```
+$ git annex addurl 'https://git-annex.branchable.com/logo_small.png'
+addurl https://git-annex.branchable.com/logo_small.png 
+(to git-annex.branchable.com_logo_small.png) ok
+(recording state in git...)
+$ git commit -m 'test'
+$ echo test | sudo tee ./git-annex.branchable.com_logo_small.png 
+test
+$ git annex fsck ./git-annex.branchable.com_logo_small.png
+fsck git-annex.branchable.com_logo_small.png 
+  git-annex.branchable.com_logo_small.png: Bad file size (4.74 kB smaller); moved to .git/annex/bad/SHA256E-s4749--c604d942bd8edebe5e8e01d18d1ad3604b0874c38d436c9486c52d601e4251dd.png
+failed
+(recording state in git...)
+fsck: 1 failed
+```
+
+
+
+### What version of git-annex are you using? On what operating system?
+
+10.20230828, on Ubuntu Jammy.
+
+
+### Please provide any additional information below.
+
+[[!format sh """
+# If you can, paste a complete transcript of the problem occurring here.
+# If the problem is with the git-annex assistant, paste in .git/annex/daemon.log
+
+
+# End of transcript or log.
+"""]]
+
+### Have you had any luck using git-annex before? (Sometimes we get tired of reading bug reports all day and a lil' positive end note does wonders)
+
+Excited to move my photo collection over to it!
+
+

@@ -14,9 +14,6 @@ import Key
 import Data.Time.Clock
 import Git.Config (isTrueFalse, boolConfig)
 
-import Control.Applicative
-import Prelude
-
 type GitAnnexVersion = String
 
 data GitAnnexDistribution = GitAnnexDistribution
@@ -40,10 +37,9 @@ formatInfoFile :: GitAnnexDistribution -> String
 formatInfoFile d = replace "keyVariant = " "keyBackendName = " (show d) ++
 	"\n" ++ formatGitAnnexDistribution d
 
-parseInfoFile :: String -> Maybe GitAnnexDistribution
-parseInfoFile s = case lines s of
-	(_oldformat:rest) -> parseGitAnnexDistribution (unlines rest)
-	_ -> Nothing
+parseInfoFile :: [String] -> Maybe GitAnnexDistribution
+parseInfoFile (_oldformat:rest) = parseGitAnnexDistribution (unlines rest)
+parseInfoFile _ = Nothing
 
 formatGitAnnexDistribution :: GitAnnexDistribution -> String
 formatGitAnnexDistribution d = unlines

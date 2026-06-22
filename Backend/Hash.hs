@@ -1,6 +1,6 @@
 {- git-annex hashing backends
  -
- - Copyright 2011-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -10,8 +10,14 @@
 
 module Backend.Hash (
 	backends,
-	testKeyBackend,
 	keyHash,
+	descChecksum,
+	HashType(..),
+	cryptographicallySecure,
+	hashFile,
+	checkKeyChecksum,
+	testKeyBackend,
+	genTestKey,
 ) where
 
 import Annex.Common
@@ -22,12 +28,12 @@ import Types.Backend
 import Types.KeySource
 import Utility.Hash
 import Utility.Metered
-import qualified Utility.RawFilePath as R
 
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Short as S (toShort, fromShort)
 import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy as L
+import Data.Char
 import Control.DeepSeq
 import Control.Exception (evaluate)
 #ifdef WITH_BLAKE3
@@ -36,7 +42,7 @@ import Control.Arrow
 import qualified BLAKE3
 #endif
 
-data Hash
+data HashType
 	= MD5Hash
 	| SHA1Hash
 	| SHA2Hash HashSize
@@ -50,7 +56,7 @@ data Hash
 	| Blake3Hash
 #endif
 
-cryptographicallySecure :: Hash -> Bool
+cryptographicallySecure :: HashType -> Bool
 cryptographicallySecure (SHA2Hash _) = True
 cryptographicallySecure (SHA3Hash _) = True
 cryptographicallySecure (SkeinHash _) = True
@@ -64,9 +70,11 @@ cryptographicallySecure Blake3Hash = True
 cryptographicallySecure SHA1Hash = False
 cryptographicallySecure MD5Hash = False
 
-{- Order is slightly significant; want SHA256 first, and more general
- - sizes earlier. -}
-hashes :: [Hash]
+{- Order is significant. The first hash is the default one that git-annex
+ - uses, and must be cryptographically secure. 
+ -
+ - Also, want more common sizes earlier than uncommon sizes. -}
+hashes :: [HashType]
 hashes = concat 
 	[ map (SHA2Hash . HashSize) [256, 512, 224, 384]
 	, map (SHA3Hash . HashSize) [256, 512, 224, 384]
@@ -86,25 +94,27 @@ hashes = concat
 backends :: [Backend]
 backends = concatMap (\h -> [genBackendE h, genBackend h]) hashes
 
-genBackend :: Hash -> Backend
+genBackend :: HashType -> Backend
 genBackend hash = Backend
 	{ backendVariety = hashKeyVariety hash (HasExt False)
 	, genKey = Just (keyValue hash)
-	, verifyKeyContent = Just $ checkKeyChecksum hash
+	, verifyKeyContent = Just $ checkKeyChecksum sameCheckSum hash
 	, verifyKeyContentIncrementally = Just $ checkKeyChecksumIncremental hash
 	, canUpgradeKey = Just needsUpgrade
 	, fastMigrate = Just trivialMigrate
 	, isStableKey = const True
-	, isCryptographicallySecure = const (cryptographicallySecure hash)
+	, isCryptographicallySecure = cryptographicallySecure hash
+	, isCryptographicallySecureKey = const $ pure $
+		cryptographicallySecure hash
 	}
 
-genBackendE :: Hash -> Backend
+genBackendE :: HashType -> Backend
 genBackendE hash = (genBackend hash)
 	{ backendVariety = hashKeyVariety hash (HasExt True)
 	, genKey = Just (keyValueE hash)
 	}
 
-hashKeyVariety :: Hash -> HasExt -> KeyVariety
+hashKeyVariety :: HashType -> HasExt -> KeyVariety
 hashKeyVariety MD5Hash he = MD5Key he
 hashKeyVariety SHA1Hash he = SHA1Key he
 hashKeyVariety (SHA2Hash size) he = SHA2Key size he
@@ -119,50 +129,47 @@ hashKeyVariety Blake3Hash he = Blake3Key he
 #endif
 
 {- A key is a hash of its contents. -}
-keyValue :: Hash -> KeySource -> MeterUpdate -> Annex Key
-keyValue hash source meterupdate = do
+keyValue :: HashType -> KeySource -> MeterUpdate -> Annex Key
+keyValue hashtype source meterupdate = do
 	let file = contentLocation source
 	filesize <- liftIO $ getFileSize file
-	s <- hashFile hash file meterupdate
+	hash <- hashFile hashtype file meterupdate
 	return $ mkKey $ \k -> k
-		{ keyName = S.toShort (encodeBS s)
-		, keyVariety = hashKeyVariety hash (HasExt False)
+		{ keyName = S.toShort (hashByteString hash)
+		, keyVariety = hashKeyVariety hashtype (HasExt False)
 		, keySize = Just filesize
 		}
 
 {- Extension preserving keys. -}
-keyValueE :: Hash -> KeySource -> MeterUpdate -> Annex Key
+keyValueE :: HashType -> KeySource -> MeterUpdate -> Annex Key
 keyValueE hash source meterupdate =
 	keyValue hash source meterupdate
 		>>= addE source (const $ hashKeyVariety hash (HasExt True))
 
-checkKeyChecksum :: Hash -> Key -> RawFilePath -> Annex Bool
-checkKeyChecksum hash key file = catchIOErrorType HardwareFault hwfault $ do
-	fast <- Annex.getRead Annex.fast
-	exists <- liftIO $ R.doesPathExist file
-	case (exists, fast) of
-		(True, False) -> do
-			showAction descChecksum
-			sameCheckSum key 
-				<$> hashFile hash file nullMeterUpdate
-		_ -> return True
+checkKeyChecksum :: (Key -> Hash -> Bool) -> HashType -> Key -> OsPath -> Annex Bool
+checkKeyChecksum issame hash key file = catchIOErrorType HardwareFault hwfault $ do
+	showAction (UnquotedString descChecksum)
+	issame key 
+		<$> hashFile hash file nullMeterUpdate
   where
 	hwfault e = do
-		warning $ "hardware fault: " ++ show e
+		warning $ UnquotedString $ "hardware fault: " ++ show e
 		return False
 
-sameCheckSum :: Key -> String -> Bool
-sameCheckSum key s
-	| s == expected = True
+sameCheckSum :: Key -> Hash -> Bool
+sameCheckSum key hash
+	| hash == Hash expected = True
 	{- A bug caused checksums to be prefixed with \ in some
 	 - cases; still accept these as legal now that the bug
 	 - has been fixed. -}
-	| '\\' : s == expected = True
-	| otherwise = False
+	| otherwise = case S.uncons expected of
+		Just (h, t) | h == backslash -> hash == Hash t
+		_ -> False
   where
-	expected = decodeBS (keyHash key)
+	expected = keyHash key
+	backslash = fromIntegral (ord '\\')
 
-checkKeyChecksumIncremental :: Hash -> Key -> Annex IncrementalVerifier
+checkKeyChecksumIncremental :: HashType -> Key -> Annex IncrementalVerifier
 checkKeyChecksumIncremental hash key = liftIO $ (snd $ hasher hash) key
 
 keyHash :: Key -> S.ByteString
@@ -182,12 +189,15 @@ needsUpgrade key = or
 	, not (hasExt (fromKey keyVariety key)) && keyHash key /= S.fromShort (fromKey keyName key)
 	]
 
-trivialMigrate :: Key -> Backend -> AssociatedFile -> Annex (Maybe Key)
-trivialMigrate oldkey newbackend afile = trivialMigrate' oldkey newbackend afile
-	<$> (annexMaxExtensionLength <$> Annex.getGitConfig)
+trivialMigrate :: Key -> Backend -> AssociatedFile -> Bool -> Annex (Maybe Key)
+trivialMigrate oldkey newbackend afile _inannex = do
+	c <- Annex.getGitConfig
+	return $ trivialMigrate' oldkey newbackend afile
+		(annexMaxExtensionLength c)
+		(annexMaxExtensions c)
 
-trivialMigrate' :: Key -> Backend -> AssociatedFile -> Maybe Int -> Maybe Key
-trivialMigrate' oldkey newbackend afile maxextlen
+trivialMigrate' :: Key -> Backend -> AssociatedFile -> Maybe Int -> Maybe Int -> Maybe Key
+trivialMigrate' oldkey newbackend afile maxextlen maxexts
 	{- Fast migration from hashE to hash backend. -}
 	| migratable && hasExt oldvariety = Just $ alterKey oldkey $ \d -> d
 		{ keyName = S.toShort (keyHash oldkey)
@@ -198,7 +208,7 @@ trivialMigrate' oldkey newbackend afile maxextlen
 		AssociatedFile Nothing -> Nothing
 		AssociatedFile (Just file) -> Just $ alterKey oldkey $ \d -> d
 			{ keyName = S.toShort $ keyHash oldkey 
-				<> selectExtension maxextlen file
+				<> selectExtension maxextlen maxexts file
 			, keyVariety = newvariety
 			}
 	{- Upgrade to fix bad previous migration that created a
@@ -216,18 +226,18 @@ trivialMigrate' oldkey newbackend afile maxextlen
 	oldvariety = fromKey keyVariety oldkey
 	newvariety = backendVariety newbackend
 
-hashFile :: Hash -> RawFilePath -> MeterUpdate -> Annex String
+hashFile :: HashType -> OsPath -> MeterUpdate -> Annex Hash
 hashFile hash file meterupdate = 
-	liftIO $ withMeteredFile (fromRawFilePath file) meterupdate $ \b -> do
+	liftIO $ withMeteredFile file meterupdate $ \b -> do
 		let h = (fst $ hasher hash) b
 		-- Force full evaluation of hash so whole file is read
 		-- before returning.
 		evaluate (rnf h)
 		return h
 
-type Hasher = (L.ByteString -> String, Key -> IO IncrementalVerifier)
+type Hasher = (L.ByteString -> Hash, Key -> IO IncrementalVerifier)
 
-hasher :: Hash -> Hasher
+hasher :: HashType -> Hasher
 hasher MD5Hash = md5Hasher
 hasher SHA1Hash = sha1Hasher
 hasher (SHA2Hash hashsize) = sha2Hasher hashsize
@@ -241,57 +251,57 @@ hasher (Blake2spHash hashsize) = blake2spHasher hashsize
 hasher Blake3Hash = blake3Hasher
 #endif
 
-mkHasher :: HashAlgorithm h => (L.ByteString -> Digest h) -> Context h -> Hasher
-mkHasher h c = (show . h, mkIncrementalVerifier c descChecksum . sameCheckSum)
+mkHasher :: (L.ByteString -> HashDigest) -> IO IncrementalHasher -> Hasher
+mkHasher h i = (digestToHash . h, mkIncrementalVerifier i descChecksum . sameCheckSum)
 
 sha2Hasher :: HashSize -> Hasher
 sha2Hasher (HashSize hashsize)
-	| hashsize == 256 = mkHasher sha2_256 sha2_256_context
-	| hashsize == 224 = mkHasher sha2_224 sha2_224_context
-	| hashsize == 384 = mkHasher sha2_384 sha2_384_context
-	| hashsize == 512 = mkHasher sha2_512 sha2_512_context
-	| otherwise = error $ "unsupported SHA2 size " ++ show hashsize
+	| hashsize == 256 = mkHasher sha2_256 sha2_256_hasher
+	| hashsize == 224 = mkHasher sha2_224 sha2_224_hasher
+	| hashsize == 384 = mkHasher sha2_384 sha2_384_hasher
+	| hashsize == 512 = mkHasher sha2_512 sha2_512_hasher
+	| otherwise = giveup $ "unsupported SHA2 size " ++ show hashsize
 
 sha3Hasher :: HashSize -> Hasher
 sha3Hasher (HashSize hashsize)
-	| hashsize == 256 = mkHasher sha3_256 sha3_256_context
-	| hashsize == 224 = mkHasher sha3_224 sha3_224_context
-	| hashsize == 384 = mkHasher sha3_384 sha3_384_context
-	| hashsize == 512 = mkHasher sha3_512 sha3_512_context
-	| otherwise = error $ "unsupported SHA3 size " ++ show hashsize
+	| hashsize == 256 = mkHasher sha3_256 sha3_256_hasher
+	| hashsize == 224 = mkHasher sha3_224 sha3_224_hasher
+	| hashsize == 384 = mkHasher sha3_384 sha3_384_hasher
+	| hashsize == 512 = mkHasher sha3_512 sha3_512_hasher
+	| otherwise = giveup $ "unsupported SHA3 size " ++ show hashsize
 
 skeinHasher :: HashSize -> Hasher
 skeinHasher (HashSize hashsize)
-	| hashsize == 256 = mkHasher skein256 skein256_context
-	| hashsize == 512 = mkHasher skein512 skein512_context
-	| otherwise = error $ "unsupported SKEIN size " ++ show hashsize
+	| hashsize == 256 = mkHasher skein256 skein256_hasher
+	| hashsize == 512 = mkHasher skein512 skein512_hasher
+	| otherwise = giveup $ "unsupported SKEIN size " ++ show hashsize
 
 blake2bHasher :: HashSize -> Hasher
 blake2bHasher (HashSize hashsize)
-	| hashsize == 256 = mkHasher blake2b_256 blake2b_256_context
-	| hashsize == 512 = mkHasher blake2b_512 blake2b_512_context
-	| hashsize == 160 = mkHasher blake2b_160 blake2b_160_context
-	| hashsize == 224 = mkHasher blake2b_224 blake2b_224_context
-	| hashsize == 384 = mkHasher blake2b_384 blake2b_384_context
-	| otherwise = error $ "unsupported BLAKE2B size " ++ show hashsize
+	| hashsize == 256 = mkHasher blake2b_256 blake2b_256_hasher
+	| hashsize == 512 = mkHasher blake2b_512 blake2b_512_hasher
+	| hashsize == 160 = mkHasher blake2b_160 blake2b_160_hasher
+	| hashsize == 224 = mkHasher blake2b_224 blake2b_224_hasher
+	| hashsize == 384 = mkHasher blake2b_384 blake2b_384_hasher
+	| otherwise = giveup $ "unsupported BLAKE2B size " ++ show hashsize
 
 blake2bpHasher :: HashSize -> Hasher
 blake2bpHasher (HashSize hashsize)
-	| hashsize == 512 = mkHasher blake2bp_512 blake2bp_512_context
-	| otherwise = error $ "unsupported BLAKE2BP size " ++ show hashsize
+	| hashsize == 512 = mkHasher blake2bp_512 blake2bp_512_hasher
+	| otherwise = giveup $ "unsupported BLAKE2BP size " ++ show hashsize
 
 blake2sHasher :: HashSize -> Hasher
 blake2sHasher (HashSize hashsize)
-	| hashsize == 256 = mkHasher blake2s_256 blake2s_256_context
-	| hashsize == 160 = mkHasher blake2s_160 blake2s_160_context
-	| hashsize == 224 = mkHasher blake2s_224 blake2s_224_context
-	| otherwise = error $ "unsupported BLAKE2S size " ++ show hashsize
+	| hashsize == 256 = mkHasher blake2s_256 blake2s_256_hasher
+	| hashsize == 160 = mkHasher blake2s_160 blake2s_160_hasher
+	| hashsize == 224 = mkHasher blake2s_224 blake2s_224_hasher
+	| otherwise = giveup $ "unsupported BLAKE2S size " ++ show hashsize
 
 blake2spHasher :: HashSize -> Hasher
 blake2spHasher (HashSize hashsize)
-	| hashsize == 256 = mkHasher blake2sp_256 blake2sp_256_context
-	| hashsize == 224 = mkHasher blake2sp_224 blake2sp_224_context
-	| otherwise = error $ "unsupported BLAKE2SP size " ++ show hashsize
+	| hashsize == 256 = mkHasher blake2sp_256 blake2sp_256_hasher
+	| hashsize == 224 = mkHasher blake2sp_224 blake2sp_224_hasher
+	| otherwise = giveup $ "unsupported BLAKE2SP size " ++ show hashsize
 
 #ifdef WITH_BLAKE3
 blake3Hasher :: Hasher
@@ -299,8 +309,8 @@ blake3Hasher = (hash, incremental) where
 	finalize :: BLAKE3.Hasher -> BLAKE3.Digest BLAKE3.DEFAULT_DIGEST_LEN
 	finalize = BLAKE3.finalize
 
-	hash :: L.ByteString -> String
-	hash = show . finalize . L.foldlChunks ((. pure) . BLAKE3.update) BLAKE3.hasher
+	hash :: L.ByteString -> Hash
+	hash = Hash . encodeBS . show . finalize . L.foldlChunks ((. pure) . BLAKE3.update) BLAKE3.hasher
 
 	incremental :: Key -> IO IncrementalVerifier
 	incremental k = do
@@ -309,7 +319,7 @@ blake3Hasher = (hash, incremental) where
 			{ updateIncrementalVerifier = \b ->
 				modifyIORef' v . fmap $ flip BLAKE3.update [b] *** (fromIntegral (S.length b) +)
 			, finalizeIncrementalVerifier =
-				fmap (sameCheckSum k . show . finalize . fst) <$> readIORef v
+				fmap (sameCheckSum k . Hash . encodeBS . show . finalize . fst) <$> readIORef v
 			, unableIncrementalVerifier = writeIORef v Nothing
 			, positionIncrementalVerifier = fmap snd <$> readIORef v
 			, descIncrementalVerifier = descChecksum
@@ -317,15 +327,15 @@ blake3Hasher = (hash, incremental) where
 #endif
 
 sha1Hasher :: Hasher
-sha1Hasher = mkHasher sha1 sha1_context
+sha1Hasher = mkHasher sha1 sha1_hasher
 
 md5Hasher :: Hasher
-md5Hasher = mkHasher md5 md5_context
+md5Hasher = mkHasher md5 md5_hasher
 
 descChecksum :: String
 descChecksum = "checksum"
 
-{- A varient of the SHA256E backend, for testing that needs special keys
+{- A variant of the SHA256E backend, for testing that needs special keys
  - that cannot collide with legitimate keys in the repository.
  -
  - This is accomplished by appending a special extension to the key,
@@ -334,13 +344,25 @@ descChecksum = "checksum"
  -}
 testKeyBackend :: Backend
 testKeyBackend = 
-	let b = genBackendE (SHA2Hash (HashSize 256))
+	let b = genBackendE testKeyHash
 	    gk = case genKey b of
 		Nothing -> Nothing
 		Just f -> Just (\ks p -> addTestE <$> f ks p)
 	in b { genKey = gk }
+
+addTestE :: Key -> Key
+addTestE k = alterKey k $ \d -> d
+	{ keyName = keyName d <> longext
+	}
   where
-	addTestE k = alterKey k $ \d -> d
-		{ keyName = keyName d <> longext
-		}
 	longext = ".this-is-a-test-key"
+
+testKeyHash :: HashType
+testKeyHash = SHA2Hash (HashSize 256)
+
+genTestKey :: L.ByteString -> Key
+genTestKey content = addTestE $ mkKey $ \kd -> kd
+	{ keyName = S.toShort $ hashByteString $
+		(fst $ hasher testKeyHash) content
+	, keyVariety = backendVariety testKeyBackend
+	}

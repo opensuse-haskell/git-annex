@@ -6,7 +6,7 @@
  - UUIDs of remotes are cached in git config, using keys named
  - remote.<name>.annex-uuid
  -
- - Copyright 2010-2016 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -15,6 +15,7 @@
 
 module Annex.UUID (
 	configkeyUUID,
+	configRepoUUID,
 	getUUID,
 	getRepoUUID,
 	getUncachedUUID,
@@ -41,10 +42,14 @@ import Config
 import qualified Data.UUID as U
 import qualified Data.UUID.V4 as U4
 import qualified Data.UUID.V5 as U5
+import qualified Data.ByteString as S
 import Data.String
 
 configkeyUUID :: ConfigKey
 configkeyUUID = annexConfig "uuid"
+
+configRepoUUID :: Git.Repo -> ConfigKey
+configRepoUUID r = remoteAnnexConfig r "uuid"
 
 {- Generates a random UUID, that does not include the MAC address. -}
 genUUID :: IO UUID
@@ -53,13 +58,13 @@ genUUID = toUUID <$> U4.nextRandom
 {- Generates a UUID from a given string, using a namespace.
  - Given the same namespace, the same string will always result
  - in the same UUID. -}
-genUUIDInNameSpace :: U.UUID -> String -> UUID
-genUUIDInNameSpace namespace = toUUID . U5.generateNamed namespace . s2w8
+genUUIDInNameSpace :: U.UUID -> S.ByteString -> UUID
+genUUIDInNameSpace namespace = toUUID . U5.generateNamed namespace . S.unpack
 
 {- Namespace used for UUIDs derived from git-remote-gcrypt ids. -}
 gCryptNameSpace :: U.UUID
 gCryptNameSpace = U5.generateNamed U5.namespaceURL $
-	s2w8 "http://git-annex.branchable.com/design/gcrypt/" 
+	S.unpack "http://git-annex.branchable.com/design/gcrypt/" 
 
 {- Get current repository's UUID. -}
 getUUID :: Annex UUID
@@ -81,7 +86,7 @@ getRepoUUID r = do
 	updatecache u = do
 		g <- gitRepo
 		when (g /= r) $ storeUUIDIn cachekey u
-	cachekey = remoteAnnexConfig r "uuid"
+	cachekey = configRepoUUID r
 
 removeRepoUUID :: Annex ()
 removeRepoUUID = do

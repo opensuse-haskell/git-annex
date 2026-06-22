@@ -1,10 +1,12 @@
 {- Url downloading, with git-annex user agent and configured http
  - headers, security restrictions, etc.
  -
- - Copyright 2013-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2013-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
+
+{-# LANGUAGE OverloadedStrings, CPP #-}
 
 module Annex.Url (
 	withUrlOptions,
@@ -13,6 +15,7 @@ module Annex.Url (
 	getUserAgent,
 	ipAddressesUnlimited,
 	checkBoth,
+	checkBoth',
 	download,
 	download',
 	exists,
@@ -32,18 +35,28 @@ module Annex.Url (
 import Annex.Common
 import qualified Annex
 import qualified Utility.Url as U
-import Utility.Hash (IncrementalVerifier)
+import qualified Utility.Url.Parse as U
+import Annex.Hook
+import Utility.Hash.Incremental
 import Utility.IPAddress
-import Network.HTTP.Client.Restricted
 import Utility.Metered
+import Utility.Env
 import Git.Credential
 import qualified BuildInfo
 
 import Network.Socket
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS
+import Network.HTTP.Client.Restricted
+import Network.Connection
 import Text.Read
 import qualified Data.Set as S
+#if MIN_VERSION_tls(2,0,0)
+import qualified Network.Connection as NC
+import qualified Network.TLS as TLS
+#endif
+import Network.Connection.Internal (ConnectionContext(..))
+import Data.X509.CertificateStore
 
 defaultUserAgent :: U.UserAgent
 defaultUserAgent = "git-annex/" ++ BuildInfo.packageversion
@@ -52,18 +65,27 @@ getUserAgent :: Annex U.UserAgent
 getUserAgent = Annex.getRead $ 
 	fromMaybe defaultUserAgent . Annex.useragent
 
-getUrlOptions :: Annex U.UrlOptions
-getUrlOptions = Annex.getState Annex.urloptions >>= \case
-	Just uo -> return uo
+getUrlOptions :: Maybe RemoteGitConfig -> Annex U.UrlOptions
+getUrlOptions mgc = Annex.getState Annex.urloptions >>= \case
+	Just uo -> return (adjustforremote uo)
 	Nothing -> do
-		uo <- mk
+		v <- mk
 		Annex.changeState $ \s -> s
-			{ Annex.urloptions = Just uo }
-		return uo
+			{ Annex.urloptions = Just v }
+		return (adjustforremote v)
   where
+	adjustforremote (uo, curlallowed)
+		| curlallowed = case mgc of
+			Just gc | not (null (remoteAnnexWebOptions gc)) -> uo
+				{ U.urlDownloader = U.DownloadWithCurl
+					(map Param (remoteAnnexWebOptions gc))
+				}
+			_ -> uo
+		| otherwise = uo
+
 	mk = do
-		(urldownloader, manager) <- checkallowedaddr
-		U.mkUrlOptions
+		(urldownloader, manager, curlallowed) <- mk' =<< Annex.getGitConfig
+		uo <- U.mkUrlOptions
 			<$> (Just <$> getUserAgent)
 			<*> headers
 			<*> pure urldownloader
@@ -71,22 +93,26 @@ getUrlOptions = Annex.getState Annex.urloptions >>= \case
 			<*> (annexAllowedUrlSchemes <$> Annex.getGitConfig)
 			<*> pure (Just (\u -> "Configuration of annex.security.allowed-url-schemes does not allow accessing " ++ show u))
 			<*> pure U.noBasicAuth
+		return (uo, curlallowed)
 	
-	headers = annexHttpHeadersCommand <$> Annex.getGitConfig >>= \case
-		Just cmd -> lines <$> liftIO (readProcess "sh" ["-c", cmd])
-		Nothing -> annexHttpHeaders <$> Annex.getGitConfig
-	
-	checkallowedaddr = words . annexAllowedIPAddresses <$> Annex.getGitConfig >>= \case
+	headers =
+		outputOfAnnexHook httpHeadersAnnexHook annexHttpHeadersCommand
+			>>= \case
+				Just output -> pure (lines output)
+				Nothing -> annexHttpHeaders <$> Annex.getGitConfig
+			
+	mk' gc = case words (annexAllowedIPAddresses gc) of
 		["all"] -> do
 			curlopts <- map Param . annexWebOptions <$> Annex.getGitConfig
 			allowedurlschemes <- annexAllowedUrlSchemes <$> Annex.getGitConfig
-			let urldownloader = if null curlopts && not (any (`S.member` U.conduitUrlSchemes) allowedurlschemes)
+			let urldownloader = if null curlopts && not (any (`S.notMember` U.conduitUrlSchemes) allowedurlschemes)
 				then U.DownloadWithConduit $
 					U.DownloadWithCurlRestricted mempty
 				else U.DownloadWithCurl curlopts
+			ctx <- mkconnectioncontext 
 			manager <- liftIO $ U.newManager $ 
-				avoidtimeout $ tlsManagerSettings
-			return (urldownloader, manager)
+				avoidtimeout $ managersettings ctx
+			return (urldownloader, manager, True)
 		allowedaddrsports -> do
 			addrmatcher <- liftIO $ 
 				(\l v -> any (\f -> f v) l) . catMaybes
@@ -106,8 +132,9 @@ getUrlOptions = Annex.getState Annex.urloptions >>= \case
 				if isallowed (addrAddress addr)
 					then Nothing
 					else Just (connectionrestricted addr)
-			(settings, pr) <- liftIO $ 
-				mkRestrictedManagerSettings r Nothing Nothing
+			ctx <- mkconnectioncontext
+			(settings, pr) <- liftIO $
+				mkRestrictedManagerSettings r (Just ctx) tlssettings
 			case pr of
 				Nothing -> return ()
 				Just ProxyRestricted -> toplevelWarning True
@@ -118,8 +145,38 @@ getUrlOptions = Annex.getState Annex.urloptions >>= \case
 			-- preventing it from accessing specific IP addresses.
 			let urldownloader = U.DownloadWithConduit $
 				U.DownloadWithCurlRestricted r
-			return (urldownloader, manager)
+			return (urldownloader, manager, False)
+	  where
+		-- When configured, allow TLS 1.2 without EMS.
+		-- In tls-2.0, the default was changed from
+		-- TLS.AllowEMS to TLS.RequireEMS.
+		tlssettings
+#if MIN_VERSION_tls(2,0,0)
+			| annexAllowInsecureHttps gc = Just $
+				NC.TLSSettingsSimple False False False
+				def { TLS.supportedExtendedMainSecret = TLS.AllowEMS }
+#endif
+			| otherwise = Nothing
 	
+		managersettings ctx = case tlssettings of
+			Nothing -> mkManagerSettingsContext (Just ctx) def Nothing
+			Just v -> mkManagerSettingsContext (Just ctx) v Nothing
+		
+		mkconnectioncontext =
+			getCAPath >>= \case
+				Just p -> liftIO $ mkconnectioncontext' p
+				Nothing -> liftIO $ initConnectionContext
+		mkconnectioncontext' p = 
+			ConnectionContext . fromMaybe mempty
+				<$> readCertificateStore p
+
+		getCAPath = getM id
+			[ liftIO (getEnv "GIT_SSL_CAINFO")
+			, liftIO (getEnv "GIT_SSL_CAPATH")
+			, httpSslCAInfo <$> Annex.getGitConfig
+			, httpSslCAPath <$> Annex.getGitConfig
+			]
+
 	-- http-client defailts to timing out a request after 30 seconds
 	-- or so, but some web servers are slower and git-annex has its own
 	-- separate timeout controls, so disable that.
@@ -142,46 +199,49 @@ ipAddressesUnlimited :: Annex Bool
 ipAddressesUnlimited = 
 	("all" == ) . annexAllowedIPAddresses <$> Annex.getGitConfig
 
-withUrlOptions :: (U.UrlOptions -> Annex a) -> Annex a
-withUrlOptions a = a =<< getUrlOptions
+withUrlOptions :: Maybe RemoteGitConfig -> (U.UrlOptions -> Annex a) -> Annex a
+withUrlOptions mgc a = a =<< getUrlOptions mgc
 
 -- When downloading an url, if authentication is needed, uses
--- git-credential to prompt for username and password.
+-- git-credential for the prompting.
 --
 -- Note that, when the downloader is curl, it will not use git-credential.
 -- If the user wants to, they can configure curl to use a netrc file that
 -- handles authentication.
-withUrlOptionsPromptingCreds :: (U.UrlOptions -> Annex a) -> Annex a
-withUrlOptionsPromptingCreds a = do
+withUrlOptionsPromptingCreds :: Maybe RemoteGitConfig -> (U.UrlOptions -> Annex a) -> Annex a
+withUrlOptionsPromptingCreds mgc a = do
 	g <- Annex.gitRepo
-	uo <- getUrlOptions
+	uo <- getUrlOptions mgc
 	prompter <- mkPrompter
 	cc <- Annex.getRead Annex.gitcredentialcache
 	a $ uo
-		{ U.getBasicAuth = \u -> prompter $
-			getBasicAuthFromCredential g cc u
+		{ U.getBasicAuth = \u respheaders -> prompter $
+			getBasicAuthFromCredential g cc u respheaders
 		}
 
 checkBoth :: U.URLString -> Maybe Integer -> U.UrlOptions -> Annex Bool
 checkBoth url expected_size uo =
 	liftIO (U.checkBoth url expected_size uo) >>= \case
 		Right r -> return r
-		Left err -> warning err >> return False
+		Left err -> giveup err
 
-download :: MeterUpdate -> Maybe IncrementalVerifier -> U.URLString -> FilePath -> U.UrlOptions -> Annex Bool
+checkBoth' :: U.URLString -> Maybe Integer -> U.UrlOptions -> Annex (Either String Bool)
+checkBoth' url expected_size uo = liftIO $ U.checkBoth url expected_size uo
+
+download :: MeterUpdate -> Maybe IncrementalVerifier -> U.URLString -> OsPath -> U.UrlOptions -> Annex Bool
 download meterupdate iv url file uo =
 	liftIO (U.download meterupdate iv url file uo) >>= \case
 		Right () -> return True
-		Left err -> warning err >> return False
+		Left err -> warning (UnquotedString err) >> return False
 
-download' :: MeterUpdate -> Maybe IncrementalVerifier -> U.URLString -> FilePath -> U.UrlOptions -> Annex (Either String ())
+download' :: MeterUpdate -> Maybe IncrementalVerifier -> U.URLString -> OsPath -> U.UrlOptions -> Annex (Either String ())
 download' meterupdate iv url file uo =
 	liftIO (U.download meterupdate iv url file uo)
 
 exists :: U.URLString -> U.UrlOptions -> Annex Bool
 exists url uo = liftIO (U.exists url uo) >>= \case
 	Right b -> return b
-	Left err -> warning err >> return False
+	Left err -> giveup err
 
 getUrlInfo :: U.URLString -> U.UrlOptions -> Annex (Either String U.UrlInfo)
 getUrlInfo url uo = liftIO (U.getUrlInfo url uo)

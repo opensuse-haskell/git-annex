@@ -1,20 +1,19 @@
 {- Package version determination. -}
 
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-tabs #-}
 
 module Build.Version where
 
-import Data.List
 import System.Environment
 import Data.Char
-import System.Process
-import Control.Applicative
-import Prelude
 
 import Utility.Monad
 import Utility.Exception
-import Utility.Misc
+import Utility.OsPath
+import Utility.FileSystemEncoding
+import Utility.Process
+import qualified Utility.FileIO as F
 
 type Version = String
 
@@ -36,8 +35,8 @@ getVersion = do
 		, catchDefaultIO changelogversion $ do
 			gitversion <- takeWhile (\c -> isAlphaNum c) <$> readProcess "sh"
 				[ "-c"
-				, "git log -n 1 --format=format:'%h'"
-				] ""
+				, "git log -n 1 --format=format:'%H'"
+				]
 			return $ if null gitversion
 				then changelogversion
 				else concat
@@ -49,18 +48,18 @@ getVersion = do
 	
 getChangelogVersion :: IO Version
 getChangelogVersion = do
-	changelog <- readFile "CHANGELOG"
+	changelog <- F.readFileString (literalOsPath "CHANGELOG")
 	let verline = takeWhile (/= '\n') changelog
 	return $ middle (words verline !! 1)
   where
 	middle = drop 1 . init
 
 writeVersion :: Version -> IO ()
-writeVersion ver = catchMaybeIO (readFileStrict f) >>= \case
+writeVersion ver = catchMaybeIO (F.readFile' f) >>= \case
 	Just s | s == body -> return ()
-	_ -> writeFile f body
+	_ -> F.writeFile' f body
   where
-	body = unlines $ concat
+	body = encodeBS $ unlines $ concat
 		[ header
 		, ["packageversion :: String"]
 		, ["packageversion = \"" ++ ver ++ "\""]
@@ -71,4 +70,4 @@ writeVersion ver = catchMaybeIO (readFileStrict f) >>= \case
 		, ""
 		]
 	footer = []
-	f = "Build/Version"
+	f = literalOsPath "Build/Version"

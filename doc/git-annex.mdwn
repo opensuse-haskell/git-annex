@@ -68,7 +68,7 @@ content from the key-value store.
 
 * `get [path ...]`
 
-  Makes the content of annexed files available in this repository.
+  Gets the content of annexed files.
   
   See [[git-annex-get]](1) for details.
 
@@ -77,6 +77,12 @@ content from the key-value store.
   Drops the content of annexed files from this repository.
   
   See [[git-annex-drop]](1) for details.
+
+* `put [path ...]`
+
+  Send the content of annexed files to other repositories.
+  
+  See [[git-annex-put]](1) for details.
 
 * `move [path ...] [--from=remote|--to=remote]`
 
@@ -92,8 +98,7 @@ content from the key-value store.
 
 * `status [path ...]`
 
-  Similar to `git status --short`, displays the status of the files in the
-  working tree.
+  Show the working tree status. (deprecated)
 
   See [[git-annex-status]](1) for details.
 
@@ -115,11 +120,35 @@ content from the key-value store.
   
   See [[git-annex-lock]](1) for details.
 
+* `pull [remote ...]`
+
+  Pull content from remotes.
+  
+  See [[git-annex-pull]](1) for details.
+
+* `push [remote ...]`
+
+  Push content to remotes.
+  
+  See [[git-annex-push]](1) for details.
+
 * `sync [remote ...]`
 
   Synchronize local repository with remotes.
   
   See [[git-annex-sync]](1) for details.
+
+* `assist [remote ...]`
+
+  Add files and sync changes with remotes.
+  
+  See [[git-annex-assist]](1) for details.
+
+* `satisfy [remote ...]`
+
+  Satisfy preferred content settings by transferring and dropping content.
+  
+  See [[git-annex-satisfy]](1) for details.
 
 * `mirror [path ...] [--to=remote|--from=remote]`
 
@@ -159,9 +188,27 @@ content from the key-value store.
 
 * `undo [filename|directory] ...`
 
-  Undo last change to a file or directory.
+  Undo last change to a file or directory. (deprecated)
   
   See [[git-annex-undo]](1) for details.
+
+* `addcomputed`
+
+  Adds computed files to the repository.
+
+  See [[git-annex-addcomputed]](1) for details.
+
+* `recompute`
+
+  Recomputes computed files.
+
+  See [[git-annex-recompute]](1) for details.
+
+* `findcomputed`
+
+  Lists computed files.
+
+  See [[git-annex-findcomputed]](1) for details.
 
 * `multicast`
 
@@ -171,13 +218,13 @@ content from the key-value store.
 
 * `watch`
 
-  Watch for changes and autocommit.
+  Daemon to watch for changes and autocommit.
   
   See [[git-annex-watch]](1) for details.
 
 * `assistant`
 
-  Automatically sync folders between devices.
+  Daemon to automatically sync changes.
 
   See [[git-annex-assistant]](1) for details.
 
@@ -188,6 +235,13 @@ content from the key-value store.
   already running, it will be started.
 
   See [[git-annex-webapp]](1) for details.
+
+* `p2phttp`
+
+  Allows a git-annex repository to be accessed over HTTP using git-annex
+  p2p protocol.
+
+  See [[git-annex-p2phttp]](1) for details.
 
 * `remotedaemon`
 
@@ -222,6 +276,12 @@ content from the key-value store.
   Enables use of an existing special remote in the current repository.
   
   See [[git-annex-enableremote]](1) for details.
+
+* `configremote name [param=value ...]`
+
+  Changes configuration of an existing special remote.
+  
+  See [[git-annex-configremote]](1) for details.
 
 * `renameremote`
 
@@ -297,6 +357,34 @@ content from the key-value store.
   
   See [[git-annex-required]](1) for details.
 
+* `maxsize repository [size]`
+
+  Get or set maximum size of repository.
+
+* `initcluster`
+
+  Initializes a new cluster.
+  
+  See [[git-annex-initcluster]](1) for details.
+
+* `updatecluster`
+
+  Update records of cluster nodes.
+  
+  See [[git-annex-updatecluster]](1) for details.
+
+* `extendcluster`
+
+  Adds an additional gateway to a cluster.
+  
+  See [[git-annex-extendcluster]](1) for details.
+
+* `updateproxy`
+
+  Update records with proxy configuration.
+  
+  See [[git-annex-updateproxy]](1) for details.
+
 * `schedule repository [expression]`
 
   Get or set scheduled jobs.
@@ -323,18 +411,6 @@ content from the key-value store.
   unlock all files, etc.
   
   See [[git-annex-adjust]](1) for details.
-
-* `direct`
-
-  Switches a repository to use direct mode. (deprecated)
-  
-  See [[git-annex-direct]](1) for details.
-
-* `indirect`
-
-  Switches a repository to use indirect mode. (deprecated)
-  
-  See [[git-annex-indirect]](1) for details.
 
 # REPOSITORY MAINTENANCE COMMANDS
 
@@ -458,6 +534,12 @@ content from the key-value store.
 
   See [[git-annex-log]](1) for details.
 
+* `oldkeys [path ...]`
+
+  List keys used for old versions of files.
+  
+  See [[git-annex-oldkeys]](1) for details.
+
 * `info [directory|file|remote|uuid ...]`
 
   Displays statistics and other information for the specified item,
@@ -487,6 +569,12 @@ content from the key-value store.
 
   See [[git-annex-inprogress]](1) for details.
 
+* `findkeys`
+
+  Similar to `git-annex find`, but operating on keys.
+
+  See [[git-annex-findkeys]](1) for details.
+
 # METADATA COMMANDS
 
 * `metadata [path ...]`
@@ -500,7 +588,7 @@ content from the key-value store.
 
   See [[git-annex-metadata]](1) for details.
 
-* `view [tag ...] [field=value ...] [field=glob ...] [!tag ...] [field!=value ...]`
+* `view [tag ...] [field=value ...] [field=glob ...] [?tag ...] [field?=glob] [!tag ...] [field!=value ...]`
 
   Uses metadata to build a view branch of the files in the current branch,
   and checks out the view branch. Only files in the current branch whose
@@ -635,6 +723,12 @@ content from the key-value store.
   
   See [[git-annex-unregisterurl]](1) for details.
 
+* `reregisterurl [key url]`
+
+  Updates url registration information.
+  
+  See [[git-annex-reregisterurl]](1) for details.
+
 * `setkey key file`
 
   Moves a file into the annex as the content of a key.
@@ -658,12 +752,6 @@ content from the key-value store.
   Used internally by git-annex to transfer content.
 
   See [[git-annex-transferrer]](1) for details.
-
-* `transferkeys`
-  
-  Used internally by old versions of the assistant.
-
-  See [[git-annex-transferkey]](1) for details.
 
 * `setpresentkey key uuid [1|0]`
 
@@ -694,14 +782,14 @@ content from the key-value store.
 
   Resolves a conflicted merge, by adding both conflicting versions of the
   file to the tree, using variants of their filename. This is done
-  automatically when using `git annex sync` or `git annex merge`.
+  automatically when using `git annex sync` or `git-annex pull`
+  or `git annex merge`.
 
   See [[git-annex-resolvemerge]](1) for details.
 
 * `diffdriver`
 
-  This can be used to make `git diff` use an external diff driver with
-  annexed files.
+  This can be used to make `git diff` diff the content of annexed files.
 
   See [[git-annex-diffdriver]](1) for details.
 
@@ -731,10 +819,6 @@ content from the key-value store.
   Lists files in a git ref. (deprecated)
   
   See [[git-annex-findref]](1) for details.
-
-* `proxy -- git cmd [options]`
-
-  Bypass direct mode guard. (deprecated)
   
   See [[git-annex-proxy]](1) for details.
 
@@ -755,6 +839,13 @@ content from the key-value store.
   not altered), although it may perform expensive data transfers.
   
   See [[git-annex-testremote]](1) for details.
+
+* `sim`
+
+  This simulates a network of git-annex repositories. It can be used to
+  test a configuration before using it in the real world.
+  
+  See [[git-annex-sim]](1) for details.
 
 * `fuzztest`
 
@@ -820,11 +911,21 @@ repository, using [[git-annex-config]]. See its man page for a list.)
 
 * `annex.maxextensionlength`
 
-  Maximum length, in bytes, of what is considered a filename extension when
-  adding a file to a backend that preserves filename extensions. The
-  default length is 4, which allows extensions like "jpeg". The dot before
-  the extension is not counted part of its length. At most two extensions
-  at the end of a filename will be preserved, e.g. .gz or .tar.gz .
+  Maximum length, in bytes, of what is considered a filename extension.
+  This is used when adding a file to a backend that preserves filename extensions,
+  and also when generating a view branch.
+
+  The default length is 4, which allows extensions like "jpeg". The dot before
+  the extension is not counted part of its length.
+
+* `annex.maxextensions`
+
+  Maximum number of filename extensions to preserve when using a backend
+  that preserves filename extensions, and also when generating a view
+  branch.
+
+  The default is 2, which allows for compound extensions like ".tar.gz".
+  When set to 1, it will only preserve the last extension, eg ".gz".
 
 * `annex.diskreserve`
 
@@ -836,6 +937,12 @@ repository, using [[git-annex-config]]. See its man page for a list.)
 
   The default reserve is 100 megabytes.
 
+* `annex.fullybalancedthreshhold`
+
+  Configures the percent full a repository must be in order for
+  the "fullybalanced" preferred content expression to consider it
+  to be full. The default is 90.
+
 * `annex.skipunknown`
 
   Set to true to make commands like "git-annex get" silently skip over
@@ -845,16 +952,15 @@ repository, using [[git-annex-config]]. See its man page for a list.)
   to be asked to operate on files that are not checked into git.
   (This is the default in recent versions of git-annex.)
 
-  Note that, when annex.skipunknown is false, a command like "git-annex get ."
-  will fail if no files in the current directory are checked into git,
-  but a command like "git-annex get" will not fail, because the current
-  directory is not listed, but is implicit. Commands like "git-annex get foo/"
-  will fail if no files in the directory are checked into git, but if
-  at least one file is, it will ignore other files that are not. This is
-  all the same as the behavior of "git-ls files --error-unmatch".
+  Note that, when annex.skipunknown is false, a command like "git-annex get
+  ." will fail if no files in the current directory are checked into git.
+  Commands like "git-annex get foo/" will fail if no files in the directory
+  are checked into git, but if at least one file is, it will ignore other
+  files that are not. This is all the same as the behavior of "git-ls files
+  --error-unmatch".
   
   Also note that git-annex skips files that are checked into git, but are
-  not annexed files, this setting does not affect that.
+  not annexed files; this setting does not affect that.
 
 * `annex.largefiles`
 
@@ -870,22 +976,23 @@ repository, using [[git-annex-config]]. See its man page for a list.)
 
   This configures the behavior of both git-annex and git when adding
   files to the repository. By default, `git-annex add` adds all files
-  to the annex (except dotfiles), and `git add` adds files to git
-  (unless they were added to the annex previously).
+  to the annex (except dotfiles and files in dotdirs), and `git add`
+  adds files to git (unless they were added to the annex previously).
   When annex.largefiles is configured, both
   `git annex add` and `git add` will add matching large files to the
   annex, and the other files to git.
 
   Other git-annex commands also honor annex.largefiles, including
-  `git annex import`, `git annex addurl`, `git annex importfeed`
-  and the assistant.
+  `git annex import`, `git annex addurl`, `git annex importfeed`,
+  `git-annex assist`, and the `git-annex assistant`.
 
 * `annex.dotfiles`
 
-  Normally, dotfiles are assumed to be files like .gitignore,
-  whose content should always be part of the git repository, so 
-  they will not be added to the annex. Setting annex.dotfiles to true
-  makes dotfiles be added to the annex the same as any other file. 
+  Normally, dotfiles and files inside dotdirs are assumed to be
+  configuration files like .gitignore, whose content should always
+  be part of the git repository, so they will not be added to the annex.
+  Setting annex.dotfiles to true makes these files be added to the
+  annex the same as any other file. 
 
   To annex only some dotfiles, set this and configure annex.largefiles
   to match the ones you want. For example, to match only dotfiles ending 
@@ -904,8 +1011,8 @@ repository, using [[git-annex-config]]. See its man page for a list.)
 
 * `annex.addsmallfiles`
 
-  Controls whether small files (not matching annex.largefiles)
-  should be checked into git by `git annex add`. Defaults to true;
+  Controls whether small files (files not matching annex.largefiles, or
+  dotfiles) should be checked into git by `git annex add`. Defaults to true;
   set to false to instead make small files be skipped.
 
 * `annex.addunlocked`
@@ -921,12 +1028,42 @@ repository, using [[git-annex-config]]. See its man page for a list.)
   To configure a default annex.addunlocked for all clones of the repository,
   this can be set in [[git-annex-config]](1).
   
-  (Using `git add` always adds files in unlocked form and it is not
-  affected by this setting.)
+  Using `git add` always adds files in unlocked form and it is not
+  affected by this setting. The assistant defaults to adding all files
+  unlocked, unless `annex.assistant.allowunlocked` is set.
   
   When a repository has core.symlinks set to false, or has an adjusted 
   unlocked branch checked out, this setting is ignored, and files are 
   always added to the repository in unlocked form.
+
+* `annex.assistant.allowunlocked`
+
+  The `git-annex assistant` defaults to adding all files unlocked, so that
+  files can be modified without the user needing to do anything to unlock
+  them.
+
+  If this is set to `true` then it will instead use the `annex.addunlocked`
+  configuration to decide which files to add unlocked.
+
+* `annex.initwanted`
+
+  When this is set to a preferred content expression, all 
+  new repositories (and special remotes) will have it copied into their
+  configuration when initialized, the same as if you had run
+  [[git-annex-wanted]](1).
+
+* `annex.initrequired`
+
+  When this is set to a preferred content expression, all 
+  new repositories (and special remotes) will have it copied into their
+  configuration when initialized, the same as if you had run
+  [[git-annex-required]](1).
+
+* `annex.initgroups`
+  
+  When this is set to a list of groups (separated by whitespace), all
+  new repositories (and special remotes) start out in those groups
+  when initialized, the same as if you had run [[git-annex-group]](1).
 
 * `annex.numcopies`
 
@@ -1045,6 +1182,42 @@ repository, using [[git-annex-config]]. See its man page for a list.)
   This works well in combination with annex.alwayscommit=false,
   to gather up a set of changes and commit them with a message you specify.
 
+* `annex.commitmessage-command`
+
+  This command is run and its output is used as the commit message to the
+  git-annex branch.
+  
+  Alternatively, a hook script can be installed in 
+  `.git/hooks/commitmessage-annex`
+
+* `annex.post-update-command`
+
+  This command is run after git-annex updates the git-annex branch.
+
+  When publishing a git-annex repository by http, this can be used to run
+  `git update-server-info`
+
+  Alternatively, a hook script can be installed in 
+  `.git/hooks/post-update-annex`
+
+* `annex.pre-commit-command`
+
+  This command is run whenever a commit is made to the HEAD branch of
+  the git repository, either by git commit, or by git-annex.
+
+  Alternatively, a hook script can be installed in
+  `.git/hooks/pre-commit-annex`
+
+* `annex.pre-init-command`
+
+  This command is run before the repository is initialized, either by
+  `git-annex init`, or automatic initialization. It can configure
+  the repository in any way needed. If it exits nonzero, the repository
+  initialization will fail.
+  
+  Alternatively, a hook script can be installed in
+  `.git/hooks/pre-init-annex`
+
 * `annex.alwayscompact`
 
   By default, git-annex compacts data it records in the git-annex branch.
@@ -1123,7 +1296,10 @@ repository, using [[git-annex-config]]. See its man page for a list.)
   Set this to `true` to make unlocked files be a hard link to their content
   in the annex, rather than a second copy. This can save considerable
   disk space, but when a modification is made to a file, you will lose the
-  local (and possibly only) copy of the old version. So, enable with care.
+  local (and possibly only) copy of the old version. Any other, locked
+  files in the repository that pointed to that content will get broken
+  as well (`git-annex fsck` will detect and clean up after that). 
+  So, enable this with care.
 
   After setting (or unsetting) this, you should run `git annex fix` to
   fix up the annexed files in the work tree to be hard links (or copies).
@@ -1146,11 +1322,30 @@ repository, using [[git-annex-config]]. See its man page for a list.)
   After changing this config, you need to re-run `git-annex init` for it
   to take effect.
 
+* `annex.trashbin`
+
+  When this is set to the name of a remote, files that are dropped from the
+  repository will be moved to that remote.
+
+  Note that, if it takes a long time to move a file to the remote, the user
+  will not see a progress display for their drop action. So this is best
+  used with a fast remote.
+
+  And, if the remote is not accessible, or a file fails to be moved to it,
+  the file will not be dropped from the repository.
+
+* `annex.url`
+
+  When a remote has a http url, the first time git-annex uses the remote
+  it will check if it can download its `.git/config` file. If it is able
+  to, and the file has this config set to an "annex+http" or "annex+https"
+  url, that url will be copied into `remote.<name>.annexUrl`. 
+
 * `annex.resolvemerge`
 
   Set to false to prevent merge conflicts in the checked out branch
-  being automatically resolved by the git-annex assitant,
-  git-annex sync, git-annex merge,
+  being automatically resolved by the `git-annex assitant`,
+  `git-annex assist`, `git-annex sync`, `git-annex pull`, `git-annex merge`,
   and the git-annex post-receive hook.
 
   To configure the behavior in all clones of the repository,
@@ -1158,18 +1353,35 @@ repository, using [[git-annex-config]]. See its man page for a list.)
 
 * `annex.synccontent`
 
-  Set to true to make git-annex sync default to syncing annexed content.
+  Set to true to make `git-annex sync` default to transferring
+  annexed content.
+
+  Set to false to prevent `git-annex assist`, `git-annex pull` and
+  `git-annex push` from transferring annexed content.
 
   To configure the behavior in all clones of the repository,
   this can be set in [[git-annex-config]](1).
 
 * `annex.synconlyannex`
 
-  Set to true to make git-annex sync default to only sincing the git-annex
-  branch and annexed content.
+  Set to true to make `git-annex assist`, `git-annex sync`, 
+  `git-annex pull`, and `git-annex push` default to only operating
+  on the git-annex branch and annexed content.
 
   To configure the behavior in all clones of the repository,
   this can be set in [[git-annex-config]](1).
+
+* `annex.syncmigrations`
+
+  Set to false to prevent `git-annex sync` and `git-annex pull`
+  from scanning for migrations and updating the local 
+  repository for those migrations.
+
+* `annex.viewunsetdirectory`
+
+  This configures the name of a directory that is used in a view to contain
+  files that do not have metadata set. The default name for the directory 
+  is `"_"`. See [[git-annex-view]](1) for details.
 
 * `annex.debug`
 
@@ -1267,21 +1479,31 @@ repository, using [[git-annex-config]]. See its man page for a list.)
   erased.
 
   For example, to use the wipe command, set it to `wipe -f %file`.
+  
+  Alternatively to setting the git config, a hook script can be installed
+  in `.git/hooks/secure-erase-annex`. The hook is passed the file to be
+  erased as its only parameter.
 
 * `annex.freezecontent-command`, `annex.thawcontent-command`
 
   Usually the write permission bits are unset to protect annexed objects
-  from being modified or deleted. The freezecontent-command is run after
+  from being modified or deleted. Freezecontent is run after
   git-annex has removed (or attempted to remove) the write bit, and can
   be used to prevent writing in some other way.
-  The thawcontent-command should undo its effect, and is run before
+  Thawcontent should undo its effect, and is run before
   git-annex restores the write bit.
 
   In the command line, %path is replaced with the file or directory to
   operate on.
 
   (When annex.crippledfilesystem is set, git-annex will not try to
-  remove/restore the write bit, but it will still run these hooks.)
+  remove/restore the write bit, but it will still run freezecontent and
+  thawcontent.)
+
+  Alternatively to setting the git config, hook scripts can be installed
+  in `.git/hooks/freezecontent-annex` and `.git/hooks/thawcontent-annex`.
+  The hook is passed the file or directory to operate on as its only
+  parameter.
 
 * `annex.tune.objecthash1`, `annex.tune.objecthashlower`, `annex.tune.branchhash1`
 
@@ -1289,6 +1511,15 @@ repository, using [[git-annex-config]]. See its man page for a list.)
   They cannot be safely changed in a running repository and should never be
   set in global git configuration.
   For details, see <https://git-annex.branchable.com/tuning/>.
+
+* `annex.cluster.<name>`
+
+  This is set to make the repository be a gateway to a cluster.
+  The value is the cluster UUID. Note that cluster UUIDs are not
+  the same as repository UUIDs, and a repository UUID cannot be used here.
+
+  Usually this is set up by running [[git-annex-initcluster]] or
+  [[git-annex-extendcluster]].
 
 # CONFIGURATION OF REMOTES
 
@@ -1331,17 +1562,18 @@ Remotes are configured using these settings in `.git/config`.
 
 * `remote.<name>.annex-ignore`
 
-  If set to `true`, prevents git-annex
-  from storing file contents on this remote by default.
-  (You can still request it be used by the `--from` and `--to` options.)
+  If set to `true`, prevents git-annex from storing or retrieving annexed
+  file contents on this remote by default. 
+  (You can still request it be used with the `--from` and `--to` options.)
 
   This is, for example, useful if the remote is located somewhere
   without git-annex-shell. (For example, if it's on GitHub).
   Or, it could be used if the network connection between two
   repositories is too slow to be used normally.
 
-  This does not prevent git-annex sync (or the git-annex assistant) from
-  syncing the git repository to the remote.
+  This does not prevent `git-annex sync`, `git-annex pull`, `git-annex push`,
+  `git-annex assist` or the `git-annex assistant` from operating on the
+  git repository. It only affects annexed content.
 
 * `remote.<name>.annex-ignore-command`
 
@@ -1349,11 +1581,20 @@ Remotes are configured using these settings in `.git/config`.
   as setting annex-ignore to true. This allows controlling behavior based
   on e.g., the current network.
 
+* `remote.<name>.annex-ignore-auto`
+
+  This is set by git-annex when it sets `remote.<name>.annex-ignore` due to
+  detecting that the remote repository is not usable by git-annex.
+
+  When this is set, `git-annex push` will check if the remote repository
+  is now usable by git-annex, and if so, will unset
+  `remote.<name>.annex-ignore`.
+
 * `remote.<name>.annex-sync`
 
-  If set to `false`, prevents git-annex sync (and the git-annex assistant)
-  from syncing with this remote by default. However, `git annex sync <name>`
-  can still be used to sync with the remote.
+  If set to `false`, prevents `git-annex sync` (and `git-annex pull`, 
+  `git-annex push`, `git-annex assist`, and the `git-annex assistant`)
+  from operating on this remote by default.
 
 * `remote.<name>.annex-sync-command`
 
@@ -1363,19 +1604,22 @@ Remotes are configured using these settings in `.git/config`.
 
 * `remote.<name>.annex-pull`
 
-  If set to `false`, prevents git-annex sync (and the git-annex assistant
-  etc) from ever pulling (or fetching) from the remote.
+  If set to `false`, prevents `git-annex pull`, `git-annex sync`,
+  `git-annex assist` and the `git-annex assistant` from ever pulling
+  (or fetching) from the remote.
 
 * `remote.<name>.annex-push`
 
-  If set to `false`, prevents git-annex sync (and the git-annex assistant
-  etc) from ever pushing to the remote.
+  If set to `false`, prevents `git-annex push`, `git-annex sync`,
+  `git-annex assist` and the `git-annex assistant` from ever pushing
+  to the remote.
 
 * `remote.<name>.annex-readonly`
 
   If set to `true`, prevents git-annex from making changes to a remote.
-  This both prevents git-annex sync from pushing changes, and prevents
-  storing or removing files from read-only remote.
+  This prevents `git-annex sync` and `git-annex assist` from pushing
+  changes to a git repository. And it prevents storing or removing
+  files from read-only remote.
 
 * `remote.<name>.annex-verify`, `annex.verify`
 
@@ -1387,6 +1631,25 @@ Remotes are configured using these settings in `.git/config`.
   in some edge cases, where it's likely the case than an
   object was downloaded incorrectly, or when needed for security.
 
+* `remote.<name>.annex-fastcopy`, `annex.fastcopy`
+
+  Set to "true" to optimize copying files to/from a remote.
+
+  Setting this allows `cp` to use the `copy_file_range` system call. (When
+  the `cp` command supports it.) The benefit depends on the filesystem.
+  For example, on NFS, this can allow a server-side copy to be done. On
+  ext4, this avoids some memory transfer overhead, but the file still
+  needs to be copied. There is no benefit on btrfs, since git-annex does
+  the equivilantly fast CoW reflinking on btrfs by default.
+
+  This will do little to improve copy speed when git-annex needs to read
+  the copied file in order to verify it. So for maximum speed, as well 
+  as setting this option, set `remote.<name>.annex-verify` or `annex.verify`
+  to false.
+
+  Currently, setting this prevents resuming interrupted copies where
+  they left off. An interrupted copy will be re-run from the beginning.
+
 * `remote.<name>.annex-tracking-branch`
 
   This is for use with special remotes that support exports and imports.
@@ -1397,9 +1660,11 @@ Remotes are configured using these settings in `.git/config`.
   When set to eg, "master:subdir", the special remote tracks only
   the subdirectory of that branch.
 
-  `git-annex sync --content` will import changes from the remote and 
-  merge them into the annex-tracking-branch. They also export changes
-  made to the branch to the remote.
+  Setting this enables some other commands to work with these special
+  remotes: `git-annex pull` will import changes from the remote and merge them into
+  the annex-tracking-branch. And `git-annex push` will export changes to
+  the remote. Higher-level commands `git-annex sync --content`
+  and `git-annex assist` both import and export.
 
 * `remote.<name>.annex-export-tracking`
 
@@ -1409,8 +1674,35 @@ Remotes are configured using these settings in `.git/config`.
 * `remote.<name>.annexUrl`
 
   Can be used to specify a different url than the regular `remote.<name>.url`
-  for git-annex to use when talking with the remote. Similar to the `pushUrl`
+  for git-annex to use for accessing the remote. Similar to the `pushUrl`
   used by git-push.
+
+  When this is set to an annex+http or annex+https url, that url is used
+  for git-annex operations only, and the `remote.<name>.url` is used for
+  git operations. This allows using [[git-annex-p2phttp]] to serve a
+  git-annex repository over http.
+
+  When this and the `remote.<name>.url` contain the same hostname,
+  and this is an annex+http(s) url, and that is also a http(s) url,
+  git-annex assumes that the same username and password can be used
+  for both urls. When password caching is configured, this allows
+  you to only be prompted once for a password when using both git and
+  git-annex. See gitcredentials(7) for how to set up password caching.
+
+* `url.<base>.annexInsteadOf`
+
+  This works similarly to git's `url.<base>.pushInsteadOf`, rewriting
+  a remote url that starts with the value of this config to instead
+  start with `<base>`.
+
+  The rewritten url is used by git-annex for accessing the remote,
+  and works the same as `remote.<name>.annexUrl`, including supporting
+  annex+http urls.
+
+  Note that git-annex also supports git's `url.<base>.insteadOf`
+  configuration. When both are set, the remote's url is first rewritten
+  by insteadOf, and that rewritten url can then be further
+  rewritten using annexInsteadOf.
 
 * `remote.<name>.annex-uuid`
 
@@ -1452,25 +1744,37 @@ Remotes are configured using these settings in `.git/config`.
   for remotes where the transfer is run by a separate program than
   git-annex. 
 
-* `remote.<name>.annex-stalldetecton`, `annex.stalldetection`
+* `remote.<name>.annex-bwlimit-download`, `annex.bwlimit-download`
+
+  Limit bandwith for downloads from a remote.
+  
+  Overrides `remote.<name>.annex-bwlimit` and `annex.bwlimit`
+
+* `remote.<name>.annex-bwlimit-upload`, `annex.bwlimit-upload`
+  
+  Limit bandwith for uploads to a remote. 
+
+  Overrides `remote.<name>.annex-bwlimit` and `annex.bwlimit`
+
+* `remote.<name>.annex-stalldetection`, `annex.stalldetection`
 
   Configuring this lets stalled or too-slow transfers be detected, and
   dealt with, so rather than getting stuck, git-annex will cancel the
   stalled operation. The transfer will be considered to have failed, so
   settings like annex.retry will control what it does next.
 
-  By default, git-annex detects transfers that have probably stalled,
-  and suggests configuring this. If it is incorrectly detecting
-  stalls, setting this to "false" will avoid that.
-
-  Set to "true" to enable automatic stall detection. If a remote does not
-  update its progress consistently, no automatic stall detection will be
+  The default is to automatically detect when transfers that have probably
+  stalled, and suggest configuring this, but not cancel the stalled
+  operations. For this to work, a remote needs to update its progress
+  consistently. Remotes that do not will not have automatic stall detection
   done. And it may take a while for git-annex to decide a remote is really
   stalled when using automatic stall detection, since it needs to be
   conservative about what looks like a stall.
 
-  For more fine control over what constitutes a stall, set to a value in
-  the form "$amount/$timeperiod" to specify how much data git-annex should
+  Set to "false" to avoid all attempts at stall detection.
+
+  To detect and cancel stalled transfers, set this to a value in the form
+  "$amount/$timeperiod" which specifies how much data git-annex should
   expect to see flowing, minimum, over a given period of time.
 
   For example, to detect outright stalls where no data has been transferred
@@ -1481,11 +1785,40 @@ Remotes are configured using these settings in `.git/config`.
   stuck for a long time, you could use:
   `git config remote.usbdrive.annex-stalldetection "1MB/1m"`
 
-  This is not enabled by default, because it can make git-annex use
-  more resources. To be able to cancel stalls, git-annex has to run
-  transfers in separate processes (one per concurrent job). So it
-  may need to open more connections to a remote than usual, or
-  the communication with those processes may make it a bit slower.
+  Some remotes don't report transfer progress, and stalls cannot be
+  detected when using those.
+
+  Some remotes only report transfer progress occasionally, eg
+  after each chunk. To avoid false timeouts in such a situation, if the
+  first progress update takes longer to arrive than the configured time
+  period, the stall detection will be automically adjusted to use a longer
+  time period. For example, if the first progress update comes after 10
+  minutes, but annex.stalldetection is "1MB/1m", it will be treated as eg
+  "30MB/30m".
+
+  Configuring stall detection can make git-annex use more resources. To be
+  able to cancel stalls, git-annex has to run transfers in separate
+  processes (one per concurrent job). So it may need to open more
+  connections to a remote than usual, or the communication with those
+  processes may make it a bit slower.
+
+* `remote.<name>.annex-stalldetection-download`, `annex.stalldetection-download`
+
+  Stall detection for downloads from a remote.
+ 
+  For example, if a remote is often fast, but sometimes is very slow,
+  and there is another remote that is consistently medium speed
+  and that contains the same data, this could be set to treat the fast
+  remote as stalled when it's slow. Then a command like `git-annex get`
+  will fall back to downloading from the medium speed remote.
+
+  Overrides `remote.<name>.annex-stalldetection`, `annex.stalldetection`
+
+* `remote.<name>.annex-stalldetection-upload`, `annex.stalldetection-upload`
+
+  Stall detection for uploads to a remote.
+
+  Overrides `remote.<name>.annex-stalldetection`, `annex.stalldetection`
 
 * `remote.<name>.annex-checkuuid`
 
@@ -1505,17 +1838,44 @@ Remotes are configured using these settings in `.git/config`.
   configured by the trust and untrust commands. The value can be any of
   "trusted", "semitrusted" or "untrusted".
 
-* `remote.<name>.annex-availability`
-
-  Can be used to tell git-annex whether a remote is LocallyAvailable
-  or GloballyAvailable. Normally, git-annex determines this automatically.
-
 * `remote.<name>.annex-speculate-present`
 
   Set to "true" to make git-annex speculate that this remote may contain the
   content of any file, even though its normal location tracking does not
   indicate that it does. This will cause git-annex to try to get all file
   contents from the remote. Can be useful in setting up a caching remote.
+
+* `remote.<name>.annex-proxy`
+
+  Set to "true" to make the local repository able to act as a proxy to this
+  remote. The remote can be a git-annex repository or a special remote.
+
+  After configuring this, run [[git-annex-updateproxy](1) to store
+  the new configuration in the git-annex branch.
+
+* `remote.<name>.annex-proxied-by`
+
+  Usually this is used internally, when git-annex sets up proxied remotes,
+  and will not need to be configured. The value is the UUID of the
+  git-annex repository that proxies access to this remote.
+
+* `remote.<name>.annex-cluster-node`
+
+  Set to the name of a cluster to make this remote be part of
+  the cluster. Names of multiple clusters can be separated by
+  whitespace to make a remote be part of more than one cluster.
+  
+  After configuring this, run [[git-annex-updatecluster](1) to store
+  the new configuration in the git-annex branch.
+
+* `remote.<name>.annex-cluster-gateway`
+
+  Set to the UUID of a cluster that this remote serves as a gateway for.
+  Multiple UUIDs can be listed, separated by whitespace. When the local
+  repository is also a gateway for that cluster, it will proxy for the
+  nodes of the remote gateway.
+  
+  Usually this is set up by running [[git-annex-extendcluster]].
 
 * `remote.<name>.annex-private`
 
@@ -1524,16 +1884,41 @@ Remotes are configured using these settings in `.git/config`.
   remotes, and is set when using [[git-annex-initremote]](1) with the
   `--private` option.
 
+* `remote.<name>.annex-max-git-bundles`, `annex.max-git-bundles`
+
+  When using [[git-remote-annex]] to store a git repository in a special
+  remote, this configures how many separate git bundle objects to store
+  in the special remote before re-uploading a single git bundle that contains
+  the entire git repository.
+  
+  The default is 100, which aims to avoid often needing to often re-upload,
+  while preventing a clone or fetch needing to download too many objects.
+  Set to 0 to disable re-uploading.
+
+* `remote.<name>.annex-allow-encrypted-gitrepo`
+
+  Setting this to true allows using [[git-remote-annex]] to push the git
+  repository to an encrypted special remote.
+
+  That is not allowed by default, because it is impossible to git clone
+  from an encrypted special remote, since it needs encryption keys stored
+  in the remote. So take care that, if you set this, you don't rely
+  on the encrypted special remote being the only copy of your git repository.
+
 * `remote.<name>.annex-bare`
 
   Can be used to tell git-annex if a remote is a bare repository
   or not. Normally, git-annex determines this automatically.
 
-* `remote.<name>.annex-ssh-options`
+* `remote.<name>.annex-availability`
+
+  This configuration setting is no longer used.
+
+* `remote.<name>.annex-ssh-options`, `annex.ssh-options`
 
   Options to use when using ssh to talk to this remote.
 
-* `remote.<name>.annex-rsync-options`
+* `remote.<name>.annex-rsync-options`, `annex.rsync-options`
 
   Options to use when using rsync
   to or from this remote. For example, to force IPv6, and limit
@@ -1543,7 +1928,7 @@ Remotes are configured using these settings in `.git/config`.
   and others will not be be passed to the remote rsync. So using some
   options may break the communication between the local and remote rsyncs.
 
-* `remote.<name>.annex-rsync-upload-options`
+* `remote.<name>.annex-rsync-upload-options`, `annex.rsync-upload-options`
 
   Options to use when using rsync to upload a file to a remote.
 
@@ -1551,7 +1936,7 @@ Remotes are configured using these settings in `.git/config`.
   so can be used to override them. For example, to limit upload bandwidth
   to 10Kbyte/s, set `--bwlimit 10`.
 
-* `remote.<name>.annex-rsync-download-options`
+* `remote.<name>.annex-rsync-download-options`, `annex.rsync-download-options`
 
   Options to use when using rsync to download a file from a remote.
 
@@ -1567,13 +1952,13 @@ Remotes are configured using these settings in `.git/config`.
   When the transport used is `ssh`, connections are automatically cached
   unless `annex.sshcaching` is unset.
 
-* `remote.<name>.annex-bup-split-options`
+* `remote.<name>.annex-bup-split-options`, `annex.bup-split-options`
 
   Options to pass to bup split when storing content in this remote.
   For example, to limit the bandwidth to 100Kbyte/s, set it to `--bwlimit 100k`
   (There is no corresponding option for bup join.)
 
-* `remote.<name>.annex-gnupg-options`
+* `remote.<name>.annex-gnupg-options`, `annex.gnupg-options`
 
   Options to pass to GnuPG when it's encrypting data. For instance, to
   use the AES cipher with a 256 bits key and disable compression, set it
@@ -1581,19 +1966,29 @@ Remotes are configured using these settings in `.git/config`.
   precedence over the default GnuPG configuration, which is otherwise
   used.)
 
-* `remote.<name>.annex-gnupg-decrypt-options`
+* `remote.<name>.annex-gnupg-decrypt-options`, `annex.gnupg-decrypt-options`
 
   Options to pass to GnuPG when it's decrypting data. (These options take
   precedence over the default GnuPG configuration, which is otherwise
   used.)
 
-* `annex.ssh-options`, `annex.rsync-options`,
-  `annex.rsync-upload-options`, `annex.rsync-download-options`,
-  `annex.bup-split-options`, `annex.gnupg-options`,
-  `annex.gnupg-decrypt-options`
+* `remote.<name>.annex-shared-sop-command`, `annex.shared-sop-command`
 
-  Default options to use if a remote does not have more specific options
-  as described above.
+  Use this command, which is an implementation of the Stateless OpenPGP
+  command line interface, rather than GnuPG for encrypting and decrypting
+  data. This is only used when a special remote is configured with
+  encryption=shared.
+
+  For example, to use Sequoia PGP's sqop command, set this to "sqop".
+
+* `remote.<name>.annex-shared-sop-profile`, `annex.shared-sop-profile`
+
+  When encrypting with a Stateless OpenPGP command, this can be used
+  to specify the profile to use, such as "rfc4880".
+
+  For a list of available profiles, run eg "sqop list-profiles encrypt"
+
+  sqop list-profiles encrypt
 
 * `remote.<name>.annex-rsyncurl`
 
@@ -1612,6 +2007,11 @@ Remotes are configured using these settings in `.git/config`.
   Used by borg special remotes, this configures
   the location of the borg repository to use. Normally this is automatically
   set up by `git annex initremote`, but you can change it if needed.
+
+* `remote.<name>.annex-compute`
+  
+  Used to identify compute special remotes.
+  Normally this is automatically set up by `git annex initremote`.
 
 * `remote.<name>.annex-ddarrepo`
 
@@ -1650,9 +2050,31 @@ Remotes are configured using these settings in `.git/config`.
   Used to identify Amazon S3 special remotes.
   Normally this is automatically set up by `git annex initremote`.
 
+* `remote.<name>.annex-s3-restore-tier`, `annex.s3-restore-tier`
+
+  When using a Amazon S3 special remote, this specifies the tier
+  to use when retrieving objects from deep storage. It can be set to
+  "standard" (the default), "bulk", or "expedited".
+
+* `remote.<name>.annex-s3-restore-days`, `annex.s3-restore-days`
+
+  When using an Amazon S3 special remote, this specifies how many
+  days objects that are retrieved from deep storage should be left
+  available. The default is 1 day.
+
 * `remote.<name>.annex-glacier`
 
   Used to identify Amazon Glacier special remotes.
+  Normally this is automatically set up by `git annex initremote`.
+
+* `remote.<name>.annex-rclone`
+
+  Used to identify rclone special remotes.
+  Normally this is automatically set up by `git annex initremote`.
+
+* `remote.<name>.annex-web`
+
+  Used to identify web special remotes.
   Normally this is automatically set up by `git annex initremote`.
 
 * `remote.<name>.annex-webdav`
@@ -1686,9 +2108,16 @@ Remotes are configured using these settings in `.git/config`.
   Used to identify httpalso special remotes.
   Normally this is automatically set up by `git annex initremote`.
 
+* `remote.<name>.annex-mask`
+
+  Used by mask special remotes, this is set to the name of the remote
+  that is masked. If this is set to "true", then any remote with the
+  right UUID will be used.
+  Normally this is automatically set up by `git annex initremote`.
+
 * `remote.<name>.annex-externaltype`
 
-  Used external special remotes to record the type of the remote.
+  Used by external special remotes to record the type of the remote.
 
   Eg, if this is set to "foo", git-annex will run a "git-annex-remote-foo"
   program to communicate with the external special remote.
@@ -1702,36 +2131,36 @@ Remotes are configured using these settings in `.git/config`.
 
   Used by hook special remotes to record the type of the remote.
 
-* `annex.web-options`
+* `annex.web-options`, `remote.<name>.annex-web-options`
 
   Options to pass to curl when git-annex uses it to download urls
   (rather than the default built-in url downloader).
 
   For example, to force IPv4 only, set it to "-4".
 
-  Setting this option makes git-annex use curl, but only
+  Setting this makes git-annex use curl, but only
   when annex.security.allowed-ip-addresses is configured in a
   specific way. See its documentation.
 
-  Setting this option prevents git-annex from using git-credential
+  Setting this prevents git-annex from using git-credential
   for prompting for http passwords. Instead, you can include "--netrc"
   to make curl use your ~/.netrc file and record the passwords there.
 
 * `annex.youtube-dl-options`
 
-  Options to pass to youtube-dl (or yt-dlp) when using it to find the url
-  to download for a video.
+  Options to pass to yt-dlp. For example if youtube is requiring cookies
+  to download from it, use something like "--cookies-from-browser firefox"
 
-  Some options may break git-annex's integration with youtube-dl. For
+  Some options may break git-annex's integration with yt-dlp. For
   example, the --output option could cause it to store files somewhere
-  git-annex won't find them. Avoid setting here or in the youtube-dl config
-  file any options that cause youtube-dl to download more than one file,
+  git-annex won't find them. Avoid setting here or in the yt-dlp config
+  file any options that cause it to download more than one file,
   or to store the file anywhere other than the current working directory.
 
 * `annex.youtube-dl-command`
 
-  Command to run for youtube-dl. Default is to use "youtube-dl" or 
-  if that is not available in the PATH, to use "yt-dlp".
+  Deprecated and unused. git-annex always runs "yt-dlp", since the
+  "youtube-dl" command has been deprecated.
 
 * `annex.aria-torrent-options`
 
@@ -1746,6 +2175,9 @@ Remotes are configured using these settings in `.git/config`.
 
   If set, the command is run and each line of its output is used as a HTTP
   header. This overrides annex.http-headers.
+  
+  Alternatively, a hook script can be installed in 
+  `.git/hooks/http-headers-annex`
 
 * `annex.security.allowed-url-schemes`
 
@@ -1760,7 +2192,8 @@ Remotes are configured using these settings in `.git/config`.
   and transferred on to other remotes, exposing its content.
 
   Any url schemes supported by curl can be listed here, but you will
-  also need to configure annex.allowed-ip-addresses to allow using curl.
+  also need to configure annex.security.allowed-ip-addresses to allow
+  using curl.
 
   Some special remotes support their own domain-specific URL
   schemes; those are not affected by this configuration setting.
@@ -1782,8 +2215,8 @@ Remotes are configured using these settings in `.git/config`.
   causing it to be downloaded into your repository and transferred to
   other remotes, exposing its content.
 
-  Note that, since the interfaces of curl and youtube-dl do not allow
-  these IP address restrictions to be enforced, curl and youtube-dl will
+  Note that, since the interfaces of curl and yt-dlp do not allow
+  these IP address restrictions to be enforced, curl and yt-dlp will
   never be used unless annex.security.allowed-ip-addresses=all.
   
   To allow accessing local or private IP addresses on only specific ports,
@@ -1796,6 +2229,15 @@ Remotes are configured using these settings in `.git/config`.
   Old name for annex.security.allowed-ip-addresses.
   If set, this is treated the same as having
   annex.security.allowed-ip-addresses set.
+
+* `annex.security.allow-insecure-https`
+
+  This can be used to loosen the security of the HTTPS implementation.
+
+  Set to "tls-1.2-no-EMS" to allow using TLS 1.2 without Extended Main
+  Secret support. You should do this only when needing to use git-annex
+  with a server that is insecure, and where the security of TLS is not
+  important to you.
 
 * `annex.security.allow-unverified-downloads`
 
@@ -1837,6 +2279,13 @@ Remotes are configured using these settings in `.git/config`.
 * `remote.<name>.annex-security-allow-unverified-downloads`
 
   Per-remote configuration of annex.security.allow-unverified-downloads.
+
+* `annex.security.allowed-compute-programs`
+
+  This is a space separated list of compute programs eg
+  "git-annex-compute-foo git-annex-compute-bar". Listing a compute
+  program here allows compute special remotes that use that program to be
+  enabled by `git-annex enableremote` or autoenabled.
 
 # CONFIGURATION OF ASSISTANT
 
@@ -1886,8 +2335,9 @@ Remotes are configured using these settings in `.git/config`.
 
 * `annex.autocommit`
 
-  Set to false to prevent the git-annex assistant and git-annex sync
-  from automatically committing changes to files in the repository.
+  Set to false to prevent the `git-annex assistant`, `git-annex assist`, 
+  and `git-annex sync` from automatically committing changes to files in
+  the repository.
 
   To configure the behavior in all clones of the repository,
   this can be set in [[git-annex-config]](1).
@@ -1901,9 +2351,14 @@ Remotes are configured using these settings in `.git/config`.
 
 * `annex.listen`
 
-  Configures which address the webapp listens on. The default is localhost.
-  Can be either an IP address, or a hostname that resolves to the desired
-  address.
+  Configures which IP address the webapp listens on. 
+  The default is localhost. Can be either an IP address, 
+  or a hostname that resolves to the desired address.
+
+* `annex.port`
+
+  Configures which port address the webapp listens on. 
+  The default is to pick an unused port.
 
 # CONFIGURATION VIA .gitattributes
 
@@ -1984,6 +2439,14 @@ These environment variables are used by git-annex when set:
   Usually it's better to configure any desired options through your
   ~/.ssh/config file, or by setting `annex.ssh-options`.
 
+* `GIT_SSL_CAINFO`, `GIT_SSL_CAPATH`
+
+  Similarly to git, when set to a file or directory, this overrides
+  the default SSL certificates used to verify HTTPS connections.
+
+  (The `http.sslCAInfo` and `http.sslCAPath` git configs have the same
+  effect.)
+
 * `GIT_ANNEX_VECTOR_CLOCK`
 
   Normally git-annex timestamps lines in the log files committed to the
@@ -2014,14 +2477,6 @@ used by git-annex.
 `~/.config/git-annex/autostart` is a list of git repositories
 to start the git-annex assistant in.
 
-`.git/hooks/pre-commit-annex` in your git repository will be run whenever
-a commit is made to the HEAD branch, either by git commit, git-annex
-sync, or the git-annex assistant.
-
-`.git/hooks/post-update-annex` in your git repository will be run
-whenever the git-annex branch is updated. You can make this hook run
-`git update-server-info` when publishing a git-annex repository by http.
-
 # SEE ALSO
 
 More git-annex documentation is available on its web site,
@@ -2029,6 +2484,10 @@ More git-annex documentation is available on its web site,
 
 If git-annex is installed from a package, a copy of its documentation
 should be included, in, for example, `/usr/share/doc/git-annex/`.
+
+* [[git-annex-shell]](1)
+* [[git-remote-annex]](1)
+* [[git-remote-tor-annex]](1)
 
 # AUTHOR
 

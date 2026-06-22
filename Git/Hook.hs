@@ -6,6 +6,7 @@
  -}
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Git.Hook where
 
@@ -14,9 +15,14 @@ import Git
 import Utility.Tmp
 import Utility.Shell
 import Utility.FileMode
+import qualified Utility.FileIO as F
+#ifndef mingw32_HOST_OS
+import qualified Utility.RawFilePath as R
+import System.PosixCompat.Files (fileMode)
+#endif
 
 data Hook = Hook
-	{ hookName :: FilePath
+	{ hookName :: OsPath
 	, hookScript :: String
 	, hookOldScripts :: [String]
 	}
@@ -25,8 +31,8 @@ data Hook = Hook
 instance Eq Hook where
 	a == b = hookName a == hookName b
 
-hookFile :: Hook -> Repo -> FilePath
-hookFile h r = fromRawFilePath (localGitDir r) </> "hooks" </> hookName h
+hookFile :: Hook -> Repo -> OsPath
+hookFile h r = localGitDir r </> literalOsPath "hooks" </> hookName h
 
 {- Writes a hook. Returns False if the hook already exists with a different
  - content. Upgrades old scripts.
@@ -52,10 +58,13 @@ hookWrite h r = ifM (doesFileExist f)
   where
 	f = hookFile h r
 	go = do
-		viaTmp writeFile f (hookScript h)
-		void $ tryIO $ modifyFileMode
-			(toRawFilePath f)
-			(addModes executeModes)
+		-- On Windows, using a ByteString as the file content
+		-- avoids the newline translation done by writeFileString.
+		-- Hook scripts on Windows could use CRLF endings, but
+		-- they typically use unix newlines, which does work there
+		-- and makes the repository more portable.
+		viaTmp F.writeFile' f (encodeBS (hookScript h))
+		void $ tryIO $ modifyFileMode f (addModes executeModes)
 		return True
 
 {- Removes a hook. Returns False if the hook contained something else, and
@@ -76,7 +85,11 @@ data ExpectedContent = UnexpectedContent | ExpectedContent | OldExpectedContent
 
 expectedContent :: Hook -> Repo -> IO ExpectedContent
 expectedContent h r = do
-	content <- readFile $ hookFile h r
+	-- Note that on windows, this readFileString does newline translation,
+	-- and so a hook file that has CRLF will be treated the same as one
+	-- that has LF. That is intentional, since users may have a reason
+	-- to prefer one or the other.
+	content <- readFileString $ hookFile h r
 	return $ if content == hookScript h
 		then ExpectedContent
 		else if any (content ==) (hookOldScripts h)
@@ -88,13 +101,13 @@ hookExists h r = do
 	let f = hookFile h r
 	catchBoolIO $
 #ifndef mingw32_HOST_OS
-		isExecutable . fileMode <$> getFileStatus f
+		isExecutable . fileMode <$> R.getFileStatus (fromOsPath f)
 #else
 		doesFileExist f
 #endif
 
-runHook :: Hook -> Repo -> IO Bool
-runHook h r = do
+runHook :: (FilePath -> [CommandParam] -> IO a) -> Hook -> [CommandParam] -> Repo -> IO a
+runHook runner h ps r = do
 	let f = hookFile h r
-	(c, ps) <- findShellCommand f
-	boolSystem c ps
+	(c, cps) <- findShellCommand f
+	runner c (cps ++ ps)

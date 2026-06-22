@@ -11,6 +11,7 @@ import Command
 import qualified Annex
 import Logs.Location
 import Annex.Content
+import Remote.List
 
 cmd :: Command
 cmd = noCommit $ withAnnexOptions [jsonOptions] $
@@ -48,12 +49,12 @@ start (si, key) = starting "dropkey" (mkActionItem key) si $
 perform :: Key -> CommandPerform
 perform key = ifM (inAnnex key)
 	( lockContentForRemoval key (next $ cleanup key) $ \contentlock -> do
-		removeAnnex contentlock
+		removeAnnex remoteList contentlock
 		next $ cleanup key
 	, next $ return True
 	)
 
 cleanup :: Key -> CommandCleanup
 cleanup key = do
-	logStatus key InfoMissing
+	logStatus NoLiveUpdate key InfoMissing
 	return True

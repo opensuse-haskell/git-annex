@@ -1,6 +1,6 @@
 {- git-annex remotes
  -
- - Copyright 2011-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -21,12 +21,12 @@ module Remote (
 	hasKey,
 	hasKeyCheap,
 	whereisKey,
+	repairKey,
 	remoteFsck,
 
 	remoteTypes,
 	remoteList,
 	remoteList',
-	gitSyncableRemoteType,
 	remoteMap,
 	remoteMap',
 	uuidDescriptions,
@@ -41,16 +41,19 @@ module Remote (
 	prettyPrintUUIDs,
 	prettyPrintUUIDsDescs,
 	prettyPrintUUIDsWith,
+	prettyPrintUUIDsWith',
 	prettyListUUIDs,
 	prettyUUID,
 	remoteFromUUID,
 	remotesWithUUID,
 	remotesWithoutUUID,
 	keyLocations,
+	IncludeIgnored(..),
 	keyPossibilities,
 	remoteLocations,
 	nameToUUID,
 	nameToUUID',
+	nameToUUID'',
 	showTriedRemotes,
 	listRemoteNames,
 	showLocations,
@@ -58,7 +61,15 @@ module Remote (
 	logStatus,
 	checkAvailable,
 	claimingUrl,
+	claimingUrl',
 	isExportSupported,
+	gitSyncableRemote,
+	gitSyncableRemoteType,
+	contentRemotes,
+	canPut,
+	isExport,
+	isImport,
+	isThirdPartyPopulated,
 ) where
 
 import Data.Ord
@@ -69,6 +80,7 @@ import qualified Data.Vector as V
 import Annex.Common
 import Types.Remote
 import qualified Annex
+import Annex.SpecialRemote.Config
 import Annex.UUID
 import Annex.Action
 import Logs.UUID
@@ -80,7 +92,7 @@ import Remote.List
 import Remote.List.Util
 import Config
 import Config.DynamicConfig
-import Git.Types (RemoteName, ConfigKey(..), fromConfigValue)
+import Git.Types (ConfigKey(..), fromConfigValue)
 import Utility.Aeson
 
 {- Map from UUIDs of Remotes to a calculated value. -}
@@ -99,7 +111,7 @@ remoteMap' mkv mkk = M.fromList . catMaybes <$> (mapM mk =<< remoteList)
 		Just k -> Just (k, mkv r)
 
 {- Map of UUIDs of repositories and their descriptions.
- - The names of Remotes are added to suppliment any description that has
+ - The names of Remotes are added to supplement any description that has
  - been set for a repository.  -}
 uuidDescriptions :: Annex UUIDDescMap
 uuidDescriptions = M.unionWith addName
@@ -144,8 +156,11 @@ byNameWithUUID = checkuuid <=< byName
 		| otherwise = return $ Just r
 
 byName' :: RemoteName -> Annex (Either String Remote)
-byName' "" = return $ Left "no repository name specified"
-byName' n = go . filter matching <$> remoteList
+byName' n = byName'' n <$> remoteList
+
+byName'' :: RemoteName -> [Remote] -> Either String Remote
+byName'' "" _ = Left "no repository name specified"
+byName'' n remotelist = go $ filter matching remotelist
   where
 	go [] = Left $ "there is no available git remote named \"" ++ n ++ "\""
 	go (match:_) = Right match
@@ -173,26 +188,44 @@ noRemoteUUIDMsg r = "cannot determine uuid for " ++ name r ++ " (perhaps you nee
  - and returns its UUID. Finds even repositories that are not
  - configured in .git/config. -}
 nameToUUID :: RemoteName -> Annex UUID
-nameToUUID = either giveup return <=< nameToUUID'
+nameToUUID n = nameToUUID' n >>= \case
+	([u], _) -> return u
+	(_, msg) -> giveup msg
 
-nameToUUID' :: RemoteName -> Annex (Either String UUID)
-nameToUUID' "." = Right <$> getUUID -- special case for current repo
-nameToUUID' "here" = Right <$> getUUID
-nameToUUID' n = byName' n >>= go
+nameToUUID' :: RemoteName -> Annex ([UUID], String)
+nameToUUID' n = do
+	f <- nameToUUID''
+	return (f n)
+
+nameToUUID'' :: Annex (RemoteName -> ([UUID], String))
+nameToUUID'' = do
+	l <- remoteList
+	u <- getUUID
+	m <- uuidDescMap
+	return $ \n -> nameToUUID''' n l u m
+
+nameToUUID''' :: RemoteName -> [Remote] -> UUID -> UUIDDescMap -> ([UUID], String)
+nameToUUID''' n remotelist hereu m
+	| n == "." = currentrepo
+	| n == "here" = currentrepo
+	| otherwise = go (byName'' n remotelist)
   where
-	go (Right r) = return $ case uuid r of
-		NoUUID -> Left $ noRemoteUUIDMsg r
-		u -> Right u
-	go (Left e) = do
-		m <- uuidDescMap
+	currentrepo = mkone hereu
+
+	go (Right r) = case uuid r of
+		NoUUID -> ([], noRemoteUUIDMsg r)
+		u -> mkone u
+	go (Left e) =
 		let descn = UUIDDesc (encodeBS n)
-		return $ case M.keys (M.filter (== descn) m) of
-			[u] -> Right u
-			[] -> let u = toUUID n
+		in case M.keys (M.filter (== descn) m) of
+			[] -> 
+				let u = toUUID n
 				in case M.keys (M.filterWithKey (\k _ -> k == u) m) of
-					[] -> Left e
-					_ -> Right u
-			_us -> Left "Found multiple repositories with that description"
+					[] -> ([], e)
+					_ -> ([u], e)
+			us -> (us, "found multiple repositories with that description (use the uuid instead to disambiguate)")
+
+	mkone u = ([u], "found a remote")
 
 {- Pretty-prints a list of UUIDs of remotes, with their descriptions,
  - for human display.
@@ -219,11 +252,25 @@ prettyPrintUUIDsWith
 	-> (v -> Maybe String)
 	-> [(UUID, Maybe v)] 
 	-> Annex String
-prettyPrintUUIDsWith optfield header descm showval uuidvals = do
+prettyPrintUUIDsWith = prettyPrintUUIDsWith' True
+
+prettyPrintUUIDsWith'
+	:: ToJSON' v
+	=> Bool
+	-> Maybe String 
+	-> String 
+	-> UUIDDescMap
+	-> (v -> Maybe String)
+	-> [(UUID, Maybe v)] 
+	-> Annex String
+prettyPrintUUIDsWith' indented optfield header descm showval uuidvals = do
 	hereu <- getUUID
 	maybeShowJSON $ JSONChunk [(header, V.fromList $ map (jsonify hereu) uuidvals)]
-	return $ unwords $ map (\u -> "\t" ++ prettify hereu u ++ "\n") uuidvals
+	return $ concatMap 
+		(\u -> tabindent ++ prettify hereu u ++ "\n")
+		uuidvals
   where
+	tabindent = if indented then "\t" else ""
 	finddescription u = fromUUIDDesc $ M.findWithDefault mempty u descm
 	prettify hereu (u, optval)
 		| not (null d) = addoptval $ fromUUID u ++ " -- " ++ d
@@ -237,7 +284,7 @@ prettyPrintUUIDsWith optfield header descm showval uuidvals = do
 			| otherwise = n
 		addoptval s = case showval =<< optval of
 			Nothing -> s
-			Just val -> val ++ ": " ++ s
+			Just val -> val ++ s
 	jsonify hereu (u, optval) = object $ catMaybes
 		[ Just ("uuid", toJSON' (fromUUID u :: String))
 		, Just ("description", toJSON' $ finddescription u)
@@ -279,14 +326,6 @@ remoteFromUUID u = ifM ((==) u <$> getUUID)
 		remotesChanged
 		findinmap
 
-{- Filters a list of remotes to ones that have the listed uuids. -}
-remotesWithUUID :: [Remote] -> [UUID] -> [Remote]
-remotesWithUUID rs us = filter (\r -> uuid r `elem` us) rs
-
-{- Filters a list of remotes to ones that do not have the listed uuids. -}
-remotesWithoutUUID :: [Remote] -> [UUID] -> [Remote]
-remotesWithoutUUID rs us = filter (\r -> uuid r `notElem` us) rs
-
 {- List of repository UUIDs that the location log indicates may have a key.
  - Dead repositories are excluded. -}
 keyLocations :: Key -> Annex [UUID]
@@ -297,41 +336,27 @@ keyLocations key = trustExclude DeadTrusted =<< loggedLocations key
  -
  - Also includes remotes with remoteAnnexSpeculatePresent set.
  -}
-keyPossibilities :: Key -> Annex [Remote]
-keyPossibilities key = do
-	u <- getUUID
-	-- uuids of all remotes that are recorded to have the key
-	locations <- filter (/= u) <$> keyLocations key
-	speclocations <- map uuid
-		. filter (remoteAnnexSpeculatePresent . gitconfig)
-		<$> remoteList
-	-- there are unlikely to be many speclocations, so building a Set
-	-- is not worth the expense
-	let locations' = speclocations ++ filter (`notElem` speclocations) locations
-	fst <$> remoteLocations locations' []
+keyPossibilities :: IncludeIgnored -> Key -> Annex [Remote]
+keyPossibilities ii key = do
+	locations <- keyLocations key
+	keyPossibilities' ii key locations =<< remoteList
 
 {- Given a list of locations of a key, and a list of all
  - trusted repositories, generates a cost-ordered list of
  - remotes that contain the key, and a list of trusted locations of the key.
  -}
-remoteLocations :: [UUID] -> [UUID] -> Annex ([Remote], [UUID])
-remoteLocations locations trusted = do
-	let validtrustedlocations = nub locations `intersect` trusted
-
-	-- remotes that match uuids that have the key
-	allremotes <- remoteList 
-		>>= filterM (not <$$> liftIO . getDynamicConfig . remoteAnnexIgnore . gitconfig)
-	let validremotes = remotesWithUUID allremotes locations
-
-	return (sortBy (comparing cost) validremotes, validtrustedlocations)
+remoteLocations :: IncludeIgnored -> [UUID] -> [UUID] -> Annex ([Remote], [UUID])
+remoteLocations ii locations trusted = 
+	remoteLocations' ii locations trusted =<< remoteList
 
 {- Displays known locations of a key and helps the user take action
  - to make them accessible. -}
-showLocations :: Bool -> Key -> [UUID] -> String -> Annex ()
-showLocations separateuntrusted key exclude nolocmsg = do
+showLocations :: Bool -> Key -> (UUID -> Annex Bool) -> String -> Annex ()
+showLocations separateuntrusted key checkexclude nolocmsg = do
 	u <- getUUID
 	remotes <- remoteList
 	uuids <- keyLocations key
+	exclude <- filterM checkexclude uuids
 	untrusteduuids <- if separateuntrusted
 		then trustGet UnTrusted
 		else pure []
@@ -353,18 +378,18 @@ showLocations separateuntrusted key exclude nolocmsg = do
 			ppremotesmakeavailable <- pp "remotes" remotesmakeavailable
 				"Try making some of these remotes available"
 			ppenablespecialremotes <- pp "enableremote" enablespecialremotes
-				"Maybe enable some of these special remotes (git annex initremote ...)"
+				"Maybe enable some of these special remotes (git annex enableremote ...)"
 			ppaddgitremotes <- pp "repos" addgitremotes
 				"Maybe add some of these git remotes (git remote add ...)"
 			ppuuidsskipped <- pp "skipped" uuidsskipped
 				"Also these untrusted repositories may contain the file"
-			showLongNote $ case ppremotesmakeavailable ++ ppenablespecialremotes ++ ppaddgitremotes ++ ppuuidsskipped of
+			showLongNote $ UnquotedString $ case ppremotesmakeavailable ++ ppenablespecialremotes ++ ppaddgitremotes ++ ppuuidsskipped of
 				[] -> nolocmsg
 				s -> s
 		)
 	ignored <- filterM (liftIO . getDynamicConfig . remoteAnnexIgnore . gitconfig) remotes
 	unless (null ignored) $
-		showLongNote $ "(Note that these git remotes have annex-ignore set: " ++ unwords (map name ignored) ++ ")"
+		showLongNote $ UnquotedString $ "(Note that these git remotes have annex-ignore set: " ++ unwords (map name ignored) ++ ")"
   where
 	filteruuids l x = filter (`notElem` x) l
 
@@ -376,7 +401,7 @@ showLocations separateuntrusted key exclude nolocmsg = do
 showTriedRemotes :: [Remote] -> Annex ()
 showTriedRemotes [] = noop
 showTriedRemotes remotes =
-	showLongNote $ "Unable to access these remotes: "
+	showLongNote $ UnquotedString $ "Unable to access these remotes: "
 		++ listRemoteNames remotes
 
 listRemoteNames :: [Remote] -> String
@@ -394,8 +419,8 @@ forceTrust level remotename = do
  - in the local repo, not on the remote. The process of transferring the
  - key to the remote, or removing the key from it *may* log the change
  - on the remote, but this cannot always be relied on. -}
-logStatus :: Remote -> Key -> LogStatus -> Annex ()
-logStatus remote key = logChange key (uuid remote)
+logStatus :: LiveUpdate -> Remote -> Key -> LogStatus -> Annex ()
+logStatus lu remote key = logChange lu key (uuid remote)
 
 {- Orders remotes by cost, with ones with the lowest cost grouped together. -}
 byCost :: [Remote] -> [[Remote]]
@@ -404,9 +429,12 @@ byCost = map snd . sortBy (comparing fst) . M.toList . costmap
 	costmap = M.fromListWith (++) . map costpair
 	costpair r = (cost r, [r])
 
-checkAvailable :: Bool -> Remote -> IO Bool
-checkAvailable assumenetworkavailable = 
-	maybe (return assumenetworkavailable) doesDirectoryExist . localpath
+checkAvailable :: Bool -> Remote -> Annex Bool
+checkAvailable assumenetworkavailable r = tryNonAsync (availability r) >>= \case
+	Left _e -> return assumenetworkavailable
+	Right LocallyAvailable -> return True
+	Right GloballyAvailable -> return assumenetworkavailable
+	Right Unavailable -> return False
 
 hasKey :: Remote -> Key -> Annex (Either String Bool)
 hasKey r k = either (Left  . show) Right <$> tryNonAsync (checkPresent r k)
@@ -416,9 +444,54 @@ hasKeyCheap = checkPresentCheap
 
 {- The web special remote claims urls by default. -}
 claimingUrl :: URLString -> Annex Remote
-claimingUrl url = do
+claimingUrl = claimingUrl' (const True)
+
+{- The web special remote still claims urls if there is no
+ - other remote that does, even when the remotefilter does
+ - not include it. -}
+claimingUrl' :: (Remote -> Bool) -> URLString -> Annex Remote
+claimingUrl' remotefilter url = do
 	rs <- remoteList
-	let web = Prelude.head $ filter (\r -> uuid r == webUUID) rs
-	fromMaybe web <$> firstM checkclaim rs
+	let web = fromMaybe (error "internal") $ headMaybe $
+		filter (\r -> uuid r == webUUID) rs
+	fromMaybe web <$> firstM checkclaim (filter remotefilter rs)
   where
 	checkclaim = maybe (pure False) (`id` url) . claimUrl
+
+{- Is this a remote of a type that git pull and push work with?
+ - That includes special remotes with an annex:: url configured.
+ - It does not include proxied remotes. -}
+gitSyncableRemote :: Remote -> Bool
+gitSyncableRemote r
+	| gitSyncableRemoteType (remotetype r) 
+		&& isJust (remoteUrl (gitconfig r)) =
+			not (isJust (remoteAnnexProxiedBy (gitconfig r)))
+	| otherwise = case remoteUrl (gitconfig r) of
+		Just u | "annex::" `isPrefixOf` u -> True
+		_ -> False
+
+{- Filters a list of remotes to those that contain annex object content. -}
+contentRemotes :: [Remote] -> Annex [Remote]
+contentRemotes remotes = 
+	filter (\r -> uuid r /= NoUUID)
+		<$> filterM (not <$$> ignored) remotes
+  where
+	ignored = liftIO . getDynamicConfig . remoteAnnexIgnore . gitconfig
+
+{- Can annex objects be stored on a remote? -}
+canPut :: Remote -> Bool
+canPut r
+	| readonly r || remoteAnnexReadOnly (gitconfig r) = False
+	| isImport r && not (isExport r) = False
+	| isExport r && not (annexObjects (config r)) = False
+	| isThirdPartyPopulated r = False
+	| otherwise = True
+
+isExport :: Remote -> Bool
+isExport = exportTree . config
+
+isImport :: Remote -> Bool
+isImport = importTree . config
+
+isThirdPartyPopulated :: Remote -> Bool
+isThirdPartyPopulated = thirdPartyPopulated . remotetype

@@ -6,7 +6,6 @@
  -}
 
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fno-warn-tabs #-}
 
 module Utility.Path.AbsRel (
@@ -18,31 +17,24 @@ module Utility.Path.AbsRel (
 	relHome,
 ) where
 
-import System.FilePath.ByteString
 import qualified Data.ByteString as B
-#ifdef mingw32_HOST_OS
-import System.Directory (getCurrentDirectory)
-#else
-import System.Posix.Directory.ByteString (getWorkingDirectory)
-#endif
-import Control.Applicative
-import Prelude
 
 import Utility.Path
 import Utility.UserInfo
-import Utility.FileSystemEncoding
+import Utility.OsPath
+import Utility.SystemDirectory
 
 {- Makes a path absolute.
  -
  - Also simplifies it using simplifyPath.
  -
  - The first parameter is a base directory (ie, the cwd) to use if the path
- - is not already absolute, and should itsef be absolute.
+ - is not already absolute, and should itself be absolute.
  -
  - Does not attempt to deal with edge cases or ensure security with
  - untrusted inputs.
  -}
-absPathFrom :: RawFilePath -> RawFilePath -> RawFilePath
+absPathFrom :: OsPath -> OsPath -> OsPath
 absPathFrom dir path = simplifyPath (combine dir path)
 
 {- Converts a filename into an absolute path.
@@ -51,18 +43,14 @@ absPathFrom dir path = simplifyPath (combine dir path)
  -
  - Unlike Directory.canonicalizePath, this does not require the path
  - already exists. -}
-absPath :: RawFilePath -> IO RawFilePath
+absPath :: OsPath -> IO OsPath
 absPath file
-	-- Avoid unncessarily getting the current directory when the path
+	-- Avoid unnecessarily getting the current directory when the path
 	-- is already absolute. absPathFrom uses simplifyPath
 	-- so also used here for consistency.
 	| isAbsolute file = return $ simplifyPath file
 	| otherwise = do
-#ifdef mingw32_HOST_OS
-		cwd <- toRawFilePath <$> getCurrentDirectory
-#else
-		cwd <- getWorkingDirectory
-#endif
+		cwd <- getCurrentDirectory
 		return $ absPathFrom cwd file
 
 {- Constructs the minimal relative path from the CWD to a file.
@@ -72,28 +60,23 @@ absPath file
  -    relPathCwdToFile "/tmp/foo/bar" == "" 
  -    relPathCwdToFile "../bar/baz" == "baz"
  -}
-relPathCwdToFile :: RawFilePath -> IO RawFilePath
+relPathCwdToFile :: OsPath -> IO OsPath
 relPathCwdToFile f
 	-- Optimisation: Avoid doing any IO when the path is relative
 	-- and does not contain any ".." component.
-	| isRelative f && not (".." `B.isInfixOf` f) = return f
+	| isRelative f && not (".." `B.isInfixOf` fromOsPath f) = return f
 	| otherwise = do
-#ifdef mingw32_HOST_OS
-		c <- toRawFilePath <$> getCurrentDirectory
-#else
-		c <- getWorkingDirectory
-#endif
+		c <- getCurrentDirectory
 		relPathDirToFile c f
 
 {- Constructs a minimal relative path from a directory to a file. -}
-relPathDirToFile :: RawFilePath -> RawFilePath -> IO RawFilePath
+relPathDirToFile :: OsPath -> OsPath -> IO OsPath
 relPathDirToFile from to = relPathDirToFileAbs <$> absPath from <*> absPath to
 
 {- Converts paths in the home directory to use ~/ -}
-relHome :: FilePath -> IO String
+relHome :: OsPath -> IO OsPath
 relHome path = do
-	let path' = toRawFilePath path
-	home <- toRawFilePath <$> myHomeDir
-	return $ if dirContains home path'
-		then fromRawFilePath ("~/" <> relPathDirToFileAbs home path')
+	home <- toOsPath <$> myHomeDir
+	return $ if dirContains home path
+		then literalOsPath "~/" <> relPathDirToFileAbs home path
 		else path

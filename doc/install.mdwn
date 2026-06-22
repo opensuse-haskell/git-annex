@@ -23,10 +23,8 @@ detailed instructions             | quick install
 [[OpenBSD]]                       | `pkg_add git-annex`
 [[Android]]                       | **beta**
 [[Windows]]                       | **beta**
+[[PyPI]]                          | `uv tool install git-annex`
 """]]
-
-All the download links above use https for security. For added security, see
-[[verifying_downloads]].
 
 ## Historical builds
 

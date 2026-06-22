@@ -49,13 +49,13 @@ import Common
 import Utility.TimeStamp
 import Utility.QuickCheck
 import qualified Utility.RawFilePath as R
+import qualified Utility.FileIO as F
 
 import System.PosixCompat.Types
+import System.PosixCompat.Files (isRegularFile, fileID)
 import Data.Time.Clock.POSIX
 
-#ifdef mingw32_HOST_OS
-import Data.Word (Word64)
-#else
+#ifndef mingw32_HOST_OS
 import qualified System.Posix.Files as Posix
 #endif
 
@@ -130,7 +130,7 @@ replaceInode :: FileID -> InodeCache -> InodeCache
 replaceInode inode (InodeCache (InodeCachePrim _ sz mtime)) =
 	InodeCache (InodeCachePrim inode sz mtime)
 
-{- For backwards compatability, support low-res mtime with no
+{- For backwards compatibility, support low-res mtime with no
  - fractional seconds. -}
 data MTime = MTimeLowRes EpochTime | MTimeHighRes POSIXTime
 	deriving (Show, Ord)
@@ -186,24 +186,24 @@ readInodeCache s = case words s of
 	(inode:size:mtime:mtimedecimal:_) -> do
 		i <- readish inode
 		sz <- readish size
-		t <- parsePOSIXTime $ mtime ++ '.' : mtimedecimal
+		t <- parsePOSIXTime $ encodeBS $ mtime ++ '.' : mtimedecimal
 		return $ InodeCache $ InodeCachePrim i sz (MTimeHighRes t)
 	_ -> Nothing
 
-genInodeCache :: RawFilePath -> TSDelta -> IO (Maybe InodeCache)
+genInodeCache :: OsPath -> TSDelta -> IO (Maybe InodeCache)
 genInodeCache f delta = catchDefaultIO Nothing $
-	toInodeCache delta f =<< R.getSymbolicLinkStatus f
+	toInodeCache delta f =<< R.getSymbolicLinkStatus (fromOsPath f)
 
-toInodeCache :: TSDelta -> RawFilePath -> FileStatus -> IO (Maybe InodeCache)
+toInodeCache :: TSDelta -> OsPath -> FileStatus -> IO (Maybe InodeCache)
 toInodeCache d f s = toInodeCache' d f s (fileID s)
 
-toInodeCache' :: TSDelta -> RawFilePath -> FileStatus -> FileID -> IO (Maybe InodeCache)
+toInodeCache' :: TSDelta -> OsPath -> FileStatus -> FileID -> IO (Maybe InodeCache)
 toInodeCache' (TSDelta getdelta) f s inode
 	| isRegularFile s = do
 		delta <- getdelta
 		sz <- getFileSize' f s
 #ifdef mingw32_HOST_OS
-		mtime <- utcTimeToPOSIXSeconds <$> getModificationTime (fromRawFilePath f)
+		mtime <- utcTimeToPOSIXSeconds <$> getModificationTime f
 #else
 		let mtime = Posix.modificationTimeHiRes s
 #endif
@@ -215,8 +215,8 @@ toInodeCache' (TSDelta getdelta) f s inode
  - Its InodeCache at the time of its creation is written to the cache file,
  - so changes can later be detected. -}
 data SentinalFile = SentinalFile
-	{ sentinalFile :: RawFilePath
-	, sentinalCacheFile :: RawFilePath
+	{ sentinalFile :: OsPath
+	, sentinalCacheFile :: OsPath
 	}
 	deriving (Show)
 
@@ -233,8 +233,8 @@ noTSDelta = TSDelta (pure 0)
 
 writeSentinalFile :: SentinalFile -> IO ()
 writeSentinalFile s = do
-	writeFile (fromRawFilePath (sentinalFile s)) ""
-	maybe noop (writeFile (fromRawFilePath (sentinalCacheFile s)) . showInodeCache)
+	F.writeFile' (sentinalFile s) mempty
+	maybe noop (writeFileString (sentinalCacheFile s) . showInodeCache)
 		=<< genInodeCache (sentinalFile s) noTSDelta
 
 data SentinalStatus = SentinalStatus
@@ -248,7 +248,7 @@ data SentinalStatus = SentinalStatus
  - On Windows, time stamp differences are ignored, since they change
  - with the timezone.
  -
- - When the sential file does not exist, InodeCaches canot reliably be
+ - When the sential file does not exist, InodeCaches cannot reliably be
  - compared, so the assumption is that there is has been a change.
  -}
 checkSentinalFile :: SentinalFile -> IO SentinalStatus
@@ -263,7 +263,7 @@ checkSentinalFile s = do
 				Just new -> return $ calc old new
   where
 	loadoldcache = catchDefaultIO Nothing $
-		readInodeCache <$> readFile (fromRawFilePath (sentinalCacheFile s))
+		readInodeCache <$> readFileString (sentinalCacheFile s)
 	gennewcache = genInodeCache (sentinalFile s) noTSDelta
 	calc (InodeCache (InodeCachePrim oldinode oldsize oldmtime)) (InodeCache (InodeCachePrim newinode newsize newmtime)) =
 		SentinalStatus (not unchanged) tsdelta
@@ -288,7 +288,7 @@ checkSentinalFile s = do
 	dummy = SentinalStatus True noTSDelta
 
 sentinalFileExists :: SentinalFile -> IO Bool
-sentinalFileExists s = allM R.doesPathExist [sentinalCacheFile s, sentinalFile s]
+sentinalFileExists s = allM doesPathExist [sentinalCacheFile s, sentinalFile s]
 
 instance Arbitrary InodeCache where
 	arbitrary =

@@ -25,29 +25,19 @@ import qualified Database.Keys
 import qualified Git
 import qualified Git.LsFiles
 import qualified Git.Branch
-import qualified Git.Version
 import Git.FilePath
 import Git.FileMode
 import Git.Config
 import Git.Ref
 import Utility.InodeCache
-import Utility.DottedVersion
 import Annex.AdjustedBranch
-import qualified Utility.RawFilePath as R
-
-import qualified Data.ByteString as S
+import qualified Utility.FileIO as F
 
 upgrade :: Bool -> Annex UpgradeResult
 upgrade automatic = flip catchNonAsync onexception $ do
 	unless automatic $
 		showAction "v5 to v6"
-	ifM isDirect
-		( do
-			checkGitVersionForDirectUpgrade
-			convertDirect
-		, do
-			checkGitVersionForIndirectUpgrade
-		)
+	whenM isDirect convertDirect
 	scanAnnexedFiles
 	configureSmudgeFilter
 	-- Inode sentinal file was only used in direct mode and when
@@ -59,29 +49,8 @@ upgrade automatic = flip catchNonAsync onexception $ do
 	return UpgradeSuccess
   where
 	onexception e = do
-		warning $ "caught exception: " ++ show e
+		warning $ UnquotedString $ "caught exception: " ++ show e
 		return UpgradeFailed
-
--- git before 2.22 would OOM running git status on a large file.
---
--- Older versions of git that are patched (with
--- commit 02156ab031e430bc45ce6984dfc712de9962dec8)
--- can include "oomfix" in their version to indicate it.
-gitWillOOM :: Annex Bool
-gitWillOOM = liftIO $ do
-	v <- Git.Version.installed
-	return $ v < Git.Version.normalize "2.22" &&
-		not ("oomfix" `isInfixOf` fromDottedVersion v)
-
--- configureSmudgeFilter has to run git status, and direct mode files
--- are unlocked, so avoid the upgrade failing half way through.
-checkGitVersionForDirectUpgrade :: Annex ()
-checkGitVersionForDirectUpgrade = whenM gitWillOOM $
-	giveup "You must upgrade git to version 2.22 or newer in order to use this version of git-annex in this repository."
-
-checkGitVersionForIndirectUpgrade :: Annex ()
-checkGitVersionForIndirectUpgrade = whenM gitWillOOM $
-	warning "Git is older than version 2.22 and so it has a memory leak that affects using unlocked files. Recommend you upgrade git before unlocking any files in your repository."
 
 convertDirect :: Annex ()
 convertDirect = do
@@ -130,8 +99,8 @@ upgradeDirectWorkTree = do
 			Just k -> do
 				stagePointerFile f Nothing =<< hashPointerFile k
 				ifM (isJust <$> getAnnexLinkTarget f)
-					( writepointer (fromRawFilePath f) k
-					, fromdirect (fromRawFilePath f) k
+					( writepointer f k
+					, fromdirect f k
 					)
 				Database.Keys.addAssociatedFile k
 					=<< inRepo (toTopFilePath f)
@@ -139,14 +108,13 @@ upgradeDirectWorkTree = do
 
 	fromdirect f k = ifM (Direct.goodContent k f)
 		( do
-			let f' = toRawFilePath f
 			-- If linkToAnnex fails for some reason, the work tree
 			-- file still has the content; the annex object file
 			-- is just not populated with it. Since the work tree
 			-- file is recorded as an associated file, things will
 			-- still work that way, it's just not ideal.
-			ic <- withTSDelta (liftIO . genInodeCache f')
-			void $ Content.linkToAnnex k f' ic
+			ic <- withTSDelta (liftIO . genInodeCache f)
+			void $ Content.linkToAnnex k f ic
 		, unlessM (Content.inAnnex k) $ do
 			-- Worktree file was deleted or modified;
 			-- if there are no other copies of the content
@@ -154,12 +122,12 @@ upgradeDirectWorkTree = do
 			locs <- Direct.associatedFiles k
 			unlessM (anyM (Direct.goodContent k) locs) $ do
 				u <- getUUID
-				logChange k u InfoMissing
+				logChange NoLiveUpdate k u InfoMissing
 		)
 	
 	writepointer f k = liftIO $ do
-		removeWhenExistsWith R.removeLink (toRawFilePath f)
-		S.writeFile f (formatPointer k)
+		removeWhenExistsWith removeFile f
+		F.writeFile' f (formatPointer k)
 
 {- Remove all direct mode bookkeeping files. -}
 removeDirectCruft :: Annex ()

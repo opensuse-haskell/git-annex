@@ -1,9 +1,11 @@
 {- git-annex command
  -
- - Copyright 2014 Joey Hess <id@joeyh.name>
+ - Copyright 2014-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
+
+{-# LANGUAGE OverloadedStrings #-}
 
 module Command.Undo where
 
@@ -12,50 +14,54 @@ import Git.DiffTree
 import Git.FilePath
 import Git.UpdateIndex
 import Git.Sha
+import qualified Annex
 import qualified Git.LsFiles as LsFiles
 import qualified Git.Command as Git
 import qualified Git.Branch
-import qualified Command.Sync
-import qualified Utility.RawFilePath as R
 
 cmd :: Command
-cmd = notBareRepo $
+cmd = notBareRepo $ withAnnexOptions [jsonOptions] $
 	command "undo" SectionCommon 
-		"undo last change to a file or directory"
+		"undo last change to a file or directory (deprecated)"
 		paramPaths (withParams seek)
 
 seek :: CmdParams -> CommandSeek
 seek ps = do
+	warning "git-annex undo is deprecated and will be removed from a future version of git-annex"
 	-- Safety first; avoid any undo that would touch files that are not
 	-- in the index.
-	(fs, cleanup) <- inRepo $ LsFiles.notInRepo [] False (map toRawFilePath ps)
-	unless (null fs) $
-		giveup $ "Cannot undo changes to files that are not checked into git: " ++ unwords (map fromRawFilePath fs)
+	(fs, cleanup) <- inRepo $ LsFiles.notInRepo [] False (map toOsPath ps)
+	unless (null fs) $ do
+		qp <- coreQuotePath <$> Annex.getGitConfig
+		giveup $ decodeBS $ quote qp $ 
+			"Cannot undo changes to files that are not checked into git: "
+				<> quotedPaths fs
 	void $ liftIO $ cleanup
 
 	-- Committing staged changes before undo allows later
 	-- undoing the undo. It would be nicer to only commit staged
 	-- changes to the specified files, rather than all staged changes.
-	void $ Command.Sync.commitStaged Git.Branch.ManualCommit
+	void $ commitStaged Git.Branch.ManualCommit
 		"commit before undo"
 	
 	withStrings (commandAction . start) ps
 
 start :: FilePath -> CommandStart
 start p = starting "undo" ai si $
-	perform p
+	perform p'
   where
-	ai = ActionItemOther (Just p)
+	p' = toOsPath p
+	ai = ActionItemOther (Just (QuotedPath p'))
 	si = SeekInput [p]
 
-perform :: FilePath -> CommandPerform
+perform :: OsPath -> CommandPerform
 perform p = do
 	g <- gitRepo
 
 	-- Get the reversed diff that needs to be applied to undo.
 	(diff, cleanup) <- inRepo $
-		diffLog [Param "-R", Param "--", Param p]
-	top <- inRepo $ toTopFilePath $ toRawFilePath p
+		diffLog [Param "-R", Param "--", Param (fromOsPath p)]
+	top <- inRepo $ toTopFilePath p
 	let diff' = filter (`isDiffOf` top) diff
 	liftIO $ streamUpdateIndex g (map stageDiffTreeItem diff')
 
@@ -68,10 +74,18 @@ perform p = do
 
 	forM_ removals $ \di -> do
 		f <- mkrel di
-		liftIO $ removeWhenExistsWith R.removeLink f
+		liftIO $ removeWhenExistsWith removeFile f
 
 	forM_ adds $ \di -> do
-		f <- fromRawFilePath <$> mkrel di
+		f <- fromOsPath <$> mkrel di
 		inRepo $ Git.run [Param "checkout", Param "--", File f]
 
 	next $ liftIO cleanup
+
+commitStaged :: Git.Branch.CommitMode -> String -> Annex Bool
+commitStaged commitmode commitmessage =
+	inRepo $ Git.Branch.commitCommand commitmode
+		(Git.Branch.CommitQuiet True)
+		[ Param "-m"
+		, Param commitmessage
+		]

@@ -121,7 +121,7 @@ setRepoConfig uuid mremote oldc newc = do
 		Just t
 			| T.null t -> noop
 			| otherwise -> liftAnnex $ do
-				let dir = takeBaseName $ T.unpack t
+				let dir = fromOsPath $ takeBaseName $ toOsPath $ T.unpack t
 				m <- remoteConfigMap
 				case M.lookup uuid m of
 					Nothing -> noop
@@ -203,7 +203,7 @@ editForm new (RepoUUID uuid)
 		mremote <- liftAnnex $ Remote.remoteFromUUID uuid
 		when (mremote == Nothing) $
 			whenM ((/=) uuid <$> liftAnnex getUUID) $
-				error "unknown remote"
+				giveup "unknown remote"
 		curr <- liftAnnex $ getRepoConfig uuid mremote
 		liftAnnex $ checkAssociatedDirectory curr mremote
 		mrepo <- liftAnnex $
@@ -235,7 +235,7 @@ editForm _new r@(RepoName _) = page "Edit repository" (Just Configuration) $ do
 		Nothing -> getRepoInfo Nothing mempty
 	g <- liftAnnex gitRepo
 	mrepo <- liftAnnex $ maybe (pure Nothing) (Just <$$> Remote.getRepo) mr
-	let sshrepo = maybe False (remoteLocationIsSshUrl . flip parseRemoteLocation g . Git.repoLocation) mrepo
+	let sshrepo = maybe False (\repo -> remoteLocationIsSshUrl (parseRemoteLocation (Git.repoLocation repo) False g)) mrepo
 	$(widgetFile "configurators/edit/nonannexremote")
 
 {- Makes any directory associated with the repository. -}
@@ -246,8 +246,8 @@ checkAssociatedDirectory cfg (Just r) = do
 	case repoGroup cfg of
 		RepoGroupStandard gr -> case associatedDirectory repoconfig gr of
 			Just d -> do
-				top <- fromRawFilePath <$> fromRepo Git.repoPath
-				createWorkTreeDirectory (toRawFilePath (top </> d))
+				top <- fromRepo Git.repoPath
+				createWorkTreeDirectory (top </> toOsPath d)
 			Nothing -> noop
 		_ -> noop
 
@@ -265,7 +265,7 @@ getRepoInfo _ _ = [whamlet|git repository|]
 
 getGitRepoInfo :: Git.Repo -> Widget
 getGitRepoInfo r = do
-	let loc = Git.repoLocation r
+	let loc = Git.repoLocationUserVisible r
 	[whamlet|git repository located at <tt>#{loc}</tt>|]
 
 getRepoEncryption :: Maybe Remote.Remote -> Maybe Remote.RemoteConfig -> Widget
@@ -291,9 +291,9 @@ encrypted using gpg key:
 |]
 getRepoEncryption _ _ = return () -- local repo
 
-getUpgradeRepositoryR  :: RepoId -> Handler ()
-getUpgradeRepositoryR (RepoUUID _) = redirect DashboardR
-getUpgradeRepositoryR r = go =<< liftAnnex (repoIdRemote r)
+getConvertRepositoryR  :: RepoId -> Handler ()
+getConvertRepositoryR (RepoUUID _) = redirect DashboardR
+getConvertRepositoryR r = go =<< liftAnnex (repoIdRemote r)
   where
 	go Nothing = redirect DashboardR
 	go (Just rmt) = do

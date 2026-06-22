@@ -1,0 +1,22 @@
+[[!comment format=mdwn
+ username="matrss"
+ avatar="http://cdn.libravatar.org/avatar/cd1c0b3be1af288012e49197918395f0"
+ subject="comment 3"
+ date="2026-05-25T21:51:04Z"
+ content="""
+> I'm surprised it responds to HEAD at all. It's not a documented part of the p2phttp API, and the implementation is only a GET endpoint. I guess that servant makes GET endpoints also support HEAD? Urk.
+
+Yes, I think all of the \"higher-level http server frameworks\" I've encountered (definitely Flask and the construct Forgejo is using, but also others) automatically support HEAD for all GET endpoints, because a properly implemented HEAD is a subset of GET anyway. I'd expect servant to do the same.
+
+> (I do think it could have also happened without HEAD with just the right timing of the client hanging up on GET, still have not verified that. Of course, we had a whole bug about p2phttp can get stuck with interrupted clients that was dealt with previously, but maybe we missed it back then.)
+
+At least I didn't get the p2phttp server stuck with interrupted clients while investigating this issue (that was my initial guess on what was causing the server to get stuck in the first place), but I did see a different bug that I didn't yet report which caused the p2phttp server to exit with exit code 141 if a client was interrupted at the \"right\" time. This one might already be fixed by <https://git-annex.branchable.com/bugs/SIGPIPE_behavior_change/> though.
+
+> I've also documented HEAD /git-annex/$uuid/key/$key as supported by p2phttp because if you give a HTTP client an URL, I suppose it may try HEAD.
+
+The initial use-case by mih was to point `git annex addurl` at this key endpoint, and that does try HEAD, which triggered the bug. So even git-annex itself does it, it just fell out of the report when I reduced the reproducer as far as possible :)
+
+> Fixed this.
+
+Thank you!
+"""]]

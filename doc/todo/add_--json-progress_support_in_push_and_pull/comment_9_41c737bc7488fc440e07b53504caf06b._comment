@@ -1,0 +1,16 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 9"""
+ date="2026-05-29T13:49:46Z"
+ content="""
+FWIW, I've split updateBranches between pull and push now.
+
+On `git-annex push` all it does is propagate adjusted branches
+changes back to the original branch.
+
+On `git-annex pull` it handles updating the view branch and/or
+propagating changes from the original branch to the adjusted branch.
+
+Also, `git-annex push` was fixed to not merge synced/master into master
+and to not update the adjusted branch when the original branch has changed.
+"""]]

@@ -7,3 +7,5 @@ Many of the cloud storage providers that git-annex supports through special remo
 Currently I can see the size of a remote using `git annex info gdrive`, so git-annex appears to have the needed information.
 
 This is sort of like `annex.diskreserve`, but more useful for special remotes where setting an amount of space to keep free is not relevant.
+
+> [[done]] --[[Joey]]

@@ -50,7 +50,7 @@ in either of two repositories.
 * `--includesamecontent=glob`
 
   Skips files when there is no other file with the same content
-  whose name matches the glob. (Same as `--not --includesamecontent`)
+  whose name matches the glob. (Same as `--not --excludesamecontent`)
 
   For example, if you have inbox and outbox directories, and want to find
   anything in the inbox that has the same content as something in the outbox:
@@ -60,12 +60,15 @@ in either of two repositories.
 * `--in=repository`
 
   Matches only when git-annex believes that the content is present in a
-  repository. Note that it does not check the repository to verify
-  that it still has the content.
+  repository.
 
   The repository should be specified using the name of a configured remote,
   or the UUID or description of a repository. For the current repository,
-  use `--in=here`
+  use "here".
+  
+  Note that this does not check remote repositories to verify that content
+  is still present on them. However, when checking the current repository,
+  it does verify that content is present in it.
 
 * `--in=repository@{date}`
 
@@ -79,6 +82,20 @@ in either of two repositories.
   For example, you might need to run `git annex drop .` to temporarily
   free up disk space. The next day, you can get back the files you dropped
   using `git annex get . --in=here@{yesterday}`
+
+* `--expected-present`
+
+  Matches only when git-annex believes that the content is present 
+  in the local repository.
+
+  This is like `--in=here`, except it does not verify that the content
+  is actually present. So it can be used in situations where the location
+  tracking information is known to be out of date.
+
+  For example, if a repository is being restored from a backup
+  that did not include the git-annex objects, this could be used to get
+  back all files that were expected to be in it: 
+  `git-annex get --expected-present`
 
 * `--copies=number`
 
@@ -103,8 +120,8 @@ in either of two repositories.
 
 * `--lackingcopies=number`
 
-  Matches only when git-annex beleives that the specified number or 
-  more additional copies to be made in order to satisfy numcopies
+  Matches only when git-annex believes that the specified number or 
+  more additional copies need to be made in order to satisfy numcopies
   settings.
 
 * `--approxlackingcopies=number`
@@ -127,6 +144,12 @@ in either of two repositories.
   Matches only when git-annex believes content is present in
   all repositories in the specified group.
 
+* `--onlyingroup=groupname`
+
+  Matches only when git-annex believes content is present in at least one
+  repository that is in the specified group, and is not present in any
+  repositories that are not in the specified group.
+
 * `--smallerthan=size`
 * `--largerthan=size`
 
@@ -142,14 +165,23 @@ in either of two repositories.
   matches the glob. The values of metadata fields are matched case
   insensitively.
 
-* `--metadata field<number` / `--metadata field>number`
-* `--metadata field<=number` / `--metadata field>=number`
+* `--metadata field<value` / `--metadata field>value`
+* `--metadata field<=value` / `--metadata field>=value`
 
-  Matches only when there is a metadata field attached with a value that
-  is a number and is less than or greater than the specified number.
+  Matches only when there is a metadata field attached with a value
+  that is less then or greater than the specified value, respectively.
+
+  When both values are numbers, the comparison is done numerically.
+  When one value is not a number, the values are instead compared
+  lexicographically.
 
   (Note that you will need to quote the second parameter to avoid
   the shell doing redirection.)
+
+* `--url=glob`
+
+  Matches when the content is recorded as being present in an url that
+  matches the glob.
 
 * `--want-get`
 
@@ -192,8 +224,8 @@ in either of two repositories.
 
 * `--accessedwithin=interval`
 
-  Matches when the content was accessed recently, within the specified time
-  interval.
+  Matches when the content in the local repository was accessed recently,
+  within the specified time interval.
   
   The interval can be in the form "5m" or "1h" or "2d" or "1y", or a
   combination such as "1h5m".
@@ -203,6 +235,42 @@ in either of two repositories.
 
   If the OS or filesystem does not support access times, this will not
   match anything.
+
+* `--presentsince=repository:interval`
+
+  Matches when the content of the file has been present in the specified
+  repository throughout the specified time interval.
+
+  The repository should be specified using the name of a configured remote,
+  or the UUID or description of a repository. For the current repository,
+  use "here"
+  
+  The interval can be in the form "5m" or "1h" or "2d" or "1y", or a
+  combination such as "1h5m".
+
+  So for example, `--presentsince=here:1d` matches files that have been in
+  the current repository for 1 day.
+
+* `--lackingsince=repository:interval`
+
+  This is the opposite of `--presentsince`; it matches when, throughout the
+  specified time interval, the content was not present in the specified
+  repository.
+
+  For example, `--lackingsince=here:1d` will match a file that was dropped
+  from the local repository more than 1 day ago, and has not been present
+  in it at any time since then. And it will match files that have never
+  been present in the local repository.
+
+* `--changedsince=repository:interval`
+
+  Matches when there was a change in the content stored in the repository
+  within the specified time interval.
+
+  For example, `--changedsince=here:2d` will match a file that was 
+  present in the repository but got dropped 1 day ago. And it will match a
+  file that the repository got 1 day ago. But it won't match a file that
+  has been present in the repository since 2 days ago.
 
 * `--unlocked`
 
@@ -240,6 +308,15 @@ in either of two repositories.
 
   This is only available to use when git-annex was built with the
   MagicMime build flag.
+
+* `--anything`
+
+  Always matches. One way this can be useful is `git-annex find --anything`
+  will list all annexed files, whether their content is present or not.
+
+* `--nothing`
+
+  Never matches. (Same as `--not --anything`)
 
 * `--not`
 

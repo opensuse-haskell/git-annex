@@ -1,6 +1,6 @@
 {- Sqlite database of information about Keys
  -
- - Copyright 2015-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2015-2025 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -47,18 +47,16 @@ import Git
 import Git.FilePath
 import Git.Command
 import Git.Types
-import Git.Index
 import Git.Sha
 import Git.CatFile
 import Git.Branch (writeTreeQuiet, update')
 import qualified Git.Ref
-import qualified Git.Config
+import Config
 import Config.Smudge
-import qualified Utility.RawFilePath as R
+import qualified Utility.OsString as OS
 
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Char8 as S8
-import qualified System.FilePath.ByteString as P
 import Control.Concurrent.Async
 
 {- Runs an action that reads from the database.
@@ -82,8 +80,8 @@ runReader t a = do
 			else return tableschanged
 		v <- a (SQL.ReadHandle qh)
 		return (v, DbOpen (qh, tableschanged'))
-	go DbClosed = do
-		st <- openDb False DbClosed
+	go startst@(DbClosed _) = do
+		st <- openDb False startst
 		v <- case st of
 			(DbOpen (qh, _)) -> a (SQL.ReadHandle qh)
 			_ -> return mempty
@@ -125,12 +123,16 @@ runWriterIO t a = runWriter t (liftIO . a)
 openDb :: Bool -> DbState -> Annex DbState
 openDb _ st@(DbOpen _) = return st
 openDb False DbUnavailable = return DbUnavailable
-openDb forwrite _ = do
+openDb forwrite (DbClosed wasopen) = openDb' forwrite wasopen
+openDb forwrite DbUnavailable = openDb' forwrite (DbWasOpen False) 
+
+openDb' :: Bool -> DbWasOpen -> Annex DbState
+openDb' forwrite wasopen = do
 	lck <- calcRepo' gitAnnexKeysDbLock
 	catchPermissionDenied permerr $ withExclusiveLock lck $ do
 		dbdir <- calcRepo' gitAnnexKeysDbDir
-		let db = dbdir P.</> "db"
-		dbexists <- liftIO $ R.doesPathExist db
+		let db = dbdir </> literalOsPath "db"
+		dbexists <- liftIO $ doesFileExist db
 		case dbexists of
 			True -> open db False
 			False -> do
@@ -145,7 +147,7 @@ openDb forwrite _ = do
 	
 	open db dbisnew = do
 		qh <- liftIO $ H.openDbQueue db SQL.containedTable
-		tc <- reconcileStaged dbisnew qh
+		tc <- reconcileStaged dbisnew qh wasopen
 		return $ DbOpen (qh, tc)
 
 {- Closes the database if it was open. Any writes will be flushed to it.
@@ -176,13 +178,13 @@ getAssociatedFiles k = emptyWhenBare $ runReaderIO AssociatedTable $
  - in a bare repository, but it might happen if a non-bare repo got
  - converted to bare. -}
 emptyWhenBare :: Annex [a] -> Annex [a]
-emptyWhenBare a = ifM (Git.Config.isBare <$> gitRepo)
+emptyWhenBare a = ifM isBareRepo
 	( return []
 	, a
 	)
 
 {- Include a known associated file along with any recorded in the database. -}
-getAssociatedFilesIncluding :: AssociatedFile -> Key -> Annex [RawFilePath]
+getAssociatedFilesIncluding :: AssociatedFile -> Key -> Annex [OsPath]
 getAssociatedFilesIncluding afile k = emptyWhenBare $ do
 	g <- Annex.gitRepo
 	l <- map (`fromTopFilePath` g) <$> getAssociatedFiles k
@@ -201,7 +203,7 @@ removeAssociatedFile k = runWriterIO AssociatedTable .
 	SQL.removeAssociatedFile k
 
 {- Stats the files, and stores their InodeCaches. -}
-storeInodeCaches :: Key -> [RawFilePath] -> Annex ()
+storeInodeCaches :: Key -> [OsPath] -> Annex ()
 storeInodeCaches k fs = withTSDelta $ \d ->
 	addInodeCaches k . catMaybes
 		=<< liftIO (mapM (\f -> genInodeCache f d) fs)
@@ -239,8 +241,8 @@ isInodeKnown i s = or <$> runReaderIO ContentTable
  - This is run with a lock held, so only one process can be running this at
  - a time.
  -
- - To avoid unnecessary work, the index file is statted, and if it's not
- - changed since last time this was run, nothing is done.
+ - If the database gets closed and then reopened by the same process, this
+ - will avoid doing any repeated work.
  -
  - A tree is generated from the index, and the diff between that tree
  - and the last processed tree is examined for changes.
@@ -260,30 +262,19 @@ isInodeKnown i s = or <$> runReaderIO ContentTable
  - So when using getAssociatedFiles, have to make sure the file still
  - is an associated file.
  -}
-reconcileStaged :: Bool -> H.DbQueue -> Annex DbTablesChanged
-reconcileStaged dbisnew qh = ifM (Git.Config.isBare <$> gitRepo)
+reconcileStaged :: Bool -> H.DbQueue -> DbWasOpen -> Annex DbTablesChanged
+reconcileStaged _ _ (DbWasOpen True) =
+	return (DbTablesChanged False False)
+reconcileStaged dbisnew qh _ = ifM isBareRepo
 	( return mempty
-	, do
-		gitindex <- inRepo currentIndexFile
-		indexcache <- fromRawFilePath <$> calcRepo' gitAnnexKeysDbIndexCache
-		withTSDelta (liftIO . genInodeCache gitindex) >>= \case
-			Just cur -> readindexcache indexcache >>= \case
-				Nothing -> go cur indexcache =<< getindextree
-				Just prev -> ifM (compareInodeCaches prev cur)
-					( return mempty
-					, go cur indexcache =<< getindextree
-					)
-			Nothing -> return mempty
+	, inReconcileStaged $ go =<< getindextree
 	)
   where
 	lastindexref = Ref "refs/annex/last-index"
 
-	readindexcache indexcache = liftIO $ maybe Nothing readInodeCache
-		<$> catchMaybeIO (readFile indexcache)
-
 	getoldtree = fromMaybe emptyTree <$> inRepo (Git.Ref.sha lastindexref)
 	
-	go cur indexcache (Just newtree) = do
+	go (Just newtree) = do
 		oldtree <- getoldtree
 		when (oldtree /= newtree) $ do
 			fastDebug "Database.Keys" "reconcileStaged start"
@@ -293,24 +284,23 @@ reconcileStaged dbisnew qh = ifM (Git.Config.isBare <$> gitRepo)
 					(Just (fromRef oldtree)) 
 					(fromRef newtree)
 					(procdiff mdfeeder)
-			liftIO $ writeFile indexcache $ showInodeCache cur
 			-- Storing the tree in a ref makes sure it does not
 			-- get garbage collected, and is available to diff
 			-- against next time.
 			inRepo $ update' lastindexref newtree
 			fastDebug "Database.Keys" "reconcileStaged end"
 		return (DbTablesChanged True True)
-	-- git write-tree will fail if the index is locked or when there is
-	-- a merge conflict. To get up-to-date with the current index, 
-	-- diff --staged with the old index tree. The current index tree
-	-- is not known, so not recorded, and the inode cache is not updated,
-	-- so the next time git-annex runs, it will diff again, even
-	-- if the index is unchanged.
+	-- Was not able to run git write-tree, or it failed due to the
+	-- index being locked or a merge conflict. To get up-to-date with
+	-- the current index, diff --staged with the old index tree. The
+	-- current index tree is not known, so not recorded, and the inode
+	-- cache is not updated, so the next time git-annex runs, it will
+	-- diff again, even if the index is unchanged.
 	--
 	-- When there is a merge conflict, that will not see the new local
 	-- version of the files that are conflicted. So a second diff
 	-- is done, with --staged but no old tree.
-	go _ _ Nothing = do
+	go Nothing = do
 		fastDebug "Database.Keys" "reconcileStaged start (in conflict)"
 		oldtree <- getoldtree
 		g <- Annex.gitRepo
@@ -328,13 +318,22 @@ reconcileStaged dbisnew qh = ifM (Git.Config.isBare <$> gitRepo)
 		processor l False
 			`finally` void cleanup
 	
-	-- Avoid running smudge clean filter, which would block trying to
-	-- access the locked database. git write-tree sometimes calls it,
-	-- even though it is not adding work tree files to the index,
-	-- and so the filter cannot have an effect on the contents of the
-	-- index or on the tree that gets written from it.
-	getindextree = inRepo $ \r -> writeTreeQuiet $ r
-		{ gitGlobalOpts = gitGlobalOpts r ++ bypassSmudgeConfig }
+	-- This avoids running git write-tree when run by the smudge clean
+	-- filter, in order to work around a bug in git. That causes
+	-- git merge to fail with an internal error when git write-tree is
+	-- run by the smudge clean filter in conflicted merge situation.
+	--
+	-- When running git write-tree, avoid it running the smudge clean
+	-- filter, which would block trying to access the locked database. 
+	-- git write-tree sometimes calls it, even though it is not adding
+	-- work tree files to the index, and so the filter cannot have an 
+	-- effect on the contents of the index or on the tree that gets
+	-- written from it.
+	getindextree = ifM (Annex.getState Annex.insmudgecleanfilter)
+		( return Nothing
+		, inRepo $ \r -> writeTreeQuiet $ r
+			{ gitGlobalOpts = gitGlobalOpts r ++ bypassSmudgeConfig }
+		)
 	
 	diff old new =
 		-- Avoid running smudge clean filter, since we want the
@@ -352,12 +351,13 @@ reconcileStaged dbisnew qh = ifM (Git.Config.isBare <$> gitRepo)
 		, Param "-z"
 		, Param "--no-abbrev"
 		-- Optimization: Limit to pointer files and annex symlinks.
-		-- This is not perfect. A file could contain with this and not
+		-- This is not perfect. A file could contain this and not
 		-- be a pointer file. And a pointer file that is replaced with
 		-- a non-pointer file will match this. This is only a
 		-- prefilter so that's ok.
-		, Param $ "-G" ++ fromRawFilePath (toInternalGitPath $
-			P.pathSeparator `S.cons` objectDir)
+		, Param $ "-G" ++ 
+			fromOsPath (toInternalGitPath $
+				pathSeparator `OS.cons` objectDir standardGitLocationMaker)
 		-- Disable rename detection.
 		, Param "--no-renames"
 		-- Avoid other complications.
@@ -371,6 +371,7 @@ reconcileStaged dbisnew qh = ifM (Git.Config.isBare <$> gitRepo)
 	procdiff mdfeeder (info:file:rest) conflicted
 		| ":" `S.isPrefixOf` info = case S8.words info of
 			(_colonsrcmode:dstmode:srcsha:dstsha:status:[]) -> do
+				let file' = asTopFilePath (toOsPath file)
 				let conflicted' = status == "U"
 				-- avoid removing associated file when
 				-- there is a merge conflict
@@ -378,17 +379,15 @@ reconcileStaged dbisnew qh = ifM (Git.Config.isBare <$> gitRepo)
 					send mdfeeder (Ref srcsha) $ \case
 						Just oldkey -> do
 							liftIO $ SQL.removeAssociatedFile oldkey
-								(asTopFilePath file)
-								(SQL.WriteHandle qh)
+								file' (SQL.WriteHandle qh)
 							return True
 						Nothing -> return False
 				send mdfeeder (Ref dstsha) $ \case
 					Just key -> do
 						liftIO $ addassociatedfile key
-							(asTopFilePath file)
-							(SQL.WriteHandle qh)
+							file' (SQL.WriteHandle qh)
 						when (dstmode /= fmtTreeItemType TreeSymlink) $
-							reconcilepointerfile (asTopFilePath file) key
+							reconcilepointerfile file' key
 						return True
 					Nothing -> return False
 				procdiff mdfeeder rest
@@ -403,11 +402,11 @@ reconcileStaged dbisnew qh = ifM (Git.Config.isBare <$> gitRepo)
 	procmergeconflictdiff mdfeeder (info:file:rest) conflicted
 		| ":" `S.isPrefixOf` info = case S8.words info of
 			(_colonmode:_mode:sha:_sha:status:[]) -> do
+				let file' = asTopFilePath (toOsPath file)
 				send mdfeeder (Ref sha) $ \case
 					Just key -> do
 						liftIO $ SQL.addAssociatedFile key
-							(asTopFilePath file)
-							(SQL.WriteHandle qh)
+							file' (SQL.WriteHandle qh)
 						return True
 					Nothing -> return False
 				let conflicted' = status == "U"
@@ -434,13 +433,19 @@ reconcileStaged dbisnew qh = ifM (Git.Config.isBare <$> gitRepo)
 		filepopulated <- sameInodeCache p ics
 		case (keypopulated, filepopulated) of
 			(True, False) ->
-				populatePointerFile (Restage True) key obj p >>= \case
+				populatePointerFile restage key obj p >>= \case
 					Nothing -> return ()
 					Just ic -> addinodecaches key
 						(catMaybes [Just ic, mobjic])
-			(False, True) -> depopulatePointerFile key p
+			(False, True) -> depopulatePointerFile restage key p
 			_ -> return ()
 	
+	-- Cannot use QueueRestage here, because it could deadlock;
+	-- restagePointerFiles tries to close the database handle,
+	-- but the database handle is open while reconcileStaged 
+	-- is running.
+	restage = LaterRestage
+
 	send :: ((Maybe Key -> Annex a, Ref) -> IO ()) -> Ref -> (Maybe Key -> Annex a) -> IO ()
 	send feeder r withk = feeder (withk, r)
 
@@ -476,22 +481,14 @@ reconcileStaged dbisnew qh = ifM (Git.Config.isBare <$> gitRepo)
 		dbwriter dbchanged n catreader = liftIO catreader >>= \case
 			Just (ka, content) -> do
 				changed <- ka (parseLinkTargetOrPointerLazy =<< content)
-				!n' <- countdownToMessage n
+				n' <- countdownToMessage n $
+					showSideAction "scanning for annexed files"
 				dbwriter (dbchanged || changed) n' catreader
 			Nothing -> return dbchanged
 
-	-- When the diff is large, the scan can take a while,
-	-- so let the user know what's going on.
-	countdownToMessage n
-		| n < 1 = return 0
-		| n == 1 = do
-			showSideAction "scanning for annexed files"
-			return 0
-		| otherwise = return (pred n)
-
 	-- How large is large? Too large and there will be a long
 	-- delay before the message is shown; too short and the message
-	-- will clutter things up unncessarily. It's uncommon for 1000
+	-- will clutter things up unnecessarily. It's uncommon for 1000
 	-- files to change in the index, and processing that many files
 	-- takes less than half a second, so that seems about right.
 	largediff :: Int
@@ -508,6 +505,15 @@ reconcileStaged dbisnew qh = ifM (Git.Config.isBare <$> gitRepo)
 	addassociatedfile
 		| dbisnew = SQL.newAssociatedFile
 		| otherwise = SQL.addAssociatedFile
+
+-- Avoid a potential deadlock.
+inReconcileStaged :: Annex a -> Annex a
+inReconcileStaged = bracket setup cleanup . const
+    where
+          setup = Annex.changeState $ \s -> s
+                  { Annex.inreconcilestaged = True }
+          cleanup () = Annex.changeState $ \s -> s
+                  { Annex.inreconcilestaged = False }
 
 {- Normally the keys database is updated incrementally when opened,
  - by reconcileStaged. Calling this explicitly allows running the

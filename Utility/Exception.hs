@@ -1,6 +1,6 @@
 {- Simple IO exception handling (and some more)
  -
- - Copyright 2011-2016 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2023 Joey Hess <id@joeyh.name>
  -
  - License: BSD-2-clause
  -}
@@ -20,6 +20,7 @@ module Utility.Exception (
 	bracketIO,
 	catchNonAsync,
 	tryNonAsync,
+	nonAsyncHandler,
 	tryWhenExists,
 	catchIOErrorType,
 	IOErrorType(..),
@@ -28,21 +29,24 @@ module Utility.Exception (
 
 import Control.Monad.Catch as X hiding (Handler)
 import qualified Control.Monad.Catch as M
-import Control.Exception (IOException, AsyncException)
-import Control.Exception (SomeAsyncException)
+import Control.Exception (IOException, AsyncException, SomeAsyncException)
 import Control.Monad
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import System.IO.Error (isDoesNotExistError, ioeGetErrorType)
 import GHC.IO.Exception (IOErrorType(..))
 
 import Utility.Data
+import Utility.SafeOutput
 
 {- Like error, this throws an exception. Unlike error, if this exception
  - is not caught, it won't generate a backtrace. So use this for situations
  - where there's a problem that the user is expected to see in some
- - circumstances. -}
+ - circumstances.
+ -
+ - Also, control characters are filtered out of the message.
+ -}
 giveup :: [Char] -> a
-giveup = errorWithoutStackTrace
+giveup = errorWithoutStackTrace . safeOutput
 
 {- Catches IO errors and returns a Bool -}
 catchBoolIO :: MonadCatch m => m Bool -> m Bool
@@ -81,11 +85,7 @@ bracketIO setup cleanup = bracket (liftIO setup) (liftIO . cleanup)
  - ThreadKilled and UserInterrupt get through.
  -}
 catchNonAsync :: MonadCatch m => m a -> (SomeException -> m a) -> m a
-catchNonAsync a onerr = a `catches`
-	[ M.Handler (\ (e :: AsyncException) -> throwM e)
-	, M.Handler (\ (e :: SomeAsyncException) -> throwM e)
-	, M.Handler (\ (e :: SomeException) -> onerr e)
-	]
+catchNonAsync a onerr = a `catches` (nonAsyncHandler onerr)
 
 tryNonAsync :: MonadCatch m => m a -> m (Either SomeException a)
 tryNonAsync a = go `catchNonAsync` (return . Left)
@@ -93,6 +93,13 @@ tryNonAsync a = go `catchNonAsync` (return . Left)
 	go = do
 		v <- a
 		return (Right v)
+
+nonAsyncHandler :: MonadCatch m => (SomeException -> m a) -> [M.Handler m a]
+nonAsyncHandler onerr = 
+	[ M.Handler (\ (e :: AsyncException) -> throwM e)
+	, M.Handler (\ (e :: SomeAsyncException) -> throwM e)
+	, M.Handler (\ (e :: SomeException) -> onerr e)
+	]
 
 {- Catches only DoesNotExist exceptions, and lets all others through. -}
 tryWhenExists :: MonadCatch m => m a -> m (Maybe a)

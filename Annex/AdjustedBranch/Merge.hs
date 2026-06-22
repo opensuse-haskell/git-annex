@@ -1,6 +1,6 @@
 {- adjusted branch merging
  -
- - Copyright 2016-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2016-2023 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -8,6 +8,7 @@
 {-# LANGUAGE BangPatterns, OverloadedStrings #-}
 
 module Annex.AdjustedBranch.Merge (
+	canMergeToAdjustedBranch,
 	mergeToAdjustedBranch,
 ) where
 
@@ -28,9 +29,13 @@ import Annex.GitOverlay
 import Utility.Tmp.Dir
 import Utility.CopyFile
 import Utility.Directory.Create
+import qualified Utility.FileIO as F
 
-import qualified Data.ByteString as S
-import qualified System.FilePath.ByteString as P
+canMergeToAdjustedBranch :: Branch -> (OrigBranch, Adjustment) -> Annex Bool
+canMergeToAdjustedBranch tomerge (origbranch, adj) =
+	inRepo $ Git.Branch.changed currbranch tomerge
+  where
+	AdjBranch currbranch = originalToAdjusted origbranch adj
 
 {- Update the currently checked out adjusted branch, merging the provided
  - branch into it. Note that the provided branch should be a non-adjusted
@@ -42,16 +47,10 @@ mergeToAdjustedBranch tomerge (origbranch, adj) mergeconfig canresolvemerge comm
 	adjbranch@(AdjBranch currbranch) = originalToAdjusted origbranch adj
 	basis = basisBranch adjbranch
 
-	go commitsprevented =
-		ifM (inRepo $ Git.Branch.changed currbranch tomerge)
-			( do
-				(updatedorig, _) <- propigateAdjustedCommits'
-					origbranch adj commitsprevented
-				changestomerge updatedorig
-			, nochangestomerge
-			)
-
-	nochangestomerge = return $ return True
+	go commitsprevented = do
+		(updatedorig, _) <- propigateAdjustedCommits'
+			False origbranch adj commitsprevented
+		changestomerge updatedorig
 
 	{- Since the adjusted branch changes files, merging tomerge
 	 - directly into it would likely result in unnecessary merge
@@ -71,25 +70,26 @@ mergeToAdjustedBranch tomerge (origbranch, adj) mergeconfig canresolvemerge comm
 	 -}
 	changestomerge (Just updatedorig) = withOtherTmp $ \othertmpdir -> do
 		git_dir <- fromRepo Git.localGitDir
-		let git_dir' = fromRawFilePath git_dir
 		tmpwt <- fromRepo gitAnnexMergeDir
-		withTmpDirIn (fromRawFilePath othertmpdir) "git" $ \tmpgit -> withWorkTreeRelated tmpgit $
+		withTmpDirIn othertmpdir (literalOsPath "git") $ \tmpgit -> withWorkTreeRelated tmpgit $
 			withemptydir git_dir tmpwt $ withWorkTree tmpwt $ do
-				liftIO $ writeFile (tmpgit </> "HEAD") (fromRef updatedorig)
+				liftIO $ F.writeFile'
+					(tmpgit </> literalOsPath "HEAD")
+					(fromRef' updatedorig)
 				-- Copy in refs and packed-refs, to work
 				-- around bug in git 2.13.0, which
 				-- causes it not to look in GIT_DIR for refs.
-				refs <- liftIO $ dirContentsRecursive $
-					git_dir' </> "refs"
-				let refs' = (git_dir' </> "packed-refs") : refs
+				refs <- liftIO $ emptyWhenDoesNotExist $ 
+					dirContentsRecursive $
+						git_dir </> literalOsPath "refs"
+				let refs' = (git_dir </> literalOsPath "packed-refs") : refs
 				liftIO $ forM_ refs' $ \src -> do
-					let src' = toRawFilePath src
 					whenM (doesFileExist src) $ do
-						dest <- relPathDirToFile git_dir src'
-						let dest' = toRawFilePath tmpgit P.</> dest
+						dest <- relPathDirToFile git_dir src
+						let dest' = tmpgit </> dest
 						createDirectoryUnder [git_dir]
-							(P.takeDirectory dest')
-						void $ createLinkOrCopy src' dest'
+							(takeDirectory dest')
+						void $ createLinkOrCopy src dest'
 				-- This reset makes git merge not care
 				-- that the work tree is empty; otherwise
 				-- it will think that all the files have
@@ -98,13 +98,14 @@ mergeToAdjustedBranch tomerge (origbranch, adj) mergeconfig canresolvemerge comm
 				-- (for an unknown reason).
 				-- http://thread.gmane.org/gmane.comp.version-control.git/297237
 				inRepo $ Git.Command.run [Param "reset", Param "HEAD", Param "--quiet"]
-				showAction $ "Merging into " ++ fromRef (Git.Ref.base origbranch)
+				when (tomerge /= origbranch) $
+					showAction $ UnquotedString $ "Merging into " ++ fromRef (Git.Ref.base origbranch)
 				merged <- autoMergeFrom' tomerge Nothing mergeconfig commitmode True
 					(const $ resolveMerge (Just updatedorig) tomerge True)
 				if merged
 					then do
 						!mergecommit <- liftIO $ extractSha
-							<$> S.readFile (tmpgit </> "HEAD")
+							<$> F.readFile' (tmpgit </> literalOsPath "HEAD")
 						-- This is run after the commit lock is dropped.
 						return $ postmerge mergecommit
 					else return $ return False
@@ -115,7 +116,7 @@ mergeToAdjustedBranch tomerge (origbranch, adj) mergeconfig canresolvemerge comm
 		setup = do
 			whenM (doesDirectoryExist d) $
 				removeDirectoryRecursive d
-			createDirectoryUnder [git_dir] (toRawFilePath d)
+			createDirectoryUnder [git_dir] d
 		cleanup _ = removeDirectoryRecursive d
 
 	{- A merge commit has been made between the basisbranch and 
@@ -150,7 +151,8 @@ mergeToAdjustedBranch tomerge (origbranch, adj) mergeconfig canresolvemerge comm
 			then do
 				cmode <- annexCommitMode <$> Annex.getGitConfig
 				c <- inRepo $ Git.Branch.commitTree cmode
-					("Merged " ++ fromRef tomerge) [adjmergecommit]
+					["Merged " ++ fromRef tomerge]
+					[adjmergecommit]
 					(commitTree currentcommit)
 				inRepo $ Git.Branch.update "updating adjusted branch" currbranch c
 				propigateAdjustedCommits origbranch adj

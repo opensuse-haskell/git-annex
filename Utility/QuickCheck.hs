@@ -6,6 +6,7 @@
  -}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -fno-warn-tabs #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
 module Utility.QuickCheck
@@ -23,7 +24,6 @@ import Data.Ratio
 import Data.Char
 import System.Posix.Types
 import Data.List.NonEmpty (NonEmpty(..))
-import Prelude
 
 {- A String, but Arbitrary is limited to ascii.
  -
@@ -31,7 +31,7 @@ import Prelude
  - characters, except for ones in surrogate plane. Converting a string that
  - does contain other unicode characters to a ByteString using the
  - filesystem encoding (see GHC.IO.Encoding) will throw an exception,
- - so use this instead to avoid quickcheck tests breaking unncessarily.
+ - so use this instead to avoid quickcheck tests breaking unnecessarily.
  -} 
 newtype TestableString = TestableString
 	{ fromTestableString :: String }
@@ -45,7 +45,7 @@ instance Arbitrary TestableString where
  -
  - No real-world filename can be empty or contain a NUL. So code can
  - well be written that assumes that and using this avoids quickcheck
- - tests breaking unncessarily.
+ - tests breaking unnecessarily.
  -} 
 newtype TestableFilePath = TestableFilePath
 	{ fromTestableFilePath :: FilePath }

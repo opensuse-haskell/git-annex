@@ -1,15 +1,20 @@
 {- S3 remotes
  -
- - Copyright 2011-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE CPP #-}
+
+#if ! MIN_VERSION_aws(0,25,2)
+#warning Building with an old version of the aws library. Recommend updating to 0.25.2, which fixes bugs and is needed for some features.
+#endif
 
 module Remote.S3 (remote, iaHost, configIA, iaItemUrl) where
 
@@ -23,19 +28,18 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.Map as M
 import qualified Data.Set as S
-import qualified System.FilePath.Posix as Posix
 import Data.Char
 import Data.String
+import Data.Maybe
+import Data.Time.Clock
 import Network.Socket (HostName)
 import Network.HTTP.Conduit (Manager)
 import Network.HTTP.Client (responseStatus, responseBody, RequestBody(..))
 import Network.HTTP.Types
-import Network.URI
 import Control.Monad.Trans.Resource
 import Control.Monad.Catch
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
-import Data.Maybe
 
 import Annex.Common
 import Types.Remote
@@ -62,10 +66,11 @@ import Utility.Metered
 import Utility.DataUnits
 import Annex.Content
 import qualified Annex.Url as Url
-import Utility.Url (extractFromResourceT)
-import Annex.Url (getUrlOptions, withUrlOptions, UrlOptions(..))
+import Utility.Url (extractFromResourceT, UserAgent, sinkResponseIncrementalVerifier, extendUrlWithPath)
+import Annex.Url (getUserAgent, getUrlOptions, withUrlOptions, UrlOptions(..))
 import Utility.Env
 import Annex.Verify
+import qualified Utility.FileIO as F
 
 type BucketName = String
 type BucketObject = String
@@ -83,16 +88,20 @@ remote = specialRemoteType $ RemoteType
 				(FieldDesc "S3 server hostname (default is Amazon S3)")
 			, optionalStringParser datacenterField
 				(FieldDesc "S3 datacenter to use (US, EU, us-west-1, ..)")
+			, optionalStringParser regionField
+				(FieldDesc "S3 region to use")
 			, optionalStringParser partsizeField
 				(FieldDesc "part size for multipart upload (eg 1GiB)")
 			, optionalStringParser storageclassField
 				(FieldDesc "storage class, eg STANDARD or STANDARD_IA or ONEZONE_IA")
+			, yesNoParser restoreField (Just False)
+				(FieldDesc "enable restore of files not currently accessible in the bucket")
 			, optionalStringParser fileprefixField
 				(FieldDesc "prefix to add to filenames in the bucket")
 			, yesNoParser versioningField (Just False)
 				(FieldDesc "enable versioning of bucket content")
 			, yesNoParser publicField (Just False)
-				(FieldDesc "allow public read access to the bucket")
+				(FieldDesc "allow public read access to the bucket via ACLs (only supported for old Amazon S3 buckets)")
 			, optionalStringParser publicurlField
 				(FieldDesc "url that can be used by public to download files")
 			, optionalStringParser protocolField
@@ -103,6 +112,8 @@ remote = specialRemoteType $ RemoteType
 				(FieldDesc "for path-style requests, set to \"path\"")
 			, signatureVersionParser signatureField
 				(FieldDesc "S3 signature version")
+			, optionalStringParser taggingField
+				(FieldDesc "tagging header to add when storing on S3")
 			, optionalStringParser mungekeysField HiddenField
 			, optionalStringParser AWS.s3credsField HiddenField
 			]
@@ -129,6 +140,9 @@ hostField = Accepted "host"
 datacenterField :: RemoteConfigField
 datacenterField = Accepted "datacenter"
 
+regionField :: RemoteConfigField
+regionField = Accepted "region"
+
 partsizeField :: RemoteConfigField
 partsizeField = Accepted "partsize"
 
@@ -138,8 +152,8 @@ storageclassField = Accepted "storageclass"
 fileprefixField :: RemoteConfigField
 fileprefixField = Accepted "fileprefix"
 
-versioningField :: RemoteConfigField
-versioningField = Accepted "versioning"
+restoreField :: RemoteConfigField
+restoreField = Accepted "restore"
 
 publicField :: RemoteConfigField
 publicField = Accepted "public"
@@ -156,21 +170,23 @@ requeststyleField = Accepted "requeststyle"
 signatureField :: RemoteConfigField
 signatureField = Accepted "signature"
 
+taggingField :: RemoteConfigField
+taggingField = Accepted "x-amz-tagging"
+
 data SignatureVersion 
 	= SignatureVersion Int
+	| DefaultSignatureVersion
 	| Anonymous
 
 signatureVersionParser :: RemoteConfigField -> FieldDesc -> RemoteConfigFieldParser
 signatureVersionParser f fd =
-	genParser go f (Just defver) fd
-		(Just (ValueDesc "v2 or v4"))
+	genParser go f (Just DefaultSignatureVersion) fd
+		(Just (ValueDesc "v2 or v4 or anonymous"))
   where
 	go "v2" = Just (SignatureVersion 2)
 	go "v4" = Just (SignatureVersion 4)
 	go "anonymous" = Just Anonymous
 	go _ = Nothing
-
-	defver = SignatureVersion 2
 
 isAnonymous :: ParsedRemoteConfig -> Bool
 isAnonymous c = 
@@ -187,17 +203,17 @@ mungekeysField = Accepted "mungekeys"
 gen :: Git.Repo -> UUID -> RemoteConfig -> RemoteGitConfig -> RemoteStateHandle -> Annex (Maybe Remote)
 gen r u rc gc rs = do
 	c <- parsedRemoteConfig remote rc
-	cst <- remoteCost gc expensiveRemoteCost
+	cst <- remoteCost gc c expensiveRemoteCost
 	info <- extractS3Info c
-	hdl <- mkS3HandleVar c gc u
+	hdl <- mkS3HandleVar False c gc u
 	magic <- liftIO initMagicMime
 	return $ new c cst info hdl magic
   where
 	new c cst info hdl magic = Just $ specialRemote c
 		(store hdl this info magic)
-		(retrieve hdl this rs c info)
+		(retrieve gc hdl rs c info)
 		(remove hdl this info)
-		(checkKey hdl this rs c info)
+		(checkKey hdl rs c info)
 		this
 	  where
 		this = Remote
@@ -206,6 +222,7 @@ gen r u rc gc rs = do
 			, name = Git.repoDescribe r
 			, storeKey = storeKeyDummy
 			, retrieveKeyFile = retrieveKeyFileDummy
+			, retrieveKeyFileInOrder = pure True
 			, retrieveKeyFileCheap = Nothing
 			-- HttpManagerRestricted is used here, so this is
 			-- secure.
@@ -218,11 +235,10 @@ gen r u rc gc rs = do
 				{ storeExport = storeExportS3 hdl this rs info magic
 				, retrieveExport = retrieveExportS3 hdl this info
 				, removeExport = removeExportS3 hdl this rs info
-				, versionedExport = versioning info
 				, checkPresentExport = checkPresentExportS3 hdl this info
 				-- S3 does not have directories.
 				, removeExportDirectory = Nothing
-				, renameExport = renameExportS3 hdl this rs info
+				, renameExport = Just $ renameExportS3 hdl this rs info
 				}
 			, importActions = ImportActions
                                 { listImportableContents = listImportableContentsS3 hdl this info c
@@ -233,8 +249,9 @@ gen r u rc gc rs = do
                                 , removeExportDirectoryWhenEmpty = Nothing
                                 , checkPresentExportWithContentIdentifier = checkPresentExportWithContentIdentifierS3 hdl this info
                                 }
-			, whereisKey = Just (getPublicWebUrls u rs info c)
+			, whereisKey = Just (getPublicWebUrls rs info c)
 			, remoteFsck = Nothing
+			, repairKey = repairKeyS3 info hdl this rs
 			, repairRepo = Nothing
 			, config = c
 			, getRepo = return r
@@ -243,7 +260,7 @@ gen r u rc gc rs = do
 			, readonly = False
 			, appendonly = False
 			, untrustworthy = False
-			, availability = GloballyAvailable
+			, availability = pure GloballyAvailable
 			, remotetype = remote
 			, mkUnavailable = gen r u (M.insert hostField (Proposed "!dne!") rc) gc rs
 			, getInfo = includeCredsInfo c (AWS.creds u) (s3Info c info)
@@ -252,8 +269,8 @@ gen r u rc gc rs = do
 			, remoteStateHandle = rs
 			}
 
-s3Setup :: SetupStage -> Maybe UUID -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
-s3Setup ss mu mcreds c gc = do
+s3Setup :: SetupStage -> Maybe UUID -> RemoteName -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
+s3Setup ss mu _ mcreds c gc = do
 	u <- maybe (liftIO genUUID) return mu
 	s3Setup' ss u mcreds c gc
 
@@ -278,12 +295,22 @@ s3Setup'  ss u mcreds c gc
 		return (fullconfig, u)
 
 	defaulthost = do
-		(c', encsetup) <- encryptionSetup (c `M.union` defaults) gc
+		(c', encsetup) <- encryptionSetup ss (c `M.union` defaults) gc
 		pc <- either giveup return . parseRemoteConfig c'
 			=<< configParser remote c'
 		c'' <- if isAnonymous pc
 			then pure c'
-			else setRemoteCredPair ss encsetup pc gc (AWS.creds u) mcreds
+			else do
+				v <- setRemoteCredPair ss encsetup pc gc (AWS.creds u) mcreds
+				if M.member datacenterField c || M.member regionField c
+					then return v
+					-- Check if a bucket with this name
+					-- already exists, and if so, use
+					-- that location, rather than the
+					-- default datacenterField.
+					else getBucketLocation pc gc u >>= return . \case
+						Nothing -> v
+						Just loc -> M.insert datacenterField (Proposed $ T.unpack loc) v
 		pc' <- either giveup return . parseRemoteConfig c''
 			=<< configParser remote c''
 		info <- extractS3Info pc'
@@ -318,7 +345,7 @@ s3Setup'  ss u mcreds c gc
 			=<< configParser remote archiveconfig
 		info <- extractS3Info pc'
 		checkexportimportsafe pc' info
-		hdl <- mkS3HandleVar pc' gc u
+		hdl <- mkS3HandleVar False pc' gc u
 		withS3HandleOrFail u hdl $
 			writeUUIDFile pc' u info
 		use archiveconfig pc' info
@@ -345,10 +372,10 @@ store mh r info magic = fileStorer $ \k f p -> withS3HandleOrFail (uuid r) mh $ 
 	when (isIA info && not (isChunkKey k)) $
 		setUrlPresent k (iaPublicUrl info (bucketObject info k))
 
-storeHelper :: S3Info -> S3Handle -> Maybe Magic -> FilePath -> S3.Object -> MeterUpdate -> Annex (Maybe S3Etag, Maybe S3VersionID)
+storeHelper :: S3Info -> S3Handle -> Maybe Magic -> OsPath -> S3.Object -> MeterUpdate -> Annex (Maybe S3Etag, Maybe S3VersionID)
 storeHelper info h magic f object p = liftIO $ case partSize info of
 	Just partsz | partsz > 0 -> do
-		fsz <- getFileSize (toRawFilePath f)
+		fsz <- getFileSize f
 		if fsz > partsz
 			then multipartupload fsz partsz
 			else singlepartupload
@@ -362,12 +389,8 @@ storeHelper info h magic f object p = liftIO $ case partSize info of
 		resp <- sendS3Handle h req
 		vid <- mkS3VersionID object
 			<$> extractFromResourceT (S3.porVersionId resp)
-#if MIN_VERSION_aws(0,22,0)
 		etag <- extractFromResourceT (Just (S3.porETag resp))
 		return (etag, vid)
-#else
-		return (Nothing, vid)
-#endif
 	multipartupload fsz partsz = runResourceT $ do
 		contenttype <- liftIO getcontenttype
 		let startreq = (S3.postInitiateMultipartUpload (bucket info) object)
@@ -385,7 +408,7 @@ storeHelper info h magic f object p = liftIO $ case partSize info of
 
 		-- Send parts of the file, taking care to stream each part
 		-- w/o buffering in memory, since the parts can be large.
-		etags <- bracketIO (openBinaryFile f ReadMode) hClose $ \fh -> do
+		etags <- bracketIO (F.openBinaryFile f ReadMode) hClose $ \fh -> do
 			let sendparts meter etags partnum = do
 				pos <- liftIO $ hTell fh
 				if pos >= fsz
@@ -413,37 +436,64 @@ storeHelper info h magic f object p = liftIO $ case partSize info of
 {- Implemented as a fileRetriever, that uses conduit to stream the chunks
  - out to the file. Would be better to implement a byteRetriever, but
  - that is difficult. -}
-retrieve :: S3HandleVar -> Remote -> RemoteStateHandle -> ParsedRemoteConfig -> S3Info -> Retriever
-retrieve hv r rs c info = fileRetriever' $ \f k p iv -> withS3Handle hv $ \case
+retrieve :: RemoteGitConfig -> S3HandleVar -> RemoteStateHandle -> ParsedRemoteConfig -> S3Info -> Retriever
+retrieve gc hv rs c info = fileRetriever' $ \f k p iv -> withS3Handle hv $ \case
 	Right h -> 
 		eitherS3VersionID info rs c k (T.pack $ bucketObject info k) >>= \case
 			Left failreason -> do
-				warning failreason
+				warning (UnquotedString failreason)
 				giveup "cannot download content"
-			Right loc -> retrieveHelper info h loc (fromRawFilePath f) p iv
+			Right loc -> retrieveHelper gc info h loc f p iv
 	Left S3HandleNeedCreds ->
-		getPublicWebUrls' (uuid r) rs info c k >>= \case
+		getPublicWebUrls' rs info c k >>= \case
 			Left failreason -> do
-				warning failreason
+				warning (UnquotedString failreason)
 				giveup "cannot download content"
-			Right us -> unlessM (withUrlOptions $ downloadUrl False k p iv us (fromRawFilePath f)) $
+			Right us -> unlessM (withUrlOptions Nothing $ downloadUrl False k p iv us f) $
 				giveup "failed to download content"
-	Left S3HandleAnonymousOldAws -> giveupS3HandleProblem S3HandleAnonymousOldAws (uuid r)
 
-retrieveHelper :: S3Info -> S3Handle -> (Either S3.Object S3VersionID) -> FilePath -> MeterUpdate -> Maybe IncrementalVerifier -> Annex ()
-retrieveHelper info h loc f p iv = retrieveHelper' h f p iv $
+retrieveHelper :: RemoteGitConfig -> S3Info -> S3Handle -> (Either S3.Object S3VersionID) -> OsPath -> MeterUpdate -> Maybe IncrementalVerifier -> Annex ()
+retrieveHelper gc info h loc f p iv = retrieveHelper' gc info h f p iv $
 	case loc of
 		Left o -> S3.getObject (bucket info) o
 		Right (S3VersionID o vid) -> (S3.getObject (bucket info) o)
 			{ S3.goVersionId = Just vid }
 
-retrieveHelper' :: S3Handle -> FilePath -> MeterUpdate -> Maybe IncrementalVerifier -> S3.GetObject -> Annex ()
-retrieveHelper' h f p iv req = liftIO $ runResourceT $ do
-	S3.GetObjectResponse { S3.gorResponse = rsp } <- sendS3Handle h req
+retrieveHelper' :: RemoteGitConfig -> S3Info -> S3Handle -> OsPath -> MeterUpdate -> Maybe IncrementalVerifier -> S3.GetObject -> Annex ()
+retrieveHelper' gc info h f p iv req = liftIO $ runResourceT $ do
+	S3.GetObjectResponse { S3.gorResponse = rsp } <- handlerestore $ 
+		sendS3Handle h req
 	Url.sinkResponseFile p iv zeroBytesProcessed f WriteMode rsp
+  where
+	needrestore st = restore info && statusCode st == 403
+	handlerestore a = catchJust (Url.matchStatusCodeException needrestore) a $ \_ -> do
+#if MIN_VERSION_aws(0,25,2)
+		let tier = case remoteAnnexS3RestoreTier gc of
+			Just "bulk" -> S3.RestoreObjectTierBulk
+			Just "expedited" -> S3.RestoreObjectTierExpedited
+			_ -> S3.RestoreObjectTierStandard
+		let days = case remoteAnnexS3RestoreDays gc of
+			Just n -> S3.RestoreObjectLifetimeDays n
+			Nothing -> S3.RestoreObjectLifetimeDays 1
+		let restorereq = S3.restoreObject
+			(S3.goBucket req)
+			(S3.goObjectName req)
+			tier
+			days
+		restoreresp <- sendS3Handle h $ restorereq
+			{ S3.roVersionId = S3.goVersionId req
+			}
+		case restoreresp of
+			S3.RestoreObjectAccepted -> giveup "Restore initiated, try again later."
+			S3.RestoreObjectAlreadyInProgress -> giveup "Restore in progress, try again later."
+			S3.RestoreObjectAlreadyRestored -> a
+#else
+		case remoteAnnexS3RestoreTier gc of
+			_ -> giveup "git-annex is built with too old a version of the aws library to support restore=yes"
+#endif
 
 remove :: S3HandleVar -> Remote -> S3Info -> Remover
-remove hv r info k = withS3HandleOrFail (uuid r) hv $ \h -> do
+remove hv r info _proof k = withS3HandleOrFail (uuid r) hv $ \h -> do
 	S3.DeleteObjectResponse <- liftIO $ runResourceT $ sendS3Handle h $
 		S3.DeleteObject (T.pack $ bucketObject info k) (bucket info)
 	return ()
@@ -455,29 +505,28 @@ lockContentS3 hv r rs c info
 	-- beyond a sanity check that the content is in fact present.
 	| versioning info = Just $ \k callback -> do
 		checkVersioning info rs k
-		ifM (checkKey hv r rs c info k)
-			( withVerifiedCopy LockedCopy (uuid r) (return True) callback
+		ifM (checkKey hv rs c info k)
+			( withVerifiedCopy LockedCopy (uuid r) (return (Right True)) callback
 			, giveup $ "content seems to be missing from " ++ name r ++ " despite S3 versioning being enabled"
 			)
 	| otherwise = Nothing
 
-checkKey :: S3HandleVar -> Remote -> RemoteStateHandle -> ParsedRemoteConfig -> S3Info -> CheckPresent
-checkKey hv r rs c info k = withS3Handle hv $ \case
+checkKey :: S3HandleVar -> RemoteStateHandle -> ParsedRemoteConfig -> S3Info -> CheckPresent
+checkKey hv rs c info k = withS3Handle hv $ \case
 	Right h -> eitherS3VersionID info rs c k (T.pack $ bucketObject info k) >>= \case
 		Left failreason -> do
-			warning failreason
+			warning (UnquotedString failreason)
 			giveup "cannot check content"
 		Right loc -> checkKeyHelper info h loc
 	Left S3HandleNeedCreds ->
-		getPublicWebUrls' (uuid r) rs info c k >>= \case
+		getPublicWebUrls' rs info c k >>= \case
 			Left failreason -> do
-				warning failreason
+				warning (UnquotedString failreason)
 				giveup "cannot check content"
 			Right us -> do
-				let check u = withUrlOptions $ 
+				let check u = withUrlOptions Nothing $ 
 					Url.checkBoth u (fromKey keySize k)
 				anyM check us
-	Left S3HandleAnonymousOldAws -> giveupS3HandleProblem S3HandleAnonymousOldAws (uuid r)
 
 checkKeyHelper :: S3Info -> S3Handle -> (Either S3.Object S3VersionID) -> Annex Bool
 checkKeyHelper info h loc = checkKeyHelper' info h o limit
@@ -495,10 +544,10 @@ checkKeyHelper' info h o limit = liftIO $ runResourceT $ do
   where
 	req = limit $ S3.headObject (bucket info) o
 
-storeExportS3 :: S3HandleVar -> Remote -> RemoteStateHandle -> S3Info -> Maybe Magic -> FilePath -> Key -> ExportLocation -> MeterUpdate -> Annex ()
+storeExportS3 :: S3HandleVar -> Remote -> RemoteStateHandle -> S3Info -> Maybe Magic -> OsPath -> Key -> ExportLocation -> MeterUpdate -> Annex ()
 storeExportS3 hv r rs info magic f k loc p = void $ storeExportS3' hv r rs info magic f k loc p
 
-storeExportS3' :: S3HandleVar -> Remote -> RemoteStateHandle -> S3Info -> Maybe Magic -> FilePath -> Key -> ExportLocation -> MeterUpdate -> Annex (Maybe S3Etag, Maybe S3VersionID)
+storeExportS3' :: S3HandleVar -> Remote -> RemoteStateHandle -> S3Info -> Maybe Magic -> OsPath -> Key -> ExportLocation -> MeterUpdate -> Annex (Maybe S3Etag, Maybe S3VersionID)
 storeExportS3' hv r rs info magic f k loc p = withS3Handle hv $ \case
 	Right h -> go h
 	Left pr -> giveupS3HandleProblem pr (uuid r)
@@ -509,16 +558,15 @@ storeExportS3' hv r rs info magic f k loc p = withS3Handle hv $ \case
 		setS3VersionID info rs k mvid
 		return (metag, mvid)
 
-retrieveExportS3 :: S3HandleVar -> Remote -> S3Info -> Key -> ExportLocation -> FilePath -> MeterUpdate -> Annex Verification
+retrieveExportS3 :: S3HandleVar -> Remote -> S3Info -> Key -> ExportLocation -> OsPath -> MeterUpdate -> Annex Verification
 retrieveExportS3 hv r info k loc f p = verifyKeyContentIncrementally AlwaysVerify k $ \iv ->
 	withS3Handle hv $ \case
-		Right h -> retrieveHelper info h (Left (T.pack exportloc)) f p iv
+		Right h -> retrieveHelper (gitconfig r) info h (Left (T.pack exportloc)) f p iv
 		Left S3HandleNeedCreds -> case getPublicUrlMaker info of
 			Just geturl -> either giveup return =<<
-				Url.withUrlOptions
+				withUrlOptions Nothing
 					(Url.download' p iv (geturl exportloc) f)
 			Nothing -> giveup $ needS3Creds (uuid r)
-		Left S3HandleAnonymousOldAws -> giveupS3HandleProblem S3HandleAnonymousOldAws (uuid r)
   where
 	exportloc = bucketExportLocation info loc
 
@@ -536,10 +584,9 @@ checkPresentExportS3 :: S3HandleVar -> Remote -> S3Info -> Key -> ExportLocation
 checkPresentExportS3 hv r info k loc = withS3Handle hv $ \case
 	Right h -> checkKeyHelper info h (Left (T.pack $ bucketExportLocation info loc))
 	Left S3HandleNeedCreds -> case getPublicUrlMaker info of
-		Just geturl -> withUrlOptions $
+		Just geturl -> withUrlOptions Nothing $
 			Url.checkBoth (geturl $ bucketExportLocation info loc) (fromKey keySize k)
 		Nothing -> giveupS3HandleProblem S3HandleNeedCreds (uuid r)
-	Left S3HandleAnonymousOldAws -> giveupS3HandleProblem S3HandleAnonymousOldAws (uuid r)
 
 -- S3 has no move primitive; copy and delete.
 renameExportS3 :: S3HandleVar -> Remote -> RemoteStateHandle -> S3Info -> Key -> ExportLocation -> ExportLocation -> Annex (Maybe ())
@@ -578,7 +625,7 @@ listImportableContentsS3 hv r info c =
 		| versioning info = do
 			rsp <- sendS3Handle h $ 
 				S3.getBucketObjectVersions (bucket info)
-			continuelistversioned h [] rsp
+			continuelistversioned Nothing h [] rsp
 		| otherwise = do
 			rsp <- sendS3Handle h $ 
 				(S3.getBucket (bucket info))
@@ -586,17 +633,31 @@ listImportableContentsS3 hv r info c =
 			continuelistunversioned h [] rsp
 
 	continuelistunversioned h l rsp
-		| S3.gbrIsTruncated rsp = do
-			rsp' <- sendS3Handle h $
-				(S3.getBucket (bucket info))
-					{ S3.gbMarker = S3.gbrNextMarker rsp
-					, S3.gbPrefix = fileprefix
-					}
-			continuelistunversioned h (rsp:l) rsp'
-		| otherwise = return $
-			mkImportableContentsUnversioned info (reverse (rsp:l))
-	
-	continuelistversioned h l rsp
+		| S3.gbrIsTruncated rsp =
+			let marker = 
+				S3.gbrNextMarker rsp
+					<|>
+				(S3.objectKey <$> lastMaybe (S3.gbrContents rsp))
+			in case marker of
+				Just _ -> do
+					rsp' <- sendS3Handle h $
+						(S3.getBucket (bucket info))
+							{ S3.gbMarker = marker
+							, S3.gbPrefix = fileprefix
+							}
+					l' <- extractFromResourceT $
+						extractunversioned rsp
+					continuelistunversioned h (l':l) rsp'
+				Nothing -> nomore
+		| otherwise = nomore
+	  where
+		nomore = do
+			l' <- extractFromResourceT $
+				extractunversioned rsp
+			return $ mkImportableContentsUnversioned
+				(reverse (l':l))
+
+	continuelistversioned reuse h l rsp
 		| S3.gbovrIsTruncated rsp = do
 			rsp' <- sendS3Handle h $
 				(S3.getBucketObjectVersions (bucket info))
@@ -604,70 +665,89 @@ listImportableContentsS3 hv r info c =
 					, S3.gbovVersionIdMarker = S3.gbovrNextVersionIdMarker rsp
 					, S3.gbovPrefix = fileprefix
 					}
-			continuelistversioned h (rsp:l) rsp'
-		| otherwise = return $
-			mkImportableContentsVersioned info (reverse (rsp:l))
+			(l', reuse') <- extractFromResourceT $
+				extractversioned reuse rsp
+			continuelistversioned reuse' h (l':l) rsp'
+		| otherwise = do
+			(l', _) <- extractFromResourceT $
+				extractversioned reuse rsp
+			return $ mkImportableContentsVersioned
+				(reverse (l':l))
 
-mkImportableContentsUnversioned :: S3Info -> [S3.GetBucketResponse] -> ImportableContents (ContentIdentifier, ByteSize)
-mkImportableContentsUnversioned info l = ImportableContents 
-	{ importableContents = concatMap (mapMaybe extract . S3.gbrContents) l
+	extractunversioned = mapMaybe extractunversioned' . S3.gbrContents
+	extractunversioned' oi = do
+                  loc <- bucketImportLocation info $
+                          T.unpack $ S3.objectKey oi
+                  let sz  = S3.objectSize oi
+                  let cid = mkS3UnversionedContentIdentifier $ S3.objectETag oi
+                  return (loc, (cid, sz))
+	
+	extractversioned reuse = extractversioned' reuse . S3.gbovrContents
+	extractversioned' reuse [] = ([], reuse)
+	extractversioned' reuse (x:xs) = case extractversioned'' reuse x of
+		Just (v, reuse') -> 
+			let (l, reuse'') = extractversioned' reuse' xs
+			in (v:l, reuse'')
+		Nothing -> extractversioned' reuse xs
+	extractversioned'' reuse ovi@(S3.ObjectVersion {}) = do
+		loc <- bucketImportLocation info $
+			T.unpack $ S3.oviKey ovi
+		-- Avoid storing the same filename in memory repeatedly.
+		let loc' = case reuse of
+			Just reuseloc | reuseloc == loc -> reuseloc
+			_ -> loc
+		let sz  = S3.oviSize ovi
+		let cid = mkS3VersionedContentIdentifier' ovi
+		return (((loc', (cid, sz)), S3.oviLastModified ovi), Just loc')
+	extractversioned'' _ (S3.DeleteMarker {}) = Nothing
+
+mkImportableContentsUnversioned :: [[(ImportLocation, (ContentIdentifier, ByteSize))]] -> ImportableContents (ContentIdentifier, ByteSize)
+mkImportableContentsUnversioned l = ImportableContents 
+	{ importableContents = concat l
 	, importableHistory = []
 	}
-  where
-	extract oi = do
-		loc <- bucketImportLocation info $
-			T.unpack $ S3.objectKey oi
-		let sz  = S3.objectSize oi
-		let cid = mkS3UnversionedContentIdentifier $ S3.objectETag oi
-		return (loc, (cid, sz))
 
-mkImportableContentsVersioned :: S3Info -> [S3.GetBucketObjectVersionsResponse] -> ImportableContents (ContentIdentifier, ByteSize)
-mkImportableContentsVersioned info = build . groupfiles
+mkImportableContentsVersioned :: [[((ImportLocation, (ContentIdentifier, ByteSize)), UTCTime)]] -> ImportableContents (ContentIdentifier, ByteSize)
+mkImportableContentsVersioned = build . groupfiles
   where
+	ovilastmodified = snd
+	loc = fst . fst
+
 	build [] = ImportableContents [] []
 	build l =
 		let (l', v) = latestversion l
 		in ImportableContents
-			{ importableContents = mapMaybe extract v
+			{ importableContents = map fst v
 			, importableHistory = case build l' of
 				ImportableContents [] [] -> []
 				h -> [h]
 			}
-  	
-	extract ovi@(S3.ObjectVersion {}) = do
-		loc <- bucketImportLocation info $
-			T.unpack $ S3.oviKey ovi
-		let sz  = S3.oviSize ovi
-		let cid = mkS3VersionedContentIdentifier' ovi
-		return (loc, (cid, sz))
-	extract (S3.DeleteMarker {}) = Nothing
 	
 	-- group files so all versions of a file are in a sublist,
 	-- with the newest first. S3 uses such an order, so it's just a
 	-- matter of breaking up the response list into sublists.
-	groupfiles = groupBy (\a b -> S3.oviKey a == S3.oviKey b) 
-		. concatMap S3.gbovrContents
+	groupfiles = groupBy (\a b -> loc a == loc b) . concat
 
 	latestversion [] = ([], [])
 	latestversion ([]:rest) = latestversion rest
 	latestversion l@((first:_old):remainder) =
-		go (S3.oviLastModified first) [first] remainder
+		go (ovilastmodified first) [first] remainder
 	  where
 		go mtime c [] = (removemostrecent mtime l, reverse c)
 		go mtime c ([]:rest) = go mtime c rest
 		go mtime c ((latest:_old):rest) = 
-			let !mtime' = max mtime (S3.oviLastModified latest)
+			let !mtime' = max mtime (ovilastmodified latest)
 			in go mtime' (latest:c) rest
 	
 	removemostrecent _ [] = []
 	removemostrecent mtime ([]:rest) = removemostrecent mtime rest
 	removemostrecent mtime (i@(curr:old):rest)
-		| S3.oviLastModified curr == mtime =
+		| ovilastmodified curr == mtime =
 			old : removemostrecent mtime rest
 		| otherwise =
 			i : removemostrecent mtime rest
 
-retrieveExportWithContentIdentifierS3 :: S3HandleVar -> Remote -> RemoteStateHandle -> S3Info -> ExportLocation -> [ContentIdentifier] -> FilePath -> Either Key (Annex Key) -> MeterUpdate -> Annex (Key, Verification)
+retrieveExportWithContentIdentifierS3 :: S3HandleVar -> Remote -> RemoteStateHandle -> S3Info -> ExportLocation -> [ContentIdentifier] -> OsPath -> Either Key (Annex Key) -> MeterUpdate -> Annex (Key, Verification)
 retrieveExportWithContentIdentifierS3 hv r rs info loc (cid:_) dest gk p =
 	case gk of
 		Right _mkkey -> do
@@ -680,7 +760,7 @@ retrieveExportWithContentIdentifierS3 hv r rs info loc (cid:_) dest gk p =
   where
 	go iv = withS3Handle hv $ \case
 		Right h -> do
-			rewritePreconditionException $ retrieveHelper' h dest p iv $
+			rewritePreconditionException $ retrieveHelper' (gitconfig r) info h dest p iv $
 				limitGetToContentIdentifier cid $
 					S3.getObject (bucket info) o
 			k <- either return id gk
@@ -711,14 +791,10 @@ rewritePreconditionException a = catchJust (Url.matchStatusCodeException want) a
 --
 -- When the bucket is not versioned, data loss can result.
 -- This is why that configuration requires --force to enable.
-storeExportWithContentIdentifierS3 :: S3HandleVar -> Remote -> RemoteStateHandle -> S3Info -> Maybe Magic -> FilePath -> Key -> ExportLocation -> [ContentIdentifier] -> MeterUpdate -> Annex ContentIdentifier
+storeExportWithContentIdentifierS3 :: S3HandleVar -> Remote -> RemoteStateHandle -> S3Info -> Maybe Magic -> OsPath -> Key -> ExportLocation -> [ContentIdentifier] -> MeterUpdate -> Annex ContentIdentifier
 storeExportWithContentIdentifierS3 hv r rs info magic src k loc _overwritablecids p
 	| versioning info = go
-#if MIN_VERSION_aws(0,22,0)
 	| otherwise = go
-#else
-	| otherwise = giveup "git-annex is built with too old a version of the aws library to support this operation"
-#endif
   where
 	go = storeExportS3' hv r rs info magic src k loc p >>= \case
 		(_, Just vid) -> return $
@@ -746,6 +822,18 @@ checkPresentExportWithContentIdentifierS3 hv r info _k loc knowncids =
   where
 	o = T.pack $ bucketExportLocation info loc
 
+getBucketLocation :: ParsedRemoteConfig -> RemoteGitConfig -> UUID -> Annex (Maybe S3.LocationConstraint)
+getBucketLocation c gc u = do
+	info <- extractS3Info c
+	let info' = info { region = Nothing, host = Nothing }
+	-- Force anonymous access, because this API call does not work
+	-- when used in an authenticated context.
+	hdl <- mkS3HandleVar True c gc u
+	withS3HandleOrFail u hdl $ \h -> do
+		r <- liftIO $ tryNonAsync $ runResourceT $
+			sendS3Handle h (S3.getBucketLocation $ bucket info')
+		return $ either (const Nothing) (Just . S3.gblrLocationConstraint) r
+
 {- Generate the bucket if it does not already exist, including creating the
  - UUID file within the bucket.
  -
@@ -757,26 +845,32 @@ genBucket :: ParsedRemoteConfig -> RemoteGitConfig -> UUID -> Annex ()
 genBucket c gc u = do
 	showAction "checking bucket"
 	info <- extractS3Info c
-	hdl <- mkS3HandleVar c gc u
+	hdl <- mkS3HandleVar False c gc u
 	withS3HandleOrFail u hdl $ \h ->
 		go info h =<< checkUUIDFile c u info h
   where
 	go _ _ (Right True) = noop
 	go info h _ = do
-		r <- liftIO $ tryNonAsync $ runResourceT $ do
-			void $ sendS3Handle h (S3.getBucket $ bucket info)
-			return True
-		case r of
+		checkbucketexists info h >>= \case
 			Right True -> noop
-			_ -> do
-				showAction $ "creating bucket in " ++ datacenter
-				void $ liftIO $ runResourceT $ sendS3Handle h $ 
-					(S3.putBucket (bucket info))
-						{ S3.pbCannedAcl = acl info
-						, S3.pbLocationConstraint = locconstraint
-						, S3.pbXStorageClass = storageclass
-						}
+			Right False -> createbucket info h
+			Left err -> do
+				fastDebug "Remote.S3" ("createBucket threw exception: " ++ show err)
+				createbucket info h
 		writeUUIDFile c u info h
+		
+	checkbucketexists info h = liftIO $ tryNonAsync $ runResourceT $ do
+		void $ sendS3Handle h (S3.getBucket $ bucket info)
+		return True
+	
+	createbucket info h = do
+		showAction $ UnquotedString $ "creating bucket in " ++ datacenter
+		void $ liftIO $ runResourceT $ sendS3Handle h $ 
+			(S3.putBucket (bucket info))
+				{ S3.pbCannedAcl = acl info
+				, S3.pbLocationConstraint = locconstraint
+				, S3.pbXStorageClass = storageclass
+				}
 	
 	locconstraint = mkLocationConstraint $ T.pack datacenter
 	datacenter = fromJust $ getRemoteConfigValue datacenterField c
@@ -806,7 +900,7 @@ writeUUIDFile c u info h = unless (exportTree c || importTree c) $ do
 			giveup "Cannot reuse this bucket."
 		_ -> void $ liftIO $ runResourceT $ sendS3Handle h mkobject
   where
-	file = T.pack $ uuidFile c
+	file = T.pack $ fromOsPath $ uuidFile c
 	uuidb = L.fromChunks [T.encodeUtf8 $ T.pack $ fromUUID u]
 
 	mkobject = putObject info file (RequestBodyLBS uuidb)
@@ -829,11 +923,11 @@ checkUUIDFile c u info h
 	check (S3.GetObjectMemoryResponse _meta rsp) =
 		responseStatus rsp == ok200 && responseBody rsp == uuidb
 
-	file = T.pack $ uuidFile c
+	file = T.pack $ fromOsPath $ uuidFile c
 	uuidb = L.fromChunks [T.encodeUtf8 $ T.pack $ fromUUID u]
 
-uuidFile :: ParsedRemoteConfig -> FilePath
-uuidFile c = getFilePrefix c ++ "annex-uuid"
+uuidFile :: ParsedRemoteConfig -> OsPath
+uuidFile c = toOsPath (getFilePrefix c) <> literalOsPath "annex-uuid"
 
 tryS3 :: ResourceT IO a -> ResourceT IO (Either S3.S3Error a)
 tryS3 a = (Right <$> a) `catch` (pure . Left)
@@ -854,38 +948,30 @@ sendS3Handle h r = AWS.pureAws (hawscfg h) (hs3cfg h) (hmanager h) r
 
 type S3HandleVar = TVar (Either (Annex (Either S3HandleProblem S3Handle)) (Either S3HandleProblem S3Handle))
 
-data S3HandleProblem
-	= S3HandleNeedCreds
-	| S3HandleAnonymousOldAws
+data S3HandleProblem = S3HandleNeedCreds
 
 giveupS3HandleProblem :: S3HandleProblem -> UUID -> Annex a
 giveupS3HandleProblem S3HandleNeedCreds u = do
-	warning $ needS3Creds u
+	warning $ UnquotedString $ needS3Creds u
 	giveup "No S3 credentials configured"
-giveupS3HandleProblem S3HandleAnonymousOldAws _ =
-	giveup "This S3 special remote is configured with signature=anonymous, but git-annex is buit with too old a version of the aws library to support that."
 
 {- Prepares a S3Handle for later use. Does not connect to S3 or do anything
  - else expensive. -}
-mkS3HandleVar :: ParsedRemoteConfig -> RemoteGitConfig -> UUID -> Annex S3HandleVar
-mkS3HandleVar c gc u = liftIO $ newTVarIO $ Left $
-	if isAnonymous c
-		then 
-#if MIN_VERSION_aws(0,23,0)
-			go =<< liftIO AWS.anonymousCredentials
-#else
-			return (Left S3HandleAnonymousOldAws)
-#endif
+mkS3HandleVar :: Bool -> ParsedRemoteConfig -> RemoteGitConfig -> UUID -> Annex S3HandleVar
+mkS3HandleVar forceanonymous c gc u = liftIO $ newTVarIO $ Left $
+	if forceanonymous || isAnonymous c
+		then go =<< liftIO AWS.anonymousCredentials
 		else do
 			mcreds <- getRemoteCredPair c gc (AWS.creds u)
 			case mcreds of
 				Just creds -> go =<< liftIO (genCredentials creds)
 				Nothing -> return (Left S3HandleNeedCreds)
   where
-	s3cfg = s3Configuration c
 	go awscreds = do
+		ou <- getUrlOptions Nothing
+		ua <- getUserAgent
 		let awscfg = AWS.Configuration AWS.Timestamp awscreds debugMapper Nothing
-		ou <- getUrlOptions
+		let s3cfg = s3Configuration (Just ua) c
 		return $ Right $ S3Handle (httpManager ou) awscfg s3cfg
 
 withS3Handle :: S3HandleVar -> (Either S3HandleProblem S3Handle -> Annex a) -> Annex a
@@ -904,13 +990,20 @@ withS3HandleOrFail u hv a = withS3Handle hv $ \case
 needS3Creds :: UUID -> String
 needS3Creds u = missingCredPairFor "S3" (AWS.creds u)
 
-s3Configuration :: ParsedRemoteConfig -> S3.S3Configuration AWS.NormalQuery
-s3Configuration c = cfg
+s3Configuration :: Maybe UserAgent -> ParsedRemoteConfig -> S3.S3Configuration AWS.NormalQuery
+#if MIN_VERSION_aws(0,24,3)
+s3Configuration ua c = cfg
+#else
+s3Configuration _ua c = cfg
+#endif
 	{ S3.s3Port = port
 	, S3.s3RequestStyle = case getRemoteConfigValue requeststyleField c of
 		Just "path" -> S3.PathStyle
 		Just s -> giveup $ "bad S3 requeststyle value: " ++ s
 		Nothing -> S3.s3RequestStyle cfg
+#if MIN_VERSION_aws(0,24,3)
+	, S3.s3UserAgent = T.pack <$> ua
+#endif
 	}
   where
 	h = fromJust $ getRemoteConfigValue hostField c
@@ -946,10 +1039,23 @@ s3Configuration c = cfg
 		Nothing
 			| port == 443 -> AWS.HTTPS
 			| otherwise -> AWS.HTTP
-	cfg = case getRemoteConfigValue signatureField c of
-		Just (SignatureVersion 4) -> 
-			S3.s3v4 proto endpoint False S3.SignWithEffort
-		_ -> S3.s3 proto endpoint False
+	cfg = if usev4 $ getRemoteConfigValue signatureField c
+		then (S3.s3v4 proto endpoint False S3.SignWithEffort)
+			{ S3.s3Region = r }
+		else (S3.s3 proto endpoint False)
+			{ S3.s3Region = r }
+	
+	-- Use signature v4 for all AWS hosts by default, but don't use it by
+	-- default for other S3 hosts, which may not support it.
+	usev4 (Just DefaultSignatureVersion)
+		| h == AWS.s3DefaultHost = True
+		| otherwise = False
+	usev4 (Just (SignatureVersion 4)) = True
+	usev4 (Just (SignatureVersion _)) = False
+	usev4 (Just Anonymous) = False
+	usev4 Nothing = False
+
+	r = encodeBS <$> getRemoteConfigValue regionField c
 
 data S3Info = S3Info
 	{ bucket :: S3.Bucket
@@ -958,12 +1064,15 @@ data S3Info = S3Info
 	, bucketExportLocation :: ExportLocation -> BucketObject
 	, bucketImportLocation :: BucketObject -> Maybe ImportLocation
 	, metaHeaders :: [(T.Text, T.Text)]
+	, tagging :: [(T.Text, T.Text)]
 	, partSize :: Maybe Integer
 	, isIA :: Bool
 	, versioning :: Bool
-	, public :: Bool
+	, restore :: Bool
+	, publicACL :: Bool
 	, publicurl :: Maybe URLString
 	, host :: Maybe String
+	, region :: Maybe String
 	}
 
 extractS3Info :: ParsedRemoteConfig -> Annex S3Info
@@ -979,14 +1088,18 @@ extractS3Info c = do
 		, bucketExportLocation = getBucketExportLocation c
 		, bucketImportLocation = getBucketImportLocation c
 		, metaHeaders = getMetaHeaders c
+		, tagging = getTagging c
 		, partSize = getPartSize c
 		, isIA = configIA c
 		, versioning = fromMaybe False $
 			getRemoteConfigValue versioningField c
-		, public = fromMaybe False $
+		, restore = fromMaybe False $
+			getRemoteConfigValue restoreField c
+		, publicACL = fromMaybe False $
 			getRemoteConfigValue publicField c
 		, publicurl = getRemoteConfigValue publicurlField c
 		, host = getRemoteConfigValue hostField c
+		, region = getRemoteConfigValue regionField c
 		}
 
 putObject :: S3Info -> T.Text -> RequestBody -> S3.PutObject
@@ -995,11 +1108,14 @@ putObject info file rbody = (S3.putObject (bucket info) file rbody)
 	, S3.poMetadata = metaHeaders info
 	, S3.poAutoMakeBucket = isIA info
 	, S3.poAcl = acl info
+#if MIN_VERSION_aws(0,25,0)
+	, S3.poTagging = tagging info
+#endif
 	}
 
 acl :: S3Info -> Maybe S3.CannedAcl
 acl info
-	| public info = Just S3.AclPublicRead
+	| publicACL info = Just S3.AclPublicRead
 	| otherwise = Nothing
 
 getBucketName :: ParsedRemoteConfig -> Maybe BucketName
@@ -1022,6 +1138,14 @@ getMetaHeaders = map munge
 	metaprefixlen = length metaPrefix
 	munge (k, v) = (T.pack $ drop metaprefixlen (fromProposedAccepted k), T.pack v)
 
+getTagging :: ParsedRemoteConfig -> [(T.Text, T.Text)]
+getTagging c = case getRemoteConfigValue taggingField c of
+	Nothing -> []
+	Just s -> map go $ parseQueryText (encodeBS s)
+  where
+	go (k, Just v) = (k, v)
+	go (k, Nothing) = (k, mempty)
+
 isMetaHeader :: RemoteConfigField -> Bool
 isMetaHeader h = metaPrefix `isPrefixOf` fromProposedAccepted h
 
@@ -1043,16 +1167,16 @@ getBucketObject c = munge . serializeKey
 
 getBucketExportLocation :: ParsedRemoteConfig -> ExportLocation -> BucketObject
 getBucketExportLocation c loc =
-	getFilePrefix c ++ fromRawFilePath (fromExportLocation loc)
+	getFilePrefix c ++ fromOsPath (fromExportLocation loc)
 
 getBucketImportLocation :: ParsedRemoteConfig -> BucketObject -> Maybe ImportLocation
 getBucketImportLocation c obj
 	-- The uuidFile should not be imported.
-	| obj == uuidfile = Nothing
+	| obj == fromOsPath uuidfile = Nothing
 	-- Only import files that are under the fileprefix, when
 	-- one is configured.
 	| prefix `isPrefixOf` obj = Just $ mkImportLocation $
-		toRawFilePath $ drop prefixlen obj
+		toOsPath $ drop prefixlen obj
 	| otherwise = Nothing
   where
 	prefix = getFilePrefix c
@@ -1093,14 +1217,7 @@ awsPublicUrl info = genericPublicUrl $
 	"https://" ++ T.unpack (bucket info) ++ ".s3.amazonaws.com/" 
 
 genericPublicUrl :: URLString -> BucketObject -> URLString
-genericPublicUrl baseurl p = 
-	baseurl Posix.</> escapeURIString skipescape p
- where
-	-- Don't need to escape '/' because the bucket object
-	-- is not necessarily a single url component. 
-	-- But do want to escape eg '+' and ' '
-	skipescape '/' = True
-	skipescape c = isUnescapedInURIComponent c
+genericPublicUrl = extendUrlWithPath
 
 genCredentials :: CredPair -> IO AWS.Credentials
 genCredentials (keyid, secret) = do
@@ -1126,7 +1243,10 @@ debugMapper level t = forward "Remote.S3" (T.unpack t)
 s3Info :: ParsedRemoteConfig -> S3Info -> [(String, String)]
 s3Info c info = catMaybes
 	[ Just ("bucket", fromMaybe "unknown" (getBucketName c))
-	, Just ("endpoint", w82s (BS.unpack (S3.s3Endpoint s3c)))
+	, Just ("endpoint", decodeBS (S3.s3Endpoint s3c))
+	, case S3.s3Region s3c of
+		Nothing -> Nothing
+		Just r -> Just ("region", decodeBS r)
 	, Just ("port", show (S3.s3Port s3c))
 	, Just ("protocol", map toLower (show (S3.s3Protocol s3c)))
 	, Just ("storage class", showstorageclass (getStorageClass c))
@@ -1134,21 +1254,20 @@ s3Info c info = catMaybes
 		then Just ("internet archive item", iaItemUrl $ fromMaybe "unknown" $ getBucketName c)
 		else Nothing
 	, Just ("partsize", maybe "unlimited" (roughSize storageUnits False) (getPartSize c))
-	, Just ("public", if public info then "yes" else "no")
+	, Just ("publicurl", fromMaybe "" (publicurl info))
+	, Just ("public", if publicACL info then "yes" else "no")
 	, Just ("versioning", if versioning info then "yes" else "no")
 	]
   where
-	s3c = s3Configuration c
+	s3c = s3Configuration Nothing c
 	showstorageclass (S3.OtherStorageClass t) = T.unpack t
 	showstorageclass sc = show sc
 
-getPublicWebUrls :: UUID -> RemoteStateHandle -> S3Info -> ParsedRemoteConfig -> Key -> Annex [URLString]
-getPublicWebUrls u rs info c k = either (const []) id <$> getPublicWebUrls' u rs info c k
+getPublicWebUrls :: RemoteStateHandle -> S3Info -> ParsedRemoteConfig -> Key -> Annex [URLString]
+getPublicWebUrls rs info c k = either (const []) id <$> getPublicWebUrls' rs info c k
 
-getPublicWebUrls' :: UUID -> RemoteStateHandle -> S3Info -> ParsedRemoteConfig -> Key -> Annex (Either String [URLString])
-getPublicWebUrls' u rs info c k
-	| not (public info) = return $ Left $ 
-		"S3 bucket does not allow public access; " ++ needS3Creds u
+getPublicWebUrls' :: RemoteStateHandle -> S3Info -> ParsedRemoteConfig -> Key -> Annex (Either String [URLString])
+getPublicWebUrls' rs info c k
 	| exportTree c = if versioning info
 		then case publicurl info of
 			Just url -> getversionid (const $ genericPublicUrl url)
@@ -1265,14 +1384,17 @@ extractContentIdentifier (ContentIdentifier v) o =
 
 setS3VersionID :: S3Info -> RemoteStateHandle -> Key -> Maybe S3VersionID -> Annex ()
 setS3VersionID info rs k vid
-	| versioning info = maybe noop (setS3VersionID' rs k) vid
+	| versioning info = maybe noop (setS3VersionID' rs k (CurrentlySet True)) vid
 	| otherwise = noop
 
-setS3VersionID' :: RemoteStateHandle -> Key -> S3VersionID -> Annex ()
-setS3VersionID' rs k vid = addRemoteMetaData k rs $
+setS3VersionID' :: RemoteStateHandle -> Key -> CurrentlySet -> S3VersionID -> Annex ()
+setS3VersionID' rs k currentlyset vid = addRemoteMetaData k rs $
 	updateMetaData s3VersionField v emptyMetaData
   where
-	v = mkMetaValue (CurrentlySet True) (formatS3VersionID vid)
+	v = mkMetaValue currentlyset (formatS3VersionID vid)
+
+unsetS3VersionID :: RemoteStateHandle -> Key -> S3VersionID -> Annex ()
+unsetS3VersionID rs k vid = setS3VersionID' rs k (CurrentlySet False) vid
 
 getS3VersionID :: RemoteStateHandle -> Key -> Annex [S3VersionID]
 getS3VersionID rs k = do
@@ -1291,7 +1413,7 @@ eitherS3VersionID info rs c k fallback
 		[] -> if exportTree c
 			then Left "Remote is configured to use versioning, but no S3 version ID is recorded for this key"
 			else Right (Left fallback)
-		-- It's possible for a key to be stored multiple timees in
+		-- It's possible for a key to be stored multiple times in
 		-- a bucket with different version IDs; only use one of them.
 		(v:_) -> Right (Right v)
 	| otherwise = return (Right (Left fallback))
@@ -1311,11 +1433,7 @@ getS3VersionIDPublicUrls mk info rs k =
 -- setting versioning in a bucket that git-annex has already exported
 -- files to risks losing the content of those un-versioned files.
 enableBucketVersioning :: SetupStage -> S3Info -> ParsedRemoteConfig -> RemoteGitConfig -> UUID -> Annex ()
-#if MIN_VERSION_aws(0,21,1)
 enableBucketVersioning ss info c gc u = do
-#else
-enableBucketVersioning ss info _ _ _ = do
-#endif
 	case ss of
 		Init -> when (versioning info) $
 			enableversioning (bucket info)
@@ -1323,20 +1441,23 @@ enableBucketVersioning ss info _ _ _ = do
 		AutoEnable oldc -> checkunchanged oldc
   where
 	enableversioning b = do
-#if MIN_VERSION_aws(0,21,1)
-		showAction "enabling bucket versioning"
-		hdl <- mkS3HandleVar c gc u
+		showAction "checking bucket versioning"
+		hdl <- mkS3HandleVar False c gc u
+		let setversioning = S3.putBucketVersioning b S3.VersioningEnabled
 		withS3HandleOrFail u hdl $ \h ->
-			void $ liftIO $ runResourceT $ sendS3Handle h $
-				S3.putBucketVersioning b S3.VersioningEnabled
+#if MIN_VERSION_aws(0,24,3)
+			liftIO $ runResourceT $
+				tryS3 (sendS3Handle h setversioning) >>= \case
+					Right _ -> return ()
+					Left err -> do
+						res <- sendS3Handle h $
+							S3.getBucketVersioning b
+						case S3.gbvVersioning res of
+							Just S3.VersioningEnabled -> return ()
+							_ -> giveup $ "This bucket does not have versioning enabled, and enabling it failed: "
+								++ T.unpack (S3.s3ErrorMessage err)
 #else
-		showLongNote $ unlines
-			[ "This version of git-annex cannot auto-enable S3 bucket versioning."
-			, "You need to manually enable versioning in the S3 console"
-			, "for the bucket \"" ++ T.unpack b ++ "\""
-			, "https://docs.aws.amazon.com/AmazonS3/latest/user-guide/enable-versioning.html"
-			, "It's important you enable versioning before storing anything in the bucket!"
-			]
+			void $ liftIO $ runResourceT $ sendS3Handle h setversioning
 #endif
 
 	checkunchanged oldc = do
@@ -1361,3 +1482,42 @@ checkVersioning info rs k
 		[] -> giveup "Remote is configured to use versioning, but no S3 version ID is recorded for this key, so it cannot safely be modified."
 		_ -> return ()
 	| otherwise = return ()
+
+{- Recover from a bad upload that a S3 version id points to. -}
+repairKeyS3 :: S3Info -> S3HandleVar -> Remote -> RemoteStateHandle -> Maybe (Key -> Annex Bool)
+repairKeyS3 info hdl r rs
+	| versioning info = Just $ \k ->
+		getS3VersionID rs k >>= \case
+			-- With only one S3 version id, it must be bad, so no need
+			-- to download it.
+			(s3vid:[]) -> do
+				unsetS3VersionID rs k s3vid
+				return False
+			-- Try to repair each S3 version id, if any are valid
+			-- the repair succeeded.
+			vs -> or <$> mapM (repairvid k) vs
+	| otherwise = Nothing
+  where
+ 	{- Download and verify the content, and if it's invalid, 
+	 - unset the S3 version id.
+	 -}
+	repairvid k s3vid@(S3VersionID o vid) = do
+	        miv <- startVerifyKeyContentIncrementally AlwaysVerify k
+		downloaded <- case miv of
+			Just iv -> withS3Handle hdl $ \case
+				Right h -> liftIO $ runResourceT $ do
+					S3.GetObjectResponse { S3.gorResponse = rsp }
+						<- sendS3Handle h $ (S3.getObject (bucket info) o)
+							{ S3.goVersionId = Just vid }
+					sinkResponseIncrementalVerifier nullMeterUpdate iv rsp
+					return True
+				Left problem -> giveupS3HandleProblem problem (uuid r)
+			Nothing -> return False
+		v <- snd <$> finishVerifyKeyContentIncrementally' True miv
+		case v of
+			Verified -> return True
+			_
+				| downloaded -> do
+					unsetS3VersionID rs k s3vid
+					return False
+				| otherwise -> return False

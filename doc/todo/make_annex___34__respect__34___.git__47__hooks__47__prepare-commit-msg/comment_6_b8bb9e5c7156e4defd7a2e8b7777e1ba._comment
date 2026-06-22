@@ -1,0 +1,36 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 6"""
+ date="2024-02-12T17:36:32Z"
+ content="""
+I've implemented annex.commitmessage-command and made sure that the
+assistant calls it after committing the working tree changes.
+
+Example of using the prepare-commit-msg hook to generate a commit message
+and then reusing that message for the git-annex branch commit:
+
+	joey@darkstar:~/tmp/a>cat .git/hooks/prepare-commit-msg
+	#!/bin/sh
+	msg="files: $(git diff --name-only --cached)"
+	echo $msg > .git/last-commit-msg
+	echo $msg > $1
+	
+	joey@darkstar:~/tmp/a>git config annex.commitmessage-command
+	cat .git/last-commit-msg
+	
+	joey@darkstar:~/tmp/a>git-annex assistant
+	joey@darkstar:~/tmp/a>date > bar
+
+	joey@darkstar:~/tmp/a>git log -n1 master
+	commit 676f87d02f031192c7eb0b7d29a6ce2429b8c727 (HEAD -> master, synced/master)
+	Author: Joey Hess <joeyh@joeyh.name>
+	Date:   Mon Feb 12 14:29:12 2024 -0400
+	
+	    files: bar
+	joey@darkstar:~/tmp/a>git log -n1 git-annex
+	commit 676588dd6d921115782e61be85f75e395cc480b6 (git-annex)
+	Author: Joey Hess <joeyh@joeyh.name>
+	Date:   Mon Feb 12 14:29:12 2024 -0400
+	
+	    files: bar
+"""]]

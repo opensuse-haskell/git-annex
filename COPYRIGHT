@@ -2,7 +2,7 @@ Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Source: native package
 
 Files: *
-Copyright: © 2010-2022 Joey Hess <id@joeyh.name>
+Copyright: © 2010-2026 Joey Hess <id@joeyh.name>
 License: AGPL-3+
 
 Files: Assistant/WebApp.hs Assistant/WebApp/* templates/* static/*
@@ -10,8 +10,12 @@ Copyright: © 2012-2017 Joey Hess <id@joeyh.name>
            © 2014 Sören Brunk
 License: AGPL-3+
 
-Files: doc/special_remotes/external/* 
+Files: doc/special_remotes/external/* doc/special_remotes/p2p/git-annex-p2p-unix-sockets
 Copyright: © 2013 Joey Hess <id@joeyh.name>
+License: GPL-3+
+
+Files: doc/special_remotes/compute/git-annex-compute-imageconvert doc/special_remotes/compute/git-annex-compute-wasmedge doc/special_remotes/compute/git-annex-compute-singularity
+Copyright: © 2025 Joey Hess <id@joeyh.name>
 License: GPL-3+
 
 Files: doc/design/external_backend_protocol/git-annex-backend-XFOO
@@ -20,7 +24,7 @@ License: GPL-3+
 
 Files: Command/Sync.hs
 Copyright: © Joachim Breitner <mail@joachim-breitner.de>
-           © 2011-2020 Joey Hess <id@joeyh.name>
+           © 2011-2024 Joey Hess <id@joeyh.name>
 License: AGPL-3+
 
 Files: Command/List.hs
@@ -33,22 +37,22 @@ Copyright: © 2011-2020 Joey Hess <id@joeyh.name>
            © 2014 Robie Basak <robie@justgohome.co.uk>
 License: GPL-3+
 
-Files: Utility/ThreadScheduler.hs
-Copyright: 2011 Bas van Dijk & Roel van Dijk
-           2012, 2013 Joey Hess <id@joeyh.name>
-License: BSD-2-clause
-
 Files: Utility/Attoparsec.hs
 Copyright: 2019 Joey Hess <id@joeyh.name>
            2007-2015 Bryan O'Sullivan
 License: BSD-3-clause
 
-Files: Utility/GitLFS.hs
-Copyright: © 2019 Joey Hess <id@joeyh.name>
+Files: Utility/FileIO/CloseOnExec.hs
+Copyright: 2025 Joey Hess <id@joeyh.name>
+           2024 Julian Ospald
+License: BSD-3-clause
+
+Files: Utility/Matcher.hs Utility/Tor.hs Utility/Yesod.hs
+Copyright: © 2010-2023 Joey Hess <id@joeyh.name>
 License: AGPL-3+
 
 Files: Utility/*
-Copyright: 2012-2022 Joey Hess <id@joeyh.name>
+Copyright: 2012-2025 Joey Hess <id@joeyh.name>
 License: BSD-2-clause
 
 Files: doc/logo* */favicon.ico standalone/osx/git-annex.app/Contents/Resources/git-annex.icns
@@ -63,6 +67,12 @@ Copyright: 2001 Ian Lynagh
 License: GPL-2
  The full text of version 2 of the GPL is distributed in
  /usr/share/common-licenses/GPL-2 on Debian systems.
+
+Files: Database/RawFilePath.hs
+Copyright: © 2012 Michael Snoyman, http://www.yesodweb.com/
+           © 2023 Joey Hess <id@joeyh.name>
+License: Expat
+ The text of the Expat license is in the Expat section below.
 
 Files: doc/tips/automatically_adding_metadata/pre-commit-annex 
 Copyright: 2014 Joey Hess <id@joeyh.name>
@@ -139,7 +149,7 @@ License: BSD-3-clause
     notice, this list of conditions and the following disclaimer in the
     documentation and/or other materials provided with the distribution.
  .
- 3. Neither the name of the author nor the names of his contributors
+ 3. Neither the name of the author nor the names of other contributors
     may be used to endorse or promote products derived from this software
     without specific prior written permission.
  .

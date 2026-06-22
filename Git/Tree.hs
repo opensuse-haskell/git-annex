@@ -1,11 +1,12 @@
 {- git trees
  -
- - Copyright 2016-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2016-2023 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
 {-# LANGUAGE BangPatterns, TypeSynonymInstances, FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Git.Tree (
 	Tree(..),
@@ -23,6 +24,8 @@ module Git.Tree (
 	graftTree',
 	withMkTreeHandle,
 	MkTreeHandle,
+	sendMkTree,
+	finishMkTree,
 	treeMode,
 ) where
 
@@ -34,14 +37,13 @@ import Git.Command
 import Git.Sha
 import qualified Git.LsTree as LsTree
 import qualified Utility.CoProcess as CoProcess
-import qualified System.FilePath.ByteString as P
+import qualified Utility.OsString as OS
 
 import Numeric
 import System.Posix.Types
 import Control.Monad.IO.Class
 import qualified Data.Set as S
 import qualified Data.Map as M
-import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as S8
 
 newtype Tree = Tree [TreeContent]
@@ -62,7 +64,7 @@ data TreeContent
 getTree :: LsTree.LsTreeRecursive -> Ref -> Repo -> IO Tree
 getTree recursive r repo = do
 	(l, cleanup) <- lsTreeWithObjects recursive r repo
-	let !t = either (\e -> error ("ls-tree parse error:" ++ e)) id
+	let !t = either (\e -> giveup ("ls-tree parse error:" ++ e)) id
 		(extractTree l)
 	void cleanup
 	return t
@@ -77,7 +79,7 @@ withMkTreeHandle :: (MonadIO m, MonadMask m) => Repo -> (MkTreeHandle -> m a) ->
 withMkTreeHandle repo a = bracketIO setup cleanup (a . MkTreeHandle)
   where
 	setup = gitCoProcessStart False ps repo
-	ps = [Param "mktree", Param "--batch", Param "-z"]
+	ps = [Param "mktree", Param "--missing", Param "--batch", Param "-z"]
 	cleanup = CoProcess.stop
 
 {- Records a Tree in the Repo, returning its Sha.
@@ -101,18 +103,27 @@ recordSubTree h (NewSubTree d l) = do
 	sha <- mkTree h =<< mapM (recordSubTree h) l
 	return (RecordedSubTree d sha [])
 recordSubTree _ alreadyrecorded = return alreadyrecorded
- 
+
+sendMkTree :: MkTreeHandle -> FileMode -> ObjectType -> Sha -> TopFilePath -> IO ()
+sendMkTree (MkTreeHandle cp) fm ot s f =
+	CoProcess.send cp $ \h -> 
+		hPutStr h (mkTreeOutput fm ot s f)
+
+finishMkTree :: MkTreeHandle -> IO Sha
+finishMkTree (MkTreeHandle cp) = do
+	CoProcess.send cp $ \h ->
+		-- NUL to signal end of tree to --batch
+		hPutStr h "\NUL"
+	getSha "mktree" (CoProcess.receive cp S8.hGetLine)
+
 mkTree :: MkTreeHandle -> [TreeContent] -> IO Sha
-mkTree (MkTreeHandle cp) l = CoProcess.query cp send receive
-  where
-	send h = do
-		forM_ l $ \i ->	hPutStr h $ case i of
-			TreeBlob f fm s -> mkTreeOutput fm BlobObject s f
-			RecordedSubTree f s _ -> mkTreeOutput treeMode TreeObject s f
-			NewSubTree _ _ -> error "recordSubTree internal error; unexpected NewSubTree"
-			TreeCommit f fm s -> mkTreeOutput fm CommitObject s f
-		hPutStr h "\NUL" -- signal end of tree to --batch
-	receive h = getSha "mktree" (S8.hGetLine h)
+mkTree h l = do
+	forM_ l $ \case
+		TreeBlob f fm s -> sendMkTree h fm BlobObject s f
+		RecordedSubTree f s _ -> sendMkTree h treeMode TreeObject s f
+		NewSubTree _ _ -> error "recordSubTree internal error; unexpected NewSubTree"
+		TreeCommit f fm s -> sendMkTree h fm CommitObject s f
+	finishMkTree h
 
 treeMode :: FileMode
 treeMode = 0o040000
@@ -125,7 +136,7 @@ mkTreeOutput fm ot s f = concat
 	, " "
 	, fromRef s
 	, "\t"
-	, takeFileName (fromRawFilePath (getTopFilePath f))
+	, fromOsPath (takeFileName (getTopFilePath f))
 	, "\NUL"
 	]
 
@@ -169,7 +180,7 @@ treeItemsToTree = go M.empty
 				go (addsubtree idir m (NewSubTree (asTopFilePath idir) [c])) is
 	  where
 		p = gitPath i
-		idir = P.takeDirectory p
+		idir = takeDirectory p
 		c = treeItemToTreeContent i
 
 	addsubtree d m t
@@ -182,7 +193,7 @@ treeItemsToTree = go M.empty
 				_ -> addsubtree parent m' (NewSubTree (asTopFilePath parent) [t])
 		| otherwise = M.insert d t m
 	  where
-		parent = P.takeDirectory d
+		parent = takeDirectory d
 
 {- Flattens the top N levels of a Tree. -}
 flattenTree :: Int -> Tree -> Tree
@@ -220,7 +231,7 @@ adjustTree adjusttreeitem addtreeitems resolveaddconflict removefiles r repo =
 	withMkTreeHandle repo $ \h -> do
 		(l, cleanup) <- liftIO $ lsTreeWithObjects LsTree.LsTreeRecursive r repo
 		(l', _, _) <- go h False [] 1 inTopTree l
-		l'' <- adjustlist h 0 inTopTree (const True) l'
+		l'' <- adjustlist h 0 inTopTree topTreePath l'
 		sha <- liftIO $ mkTree h l''
 		void $ liftIO cleanup
 		return sha
@@ -239,7 +250,7 @@ adjustTree adjusttreeitem addtreeitems resolveaddconflict removefiles r repo =
 						in go h modified (blob:c) depth intree is
 			Just TreeObject -> do
 				(sl, modified, is') <- go h False [] (depth+1) (beneathSubTree i) is
-				sl' <- adjustlist h depth (inTree i) (beneathSubTree i) sl
+				sl' <- adjustlist h depth (inTree i) (gitPath i) sl
 				let slmodified = sl' /= sl
 				subtree <- if modified || slmodified
 					then liftIO $ recordSubTree h $ NewSubTree (LsTree.file i) sl'
@@ -254,22 +265,28 @@ adjustTree adjusttreeitem addtreeitems resolveaddconflict removefiles r repo =
 					Just (TreeItem f m s) -> 
 						let commit = TreeCommit f m s
 						in go h wasmodified (commit:c) depth intree is
-			_ -> error ("unexpected object type \"" ++ decodeBS (LsTree.typeobj i) ++ "\"")
+			_ -> giveup ("unexpected object type \"" ++ decodeBS (LsTree.typeobj i) ++ "\"")
 		| otherwise = return (c, wasmodified, i:is)
 
-	adjustlist h depth ishere underhere l = do
-		let (addhere, rest) = partition ishere addtreeitems
+	adjustlist h depth ishere herepath l = do
+		let addhere = fromMaybe [] $ M.lookup herepath addtreeitempathmap
 		let l' = filter (not . removed) $
 			addoldnew l (map treeItemToTreeContent addhere)
 		let inl i = any (\t -> beneathSubTree t i) l'
 		let (Tree addunderhere) = flattenTree depth $ treeItemsToTree $
-			filter (\i -> underhere i && not (inl i)) rest
+			filter (not . inl) $ if herepath == topTreePath
+				then filter (not . ishere) addtreeitems
+				else fromMaybe [] $
+					M.lookup (subTreePrefix herepath) addtreeitemprefixmap
 		addunderhere' <- liftIO $ mapM (recordSubTree h) addunderhere
 		return (addoldnew l' addunderhere')
 
-	removeset = S.fromList $ map (P.normalise . gitPath) removefiles
-	removed (TreeBlob f _ _) = S.member (P.normalise (gitPath f)) removeset
-	removed (TreeCommit f _ _) = S.member (P.normalise (gitPath f)) removeset
+	addtreeitempathmap = mkPathMap addtreeitems
+	addtreeitemprefixmap = mkSubTreePathPrefixMap addtreeitems
+
+	removeset = S.fromList $ map (normalise . gitPath) removefiles
+	removed (TreeBlob f _ _) = S.member (normalise (gitPath f)) removeset
+	removed (TreeCommit f _ _) = S.member (normalise (gitPath f)) removeset
 	removed (RecordedSubTree _ _ _) = False
 	removed (NewSubTree _ _) = False
 
@@ -285,7 +302,7 @@ adjustTree adjusttreeitem addtreeitems resolveaddconflict removefiles r repo =
 					addoldnew' (M.delete k oldm) ns
 				Nothing -> n : addoldnew' oldm ns
 	addoldnew' oldm [] = M.elems oldm
-	mkk = P.normalise . gitPath
+	mkk = normalise . gitPath
 
 {- Grafts subtree into the basetree at the specified location, replacing
  - anything that the basetree already had at that location.
@@ -342,14 +359,10 @@ graftTree' subtree graftloc basetree repo hdl = go basetree subdirs graftdirs
 		| d == graftloc = graftin' []
 		| otherwise = NewSubTree d [graftin' rest]
 
-	subdirs = P.splitDirectories $ gitPath graftloc
+	subdirs = splitDirectories $ gitPath graftloc
 
-	-- For a graftloc of "foo/bar/baz", this generates
-	-- ["foo", "foo/bar", "foo/bar/baz"]
 	graftdirs = map (asTopFilePath . toInternalGitPath) $
-		mkpaths [] subdirs
-	mkpaths _ [] = []
-	mkpaths base (d:rest) = (P.joinPath base P.</> d) : mkpaths (base ++ [d]) rest
+		pathPrefixes subdirs
 
 {- Assumes the list is ordered, with tree objects coming right before their
  - contents. -}
@@ -378,13 +391,13 @@ extractTree l = case go [] inTopTree l of
 	parseerr = Left
 
 class GitPath t where
-	gitPath :: t -> RawFilePath
+	gitPath :: t -> OsPath
 
-instance GitPath RawFilePath where
+instance GitPath OsPath where
 	gitPath = id
 
 instance GitPath FilePath where
-	gitPath = toRawFilePath
+	gitPath = toOsPath
 
 instance GitPath TopFilePath where
 	gitPath = getTopFilePath
@@ -402,13 +415,50 @@ instance GitPath TreeContent where
 	gitPath (TreeCommit f _ _) = gitPath f
 
 inTopTree :: GitPath t => t -> Bool
-inTopTree = inTree "."
+inTopTree = inTree topTreePath
+
+topTreePath :: OsPath
+topTreePath = literalOsPath "."
 
 inTree :: (GitPath t, GitPath f) => t -> f -> Bool
-inTree t f = gitPath t == P.takeDirectory (gitPath f)
+inTree t f = gitPath t == takeDirectory (gitPath f)
 
 beneathSubTree :: (GitPath t, GitPath f) => t -> f -> Bool
-beneathSubTree t f = prefix `B.isPrefixOf` P.normalise (gitPath f)
+beneathSubTree t f = subTreePrefix t `OS.isPrefixOf` subTreePath f
+
+subTreePath :: GitPath t => t -> OsPath
+subTreePath = normalise . gitPath
+
+subTreePrefix :: GitPath t => t -> OsPath
+subTreePrefix t
+	| OS.null tp = tp
+	| otherwise = addTrailingPathSeparator (normalise tp)
   where
 	tp = gitPath t
-	prefix = if B.null tp then tp else P.addTrailingPathSeparator (P.normalise tp)
+
+{- Makes a Map where the keys are directories, and the values
+ - are the items located in that directory.
+ -
+ - Values that are not in any subdirectory are placed in
+ - the topTreePath key.
+ -}
+mkPathMap :: GitPath t => [t] -> M.Map OsPath [t]
+mkPathMap l = M.fromListWith (++) $
+	map (\ti -> (takeDirectory (gitPath ti), [ti])) l
+
+{- Input is eg splitDirectories "foo/bar/baz",
+ - for which it will output ["foo", "foo/bar", "foo/bar/baz"] -}
+pathPrefixes :: [OsPath] -> [OsPath]
+pathPrefixes = go []
+  where
+	go _ [] = []
+	go base (d:rest) = (joinPath base </> d) : go (base ++ [d]) rest
+
+{- Makes a Map where the keys are all subtree path prefixes, 
+ - and the values are items with that subtree path prefix.
+ -}
+mkSubTreePathPrefixMap :: GitPath t => [t] -> M.Map OsPath [t]
+mkSubTreePathPrefixMap l = M.fromListWith (++) $ concatMap go l
+  where
+	go ti = map (\p -> (p, [ti]))
+		(map subTreePrefix $ pathPrefixes $ splitDirectories $ subTreePath ti)

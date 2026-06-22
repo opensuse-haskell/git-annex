@@ -1,4 +1,4 @@
-{- git-annex file locations
+{- git-annex object file locations
  -
  - Copyright 2010-2019 Joey Hess <id@joeyh.name>
  -
@@ -19,10 +19,9 @@ module Annex.DirHashes (
 
 import Data.Default
 import Data.Bits
+import qualified Data.List.NonEmpty as NE
 import qualified Data.ByteArray as BA
-import qualified Data.ByteArray.Encoding as BA
 import qualified Data.ByteString as S
-import qualified System.FilePath.ByteString as P
 
 import Common
 import Key
@@ -31,7 +30,7 @@ import Types.Difference
 import Utility.Hash
 import Utility.MD5
 
-type Hasher = Key -> RawFilePath
+type Hasher = Key -> OsPath
 
 -- Number of hash levels to use. 2 is the default.
 newtype HashLevels = HashLevels Int
@@ -50,7 +49,7 @@ configHashLevels d config
 	| hasDifference d (annexDifferences config) = HashLevels 1
 	| otherwise = def
 
-branchHashDir :: GitConfig -> Key -> S.ByteString
+branchHashDir :: GitConfig -> Key -> OsPath
 branchHashDir = hashDirLower . branchHashLevels
 
 {- Two different directory hashes may be used. The mixed case hash
@@ -60,21 +59,19 @@ branchHashDir = hashDirLower . branchHashLevels
  - To support that, some git-annex repositories use the lower case-hash.
  - All special remotes use the lower-case hash for new data, but old data
  - may still use the mixed case hash. -}
-dirHashes :: [HashLevels -> Hasher]
-dirHashes = [hashDirLower, hashDirMixed]
+dirHashes :: NE.NonEmpty (HashLevels -> Hasher)
+dirHashes = hashDirLower NE.:| [hashDirMixed]
 
-hashDirs :: HashLevels -> Int -> S.ByteString -> RawFilePath
-hashDirs (HashLevels 1) sz s = P.addTrailingPathSeparator $ S.take sz s
-hashDirs _ sz s = P.addTrailingPathSeparator $ h P.</> t
+hashDirs :: HashLevels -> Int -> S.ByteString -> OsPath
+hashDirs (HashLevels 1) sz s = addTrailingPathSeparator $
+	toOsPath (S.take sz s)
+hashDirs _ sz s = addTrailingPathSeparator $ toOsPath h </> toOsPath t
   where
 	(h, t) = S.splitAt sz s
 
 hashDirLower :: HashLevels -> Hasher
-hashDirLower n k = hashDirs n 3 $ S.pack $ take 6 $ conv $
+hashDirLower n k = hashDirs n 3 $ S.take 6 $ hashByteString $ digestToHash $
 	md5s $ serializeKey' $ nonChunkKey k
-  where
-	conv v = BA.unpack $
-		(BA.convertToBase BA.Base16 v :: BA.Bytes)
 
 {- This was originally using Data.Hash.MD5 from MissingH. This new version
 - is faster, but ugly as it has to replicate the 4 Word32's that produced. -}
@@ -82,7 +79,7 @@ hashDirMixed :: HashLevels -> Hasher
 hashDirMixed n k = hashDirs n 2 $ S.pack $ take 4 $
 	concatMap display_32bits_as_dir $
 		encodeWord32 $ map fromIntegral $ BA.unpack $
-			Utility.Hash.md5s $ serializeKey' $ nonChunkKey k
+			md5s $ serializeKey' $ nonChunkKey k
   where
 	encodeWord32 (b1:b2:b3:b4:rest) =
 		(shiftL b4 24 .|. shiftL b3 16 .|. shiftL b2 8 .|. b1)

@@ -1,6 +1,6 @@
 {- git-annex output messages, including concurrent output to display regions
  -
- - Copyright 2010-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2023 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -13,28 +13,33 @@ import Types.Messages
 import Messages.Concurrent
 import qualified Messages.JSON as JSON
 import Messages.JSON (JSONBuilder)
+import Git.Quote
+import Types.GitConfig
 
 import qualified Data.ByteString as S
 
 withMessageState :: (MessageState -> Annex a) -> Annex a
 withMessageState a = Annex.getState Annex.output >>= a
 
-outputMessage :: JSONBuilder -> S.ByteString -> Annex ()
+outputMessage :: JSONBuilder -> (S.ByteString -> S.ByteString) -> StringContainingQuotedPath -> Annex ()
 outputMessage = outputMessage' bufferJSON
 
-outputMessage' :: (JSONBuilder -> MessageState -> Annex Bool) -> JSONBuilder -> S.ByteString -> Annex ()
-outputMessage' jsonoutputter jsonbuilder msg = withMessageState $ \s -> case outputType s of
+outputMessage' :: (JSONBuilder -> MessageState -> Annex Bool) -> JSONBuilder -> (S.ByteString -> S.ByteString) -> StringContainingQuotedPath -> Annex ()
+outputMessage' jsonoutputter jsonbuilder consolewhitespacef msg = withMessageState $ \s -> case outputType s of
 	NormalOutput
 		| concurrentOutputEnabled s -> do
+			qp <- coreQuotePath <$> Annex.getGitConfig
 			liftIO $ clearProgressMeter s
-			concurrentMessage s False (decodeBS msg) q
+			concurrentMessage s False (decodeBS (consolewhitespacef (quote qp msg))) q
 		| otherwise -> do
+			qp <- coreQuotePath <$> Annex.getGitConfig
 			liftIO $ clearProgressMeter s
-			liftIO $ flushed $ S.putStr msg
+			liftIO $ flushed $ S.putStr (consolewhitespacef (quote qp msg))
 	JSONOutput _ -> void $ jsonoutputter jsonbuilder s
 	QuietOutput -> q
 	SerializedOutput h _ -> do
-		liftIO $ outputSerialized h $ OutputMessage msg
+		qp <- coreQuotePath <$> Annex.getGitConfig
+		liftIO $ outputSerialized h $ OutputMessage $ consolewhitespacef $ quote qp msg
 		void $ jsonoutputter jsonbuilder s
 
 -- Buffer changes to JSON until end is reached and then emit it.
@@ -75,22 +80,27 @@ outputJSON jsonbuilder s = case outputType s of
 			(fst <$> jsonbuilder Nothing)
 		return True
 
-outputError :: String -> Annex ()
-outputError msg = withMessageState $ \s -> case (outputType s, jsonBuffer s) of
+outputError :: (S.ByteString -> S.ByteString) -> StringContainingQuotedPath -> Annex ()
+outputError consolewhitespacef msg = withMessageState $ \s -> case (outputType s, jsonBuffer s) of
         (JSONOutput jsonoptions, Just jb) | jsonErrorMessages jsonoptions ->
-		let jb' = Just (JSON.addErrorMessage (lines msg) jb)
+		let jb' = Just (JSON.addErrorMessage (lines (decodeBS (noquote msg))) jb)
 		in Annex.changeState $ \st ->
 			st { Annex.output = s { jsonBuffer = jb' } }
-	(SerializedOutput h _, _) -> 
-		liftIO $ outputSerialized h $ OutputError msg
+	(SerializedOutput h _, _) -> do
+		qp <- coreQuotePath <$> Annex.getGitConfig
+		liftIO $ outputSerialized h $ OutputError $ decodeBS $
+			consolewhitespacef $ quote qp msg
 	_
-		| concurrentOutputEnabled s -> concurrentMessage s True msg go
+		| concurrentOutputEnabled s -> do
+			qp <- coreQuotePath <$> Annex.getGitConfig
+			concurrentMessage s True (decodeBS $ consolewhitespacef $ quote qp msg) go
 		| otherwise -> go
   where
-	go = liftIO $ do
-		hFlush stdout
-		hPutStr stderr msg
-		hFlush stderr
+	go = do
+		qp <- coreQuotePath <$> Annex.getGitConfig
+		liftIO $ hFlush stdout
+		liftIO $ S.hPutStr stderr (consolewhitespacef $ quote qp msg)
+		liftIO $ hFlush stderr
 
 q :: Monad m => m ()
 q = noop
@@ -105,4 +115,4 @@ outputSerialized = id
 waitOutputSerializedResponse :: (IO (Maybe SerializedOutputResponse)) -> SerializedOutputResponse -> IO ()
 waitOutputSerializedResponse getr r = tryIO getr >>= \case
 	Right (Just r') | r' == r -> return ()
-	v -> error $ "serialized output protocol error; expected " ++ show r ++ " got " ++ show v
+	v -> giveup $ "serialized output protocol error; expected " ++ show r ++ " got " ++ show v

@@ -1,0 +1,53 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 10"""
+ date="2026-06-04T13:59:25Z"
+ content="""
+I have done some work adjacent to this todo, implmenting a `--wanted`
+option and `git-annex put` command.
+
+Now, if someone wants  the equivilant of `git-annex pull --json
+$someremote`, they can run:
+
+	git-annex pull --no-content $someremote
+	git-annex get --wanted --json --from $someremote
+	git-annex drop --wanted --json
+
+The `git-annex pull` above does not have json output, but outputs the
+usual `git pull` messages for the user to deal with as they see fit.
+
+And, if someone wants the equivilant of `git-annex push --json
+$someremote`, they can run:
+
+	git-annex copy --wanted --json --to $someremote
+	git-annex drop --wanted --json --from $someremote
+	git-annex push --no-content $someremote
+
+The `git-annex push` above does not have json output, but outputs the
+usual `git push` messages for the user to deal with as they see fit.
+
+Similarly, the equivilant of `git-annex pull --json` with no remote
+specified:
+
+	git-annex pull --no-content
+	git-annex get --wanted --json
+	git-annex drop --wanted --json
+
+And, the equivilant of `git-annex push` without a remote specified:
+
+	git-annex put --wanted --json
+	git-annex drop --wanted --json
+	git-annex push --no-content
+
+So, the argument for adding --json to pull/push now seems to be reduced.
+Here are all the arguments I can think of for still doing that:
+
+* These command sequences won't behave completely identically to pull/push
+  in all configurations, eg they don't look at `remote.<name>.annex-pull`
+  and `remote.<name>.annex-push` configs.
+
+* A single `git-annex push` or `pull` (or `sync`) does less work than several
+  git-annex commands. In the command sequences above, git-annex has to
+  traverse the tree twice. That is a pretty small difference in overhead
+  though most of the time.
+"""]]

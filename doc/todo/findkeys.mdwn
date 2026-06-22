@@ -1,0 +1,20 @@
+`git-annex findkeys` would be similar to `git-annex find`, but would find
+all keys in the repository, or all known keys.
+
+[[git-annex-find]] has a long comment section with users wanting some way
+to do this, but I am strongly of the opinion that `git-annex find` should
+list files, not keys, like `find(1)` does.
+--[[Joey]]
+
+findkeys could support --format like find, but without `${file}`, and
+--print0 and the json options. --batch does not seem very likely to be
+useful? The other options wouldn't apply to it, except for matching options
+like --in that can operate on keys.
+
+Like `git-annex find`, findkeys should default to listing only keys
+whose content is present. But when an option like --in=remote
+or --anything is used, it should, like find, not be limited to that.
+
+[[!tag projects/dandi]]
+
+> [[done]]! --[[Joey]]

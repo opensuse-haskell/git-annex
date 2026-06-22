@@ -1,26 +1,24 @@
 {- Sqlite database used for exports to special remotes.
  -
- - Copyright 2017-2019 Joey Hess <id@joeyh.name>
+ - Copyright 2017-2026 Joey Hess <id@joeyh.name>
  -:
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE QuasiQuotes, TypeFamilies, TemplateHaskell #-}
+{-# LANGUAGE QuasiQuotes, TypeFamilies, TypeOperators, TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings, GADTs, FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE DataKinds, FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
-#if MIN_VERSION_persistent_template(2,8,0)
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE StandaloneDeriving #-}
-#endif
 
 module Database.Export (
 	ExportHandle,
 	openDb,
 	closeDb,
+	removeDb,
 	writeLockDbWhile,
 	flushDbQueue,
 	addExportedLocation,
@@ -55,16 +53,13 @@ import Types.Export
 import Annex.Export
 import qualified Logs.Export as Log
 import Annex.LockFile
-import Annex.LockPool
 import Git.Types
 import Git.Sha
 import Git.FilePath
 import qualified Git.DiffTree
-import qualified Utility.RawFilePath as R
 
 import Database.Persist.Sql hiding (Key)
 import Database.Persist.TH
-import qualified System.FilePath.ByteString as P
 
 data ExportHandle = ExportHandle H.DbQueue UUID
 
@@ -72,18 +67,18 @@ share [mkPersist sqlSettings, mkMigrate "migrateExport"] [persistLowerCase|
 -- Files that have been exported to the remote and are present on it.
 Exported
   key Key
-  file SFilePath
+  file SByteString
   ExportedIndex key file
 -- Directories that exist on the remote, and the files that are in them.
 ExportedDirectory
-  subdir SFilePath
-  file SFilePath
+  subdir SByteString
+  file SByteString
   ExportedDirectoryIndex subdir file
 -- The content of the tree that has been exported to the remote.
 -- Not all of these files are necessarily present on the remote yet.
 ExportTree
   key Key
-  file SFilePath
+  file SByteString
   ExportTreeKeyFileIndex key file
   ExportTreeFileKeyIndex file key
 -- The tree stored in ExportTree
@@ -100,8 +95,8 @@ ExportTreeCurrent
 openDb :: UUID -> Annex ExportHandle
 openDb u = do
 	dbdir <- calcRepo' (gitAnnexExportDbDir u)
-	let db = dbdir P.</> "db"
-	unlessM (liftIO $ R.doesPathExist db) $ do
+	let db = dbdir </> literalOsPath "db"
+	unlessM (liftIO $ doesFileExist db) $ do
 		initDb db $ void $
 			runMigrationSilent migrateExport
 	h <- liftIO $ H.openDbQueue db "exported"
@@ -109,6 +104,17 @@ openDb u = do
 
 closeDb :: ExportHandle -> Annex ()
 closeDb (ExportHandle h _) = liftIO $ H.closeDbQueue h
+
+removeDb :: UUID -> Annex ()
+removeDb u = writeLockDbWhile' u (const noop) noop $ do
+	uuiddir <- calcRepo' (gitAnnexExportUUIDDir u)
+	void $ liftIO $ whenM (doesDirectoryExist uuiddir) $
+		removeDirectoryRecursive uuiddir
+	updatelck <- calcRepo' (gitAnnexExportUpdateLock u)
+	exlck <- calcRepo' (gitAnnexExportLock u)
+	void $ liftIO $ tryNonAsync $ do
+		removeWhenExistsWith removeFile updatelck
+		removeWhenExistsWith removeFile exlck
 
 queueDb :: ExportHandle -> SqlPersistM () -> IO ()
 queueDb (ExportHandle h _) = H.queueDb h checkcommit
@@ -124,7 +130,7 @@ flushDbQueue (ExportHandle h _) = H.flushDbQueue h
 recordExportTreeCurrent :: ExportHandle -> Sha -> IO ()
 recordExportTreeCurrent h s = queueDb h $ do
 	deleteWhere ([] :: [Filter ExportTreeCurrent])
-	void $ insertUnique $ ExportTreeCurrent $ toSSha s
+	void $ insertUnique_ $ ExportTreeCurrent $ toSSha s
 
 getExportTreeCurrent :: ExportHandle -> IO (Maybe Sha)
 getExportTreeCurrent (ExportHandle h _) = H.queryDbQueue h $ do
@@ -136,28 +142,29 @@ getExportTreeCurrent (ExportHandle h _) = H.queryDbQueue h $ do
 
 addExportedLocation :: ExportHandle -> Key -> ExportLocation -> IO ()
 addExportedLocation h k el = queueDb h $ do
-	void $ insertUnique $ Exported k ef
+	void $ insertUnique_ $ Exported k ef
 	let edirs = map
-		(\ed -> ExportedDirectory (SFilePath (fromExportDirectory ed)) ef)
+		(\ed -> ExportedDirectory (SByteString (fromOsPath (fromExportDirectory ed))) ef)
 		(exportDirectories el)
 	putMany edirs
   where
-	ef = SFilePath (fromExportLocation el)
+	ef = SByteString (fromOsPath (fromExportLocation el))
 
 removeExportedLocation :: ExportHandle -> Key -> ExportLocation -> IO ()
 removeExportedLocation h k el = queueDb h $ do
 	deleteWhere [ExportedKey ==. k, ExportedFile ==. ef]
-	let subdirs = map (SFilePath . fromExportDirectory)
+	let subdirs = map
+		(SByteString . fromOsPath . fromExportDirectory)
 		(exportDirectories el)
 	deleteWhere [ExportedDirectoryFile ==. ef, ExportedDirectorySubdir <-. subdirs]
   where
-	ef = SFilePath (fromExportLocation el)
+	ef = SByteString (fromOsPath (fromExportLocation el))
 
 {- Note that this does not see recently queued changes. -}
 getExportedLocation :: ExportHandle -> Key -> IO [ExportLocation]
 getExportedLocation (ExportHandle h _) k = H.queryDbQueue h $ do
 	l <- selectList [ExportedKey ==. k] []
-	return $ map (mkExportLocation . (\(SFilePath f) -> f) . exportedFile . entityVal) l
+	return $ map (mkExportLocation . (\(SByteString f) -> toOsPath f) . exportedFile . entityVal) l
 
 {- Note that this does not see recently queued changes. -}
 isExportDirectoryEmpty :: ExportHandle -> ExportDirectory -> IO Bool
@@ -165,13 +172,13 @@ isExportDirectoryEmpty (ExportHandle h _) d = H.queryDbQueue h $ do
 	l <- selectList [ExportedDirectorySubdir ==. ed] []
 	return $ null l
   where
-	ed = SFilePath $ fromExportDirectory d
+	ed = SByteString $ fromOsPath $ fromExportDirectory d
 
 {- Get locations in the export that might contain a key. -}
 getExportTree :: ExportHandle -> Key -> IO [ExportLocation]
 getExportTree (ExportHandle h _) k = H.queryDbQueue h $ do
 	l <- selectList [ExportTreeKey ==. k] []
-	return $ map (mkExportLocation . (\(SFilePath f) -> f) . exportTreeFile . entityVal) l
+	return $ map (mkExportLocation . (\(SByteString f) -> toOsPath f) . exportTreeFile . entityVal) l
 
 {- Get keys that might be currently exported to a location.
  -
@@ -182,19 +189,19 @@ getExportTreeKey (ExportHandle h _) el = H.queryDbQueue h $ do
 	map (exportTreeKey . entityVal) 
 		<$> selectList [ExportTreeFile ==. ef] []
   where
-	ef = SFilePath (fromExportLocation el)
+	ef = SByteString (fromOsPath (fromExportLocation el))
 
 addExportTree :: ExportHandle -> Key -> ExportLocation -> IO ()
 addExportTree h k loc = queueDb h $
-	void $ insertUnique $ ExportTree k ef
+	void $ insertUnique_ $ ExportTree k ef
   where
-	ef = SFilePath (fromExportLocation loc)
+	ef = SByteString (fromOsPath (fromExportLocation loc))
 
 removeExportTree :: ExportHandle -> Key -> ExportLocation -> IO ()
 removeExportTree h k loc = queueDb h $
 	deleteWhere [ExportTreeKey ==. k, ExportTreeFile ==. ef]
   where
-	ef = SFilePath (fromExportLocation loc)
+	ef = SByteString (fromOsPath (fromExportLocation loc))
 
 -- An action that is passed the old and new values that were exported,
 -- and updates state.
@@ -262,11 +269,7 @@ updateExportDb = runExportDiffUpdater $ mkExportDiffUpdater removeold addnew
  - from the git-annex branch export log.
  -}
 writeLockDbWhile :: ExportHandle -> Annex a -> Annex a
-writeLockDbWhile db@(ExportHandle _ u) a = do
-	updatelck <- takeExclusiveLock =<< calcRepo' (gitAnnexExportUpdateLock u)
-	exlck <- calcRepo' (gitAnnexExportLock u)
-	withExclusiveLock exlck $ do
-		bracket_ (setup updatelck) cleanup a
+writeLockDbWhile db@(ExportHandle _ u) = writeLockDbWhile' u setup cleanup
   where
 	setup updatelck = do
 		void $ updateExportTreeFromLog' db
@@ -275,6 +278,13 @@ writeLockDbWhile db@(ExportHandle _ u) a = do
 		liftIO $ flushDbQueue db
 		liftIO $ dropLock updatelck
 	cleanup = liftIO $ flushDbQueue db
+
+writeLockDbWhile' :: UUID -> (LockHandle -> Annex ()) -> Annex () -> Annex a -> Annex a
+writeLockDbWhile' u setup cleanup a = do
+	updatelck <- takeExclusiveLock =<< calcRepo' (gitAnnexExportUpdateLock u)
+	exlck <- calcRepo' (gitAnnexExportLock u)
+	withExclusiveLock exlck $ do
+		bracket_ (setup updatelck) cleanup a
 
 data ExportUpdateResult = ExportUpdateSuccess | ExportUpdateConflict
 	deriving (Eq)

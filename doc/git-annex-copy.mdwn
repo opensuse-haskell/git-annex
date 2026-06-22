@@ -8,7 +8,7 @@ git annex copy `[path ...] [--from=remote|--to=remote]`
 
 # DESCRIPTION
 
-Copies the content of files from or to another remote.
+Copies the content of files from or to another repository.
 
 With no parameters, operates on all annexed files in the current directory.
 Paths of files or directories to operate on can be specified.
@@ -32,6 +32,20 @@ Paths of files or directories to operate on can be specified.
   Copy the content of files from all reachable remotes to the local
   repository.
 
+* `--from=remote1 --to=remote2`
+
+  Copy the content of files that are in remote1 to remote2.
+
+  This is implemented by first downloading the content from remote1 to the
+  local repository (if not already present), then sending it to remote2, and
+  then deleting the content from the local repository (if it was not present
+  to start with).
+
+* `--from-anywhere --to=remote`
+
+  Copy to the remote files from the local repository as well as from any reachable
+  remotes.
+
 * `--jobs=N` `-JN`
 
   Enables parallel transfers with up to the specified number of jobs
@@ -39,11 +53,20 @@ Paths of files or directories to operate on can be specified.
 
   Setting this to "cpus" will run one job per CPU core.
 
+  Note that when using --from with --to, twice this many jobs will
+  run at once, evenly split between the two remotes.
+
+* `--wanted` `-w`
+
+  Rather than copying all specified files, only copy those that
+  are preferred content of the destination repository.
+  See [[git-annex-preferred-content]](1)
+
 * `--auto`
 
   Rather than copying all specified files, only copy those that don't yet have
   the desired number of copies, or that are preferred content of the
-  destination repository. See [[git-annex-preferred-content]](1)
+  destination repository.
 
 * `--fast`
 
@@ -113,7 +136,7 @@ Paths of files or directories to operate on can be specified.
 * `--json-error-messages`
 
   Messages that would normally be output to standard error are included in
-  the json instead.
+  the JSON instead.
 
 * Also the [[git-annex-common-options]](1) can be used.
 

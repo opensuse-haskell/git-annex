@@ -17,11 +17,11 @@ import qualified Remote
 import Types.Remote (RemoteConfig, config)
 import Types.StandardGroups
 import Logs.Remote
-import Git.Types (RemoteName)
 import Assistant.Gpg
 import Types.GitConfig
 import Annex.SpecialRemote.Config
 import Types.ProposedAccepted
+import Utility.Url.Parse
 
 import qualified Data.Map as M
 import qualified Data.Text as T
@@ -96,4 +96,4 @@ previouslyUsedWebDAVCreds hostname =
 		Just h -> h == hostname
 
 urlHost :: String -> Maybe String
-urlHost url = uriRegName <$> (uriAuthority =<< parseURI url)
+urlHost url = uriRegName <$> (uriAuthority =<< parseURIPortable url)

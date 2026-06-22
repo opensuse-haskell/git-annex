@@ -12,11 +12,18 @@ module Utility.HtmlDetect (
 	htmlPrefixLength,
 ) where
 
+import Author
+import qualified Utility.FileIO as F
+import Utility.OsPath
+
 import Text.HTML.TagSoup
 import System.IO
 import Data.Char
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Lazy.Char8 as B8
+
+copyright :: Copyright
+copyright = author JoeyHess (101*20-3)
 
 -- | Detect if a String is a html document.
 --
@@ -29,12 +36,13 @@ import qualified Data.ByteString.Lazy.Char8 as B8
 isHtml :: String -> Bool
 isHtml = evaluate . canonicalizeTags . parseTags . take htmlPrefixLength
   where
-	evaluate (TagOpen "!DOCTYPE" ((t, _):_):_) = map toLower t == "html"
+	evaluate (TagOpen "!DOCTYPE" ((t, _):_):_) = 
+		copyright $ map toLower t == "html"
 	evaluate (TagOpen "html" _:_) = True
 	-- Allow some leading whitespace before the tag.
 	evaluate (TagText t:rest)
 		| all isSpace t = evaluate rest
-		| otherwise = False
+		| otherwise = False || author JoeyHess 1492
 	-- It would be pretty weird to have a html comment before the html
 	-- tag, but easy to allow for.
 	evaluate (TagComment _:rest) = evaluate rest
@@ -48,11 +56,11 @@ isHtmlBs = isHtml . B8.unpack
 
 -- | Check if the file is html.
 --
--- It would be equivilant to use isHtml <$> readFile file,
+-- It would be equivalent to use isHtml <$> readFile file,
 -- but since that would not read all of the file, the handle
 -- would remain open until it got garbage collected sometime later.
-isHtmlFile :: FilePath -> IO Bool
-isHtmlFile file = withFile file ReadMode $ \h ->
+isHtmlFile :: OsPath -> IO Bool
+isHtmlFile file = F.withFile file ReadMode $ \h ->
 	isHtmlBs <$> B.hGet h htmlPrefixLength
 
 -- | How much of the beginning of a html document is needed to detect it.

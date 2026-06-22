@@ -1,30 +1,39 @@
 {- git-annex UUID type
  -
- - Copyright 2011-2019 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2023 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
-{-# LANGUAGE TypeSynonymInstances, FlexibleInstances, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE CPP #-}
 
 module Types.UUID where
 
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Short as SB
+import qualified Data.Text as T
 import qualified Data.Map as M
 import qualified Data.UUID as U
 import Data.Maybe
 import Data.String
 import Data.ByteString.Builder
-import qualified Data.Semigroup as Sem
+import Control.DeepSeq
 
+import Common
 import Git.Types (ConfigValue(..))
-import Utility.FileSystemEncoding
 import Utility.QuickCheck
+import Utility.Aeson
 import qualified Utility.SimpleProtocol as Proto
 
 -- A UUID is either an arbitrary opaque string, or UUID info may be missing.
 data UUID = NoUUID | UUID B.ByteString
 	deriving (Eq, Ord, Show, Read)
+
+instance NFData UUID where
+	rnf NoUUID = ()
+	rnf (UUID b) = rnf b
 
 class FromUUID a where
 	fromUUID :: UUID -> a
@@ -47,6 +56,25 @@ instance ToUUID B.ByteString where
 		| B.null b = NoUUID
 		| otherwise = UUID b
 
+instance FromUUID SB.ShortByteString where
+	fromUUID (UUID u) = SB.toShort u
+	fromUUID NoUUID = SB.empty
+
+instance ToUUID SB.ShortByteString where
+	toUUID b
+		| SB.null b = NoUUID
+		| otherwise = UUID (SB.fromShort b)
+
+#ifdef WITH_OSPATH
+-- OsPath is a ShortByteString internally, so this is the most
+-- efficient conversion.
+instance FromUUID OsPath where
+	fromUUID s = toOsPath (fromUUID s :: SB.ShortByteString)
+
+instance ToUUID OsPath where
+	toUUID s = toUUID (fromOsPath s :: SB.ShortByteString)
+#endif
+
 instance FromUUID String where
 	fromUUID s = decodeBS (fromUUID s)
 
@@ -65,6 +93,18 @@ instance ToUUID ConfigValue where
 instance ToUUID U.UUID where
 	toUUID = toUUID . U.toASCIIBytes
 
+instance ToJSON' UUID where
+	toJSON' (UUID u) = toJSON' u
+	toJSON' NoUUID = toJSON' ""
+
+instance FromJSON UUID where
+	parseJSON (String t)
+		| isUUID s = pure (toUUID s)
+		| otherwise = mempty
+	  where
+		s = T.unpack t
+	parseJSON _ = mempty
+
 buildUUID :: UUID -> Builder
 buildUUID (UUID b) = byteString b
 buildUUID NoUUID = mempty
@@ -74,16 +114,13 @@ isUUID = isJust . U.fromString
 
 -- A description of a UUID.
 newtype UUIDDesc = UUIDDesc B.ByteString
-	deriving (Eq, Sem.Semigroup, Monoid, IsString)
+	deriving (Eq, Semigroup, Monoid, IsString)
 
 fromUUIDDesc :: UUIDDesc -> String
 fromUUIDDesc (UUIDDesc d) = decodeBS d
 
 toUUIDDesc :: String -> UUIDDesc
 toUUIDDesc = UUIDDesc . encodeBS
-
-buildUUIDDesc :: UUIDDesc -> Builder
-buildUUIDDesc (UUIDDesc b) = byteString b
 
 type UUIDDescMap = M.Map UUID UUIDDesc
 

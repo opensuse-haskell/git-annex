@@ -1,31 +1,42 @@
 {- git-annex multicast receive callback
  -
- - Copyright 2017 Joey Hess <id@joeyh.name>
+ - Copyright 2017-2025 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE CPP #-}
+
 module Annex.Multicast where
 
+import Common
 import Annex.Path
 import Utility.Env
-import Utility.PartialPrelude
 
-import System.Process
-import System.IO
-import GHC.IO.Handle.FD
-import Control.Applicative
-import Prelude
+#ifndef mingw32_HOST_OS
+import System.Posix.IO
+#else
+import System.Process (createPipeFd)
+import GHC.IO.Handle.FD (fdToHandle)
+#endif
+import GHC.IO.Encoding (getLocaleEncoding)
 
 multicastReceiveEnv :: String
 multicastReceiveEnv = "GIT_ANNEX_MULTICAST_RECEIVE"
 
-multicastCallbackEnv :: IO (FilePath, [(String, String)], Handle)
+multicastCallbackEnv :: IO (OsPath, [(String, String)], Handle)
 multicastCallbackEnv = do
 	gitannex <- programPath
-	-- This will even work on Windows
+#ifndef mingw32_HOST_OS
+	(rfd, wfd) <- noCreateProcessWhile $ do
+		(rfd, wfd) <- createPipe
+		setFdOption rfd CloseOnExec True
+		return (rfd, wfd)
+#else
 	(rfd, wfd) <- createPipeFd
+#endif
 	rh <- fdToHandle rfd
+	getLocaleEncoding >>= hSetEncoding rh
 	environ <- addEntry multicastReceiveEnv (show wfd) <$> getEnvironment
 	return (gitannex, environ, rh)
 
@@ -38,6 +49,7 @@ runMulticastReceive :: [String] -> String -> IO ()
 runMulticastReceive ("-I":_sessionid:fs) hs = case readish hs of
 	Just fd -> do
 		h <- fdToHandle fd
+		getLocaleEncoding >>= hSetEncoding h
 		mapM_ (hPutStrLn h) fs
 		hClose h
 	Nothing -> return ()

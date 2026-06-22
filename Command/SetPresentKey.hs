@@ -12,7 +12,7 @@ import Logs.Location
 import Logs.Presence.Pure
 
 cmd :: Command
-cmd = noCommit $ 
+cmd = noCommit $ withAnnexOptions [jsonOptions] $
 	command "setpresentkey" SectionPlumbing
 		"change records of where key is present"
 		(paramPair paramKey (paramPair paramUUID "[1|0]"))
@@ -54,5 +54,5 @@ start si (KeyStatus k u s) = starting "setpresentkey" ai si $ perform k u s
 
 perform :: Key -> UUID -> LogStatus -> CommandPerform
 perform k u s = next $ do
-	logChange k u s
+	logChange NoLiveUpdate k u s
 	return True

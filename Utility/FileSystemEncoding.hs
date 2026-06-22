@@ -21,18 +21,23 @@ module Utility.FileSystemEncoding (
 	truncateFilePath,
 ) where
 
-import qualified GHC.Foreign as GHC
 import qualified GHC.IO.Encoding as Encoding
 import System.IO
-import System.IO.Unsafe
-import System.FilePath.ByteString (RawFilePath, encodeFilePath, decodeFilePath)
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Lazy as L
-import Data.ByteString.Unsafe (unsafePackMallocCStringLen)
 #ifdef mingw32_HOST_OS
 import qualified Data.ByteString.UTF8 as S8
 import qualified Data.ByteString.Lazy.UTF8 as L8
+#else
+import qualified GHC.Foreign as GHC
+import System.IO.Unsafe
+import Data.ByteString.Unsafe (unsafePackMallocCStringLen)
+import Data.Char
+import Data.List
 #endif
+
+-- | A literal file path
+type RawFilePath = S.ByteString
 
 {- Makes all subsequent Handles that are opened, as well as stdio Handles,
  - use the filesystem encoding, instead of the encoding of the current
@@ -87,9 +92,7 @@ encodeBL = L8.fromString
 decodeBS :: S.ByteString -> FilePath
 #ifndef mingw32_HOST_OS
 -- This does the same thing as System.FilePath.ByteString.decodeFilePath,
--- with an identical implementation. However, older versions of that library
--- truncated at NUL, which this must not do, because it may end up used on
--- something other than a unix filepath.
+-- with an identical implementation.
 {-# NOINLINE decodeBS #-}
 decodeBS b = unsafePerformIO $ do
 	enc <- Encoding.getFileSystemEncoding
@@ -101,9 +104,7 @@ decodeBS = S8.toString
 encodeBS :: FilePath -> S.ByteString
 #ifndef mingw32_HOST_OS
 -- This does the same thing as System.FilePath.ByteString.encodeFilePath,
--- with an identical implementation. However, older versions of that library
--- truncated at NUL, which this must not do, because it may end up used on
--- something other than a unix filepath.
+-- with an identical implementation.
 {-# NOINLINE encodeBS #-}
 encodeBS f = unsafePerformIO $ do
 	enc <- Encoding.getFileSystemEncoding
@@ -113,37 +114,57 @@ encodeBS = S8.fromString
 #endif
 
 fromRawFilePath :: RawFilePath -> FilePath
-fromRawFilePath = decodeFilePath
+fromRawFilePath = decodeBS
 
 toRawFilePath :: FilePath -> RawFilePath
-toRawFilePath = encodeFilePath
+toRawFilePath = encodeBS
 
-{- Truncates a FilePath to the given number of bytes (or less),
+{- Truncates a path to the given number of bytes (or less),
  - as represented on disk.
  -
  - Avoids returning an invalid part of a unicode byte sequence, at the
  - cost of efficiency when running on a large FilePath.
+ -
+ - Note that this may return ""! That can happen if it is asked to truncate
+ - to eg 1 byte, but the input path starts with a unicode byte sequence.
  -}
-truncateFilePath :: Int -> FilePath -> FilePath
+truncateFilePath :: Int -> RawFilePath -> RawFilePath
 #ifndef mingw32_HOST_OS
-truncateFilePath n = go . reverse
+{- On unix, do not assume a unicode locale, but does assume ascii
+ - characters are a single byte. -}
+truncateFilePath n b = 
+	let blen = S.length b
+	in if blen <= n
+		then b
+		else go blen (reverse (fromRawFilePath b))
   where
-	go f =
-		let b = encodeBS f
-		in if S.length b <= n
-			then reverse f
-			else go (drop 1 f)
+	go blen f = case uncons f of
+		Just (c, f')
+			| isAscii c ->
+				let blen' = blen - 1
+				in if blen' <= n
+					then toRawFilePath (reverse f')
+					else go blen' f'
+			| otherwise ->
+				let blen' = S.length (toRawFilePath f')
+				in if blen' <= n 
+					then toRawFilePath (reverse f')
+					else go blen' f'
+		Nothing -> toRawFilePath (reverse f)
 #else
 {- On Windows, count the number of bytes used by each utf8 character. -}
-truncateFilePath n = reverse . go [] n . L8.fromString
+truncateFilePath n = toRawFilePath . reverse . go [] n
   where
 	go coll cnt bs
 		| cnt <= 0 = coll
-		| otherwise = case L8.decode bs of
-			Just (c, x) | c /= L8.replacement_char ->
-				let x' = fromIntegral x
-				in if cnt - x' < 0
-					then coll
-					else go (c:coll) (cnt - x') (L8.drop 1 bs)
+		| otherwise = case S8.decode bs of
+			Just (c, x)
+				| c /= S8.replacement_char ->
+					let x' = fromIntegral x
+					in if cnt - x' < 0
+						then coll
+						else go (c:coll) (cnt - x') (S8.drop 1 bs)
+				| otherwise ->
+					go ('_':coll) (cnt - 1) (S8.drop 1 bs)
 			_ -> coll
 #endif

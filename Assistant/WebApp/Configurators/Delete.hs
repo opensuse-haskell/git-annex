@@ -34,7 +34,7 @@ notCurrentRepo uuid a = do
 		then redirect DeleteCurrentRepositoryR
 		else go =<< liftAnnex (Remote.remoteFromUUID uuid)
   where
-	go Nothing = error "Unknown UUID"
+	go Nothing = giveup "Unknown UUID"
 	go (Just _) = a
 
 getDeleteRepositoryR :: UUID -> Handler Html
@@ -45,7 +45,7 @@ getDeleteRepositoryR uuid = notCurrentRepo uuid $ do
 
 getStartDeleteRepositoryR :: UUID -> Handler Html
 getStartDeleteRepositoryR uuid = do
-	remote <- fromMaybe (error "unknown remote")
+	remote <- fromMaybe (giveup "unknown remote")
 		<$> liftAnnex (Remote.remoteFromUUID uuid)
 	liftAnnex $ do
 		trustSet uuid UnTrusted
@@ -78,7 +78,7 @@ deleteCurrentRepository = dangerPage $ do
 			sanityVerifierAForm $ SanityVerifier magicphrase
 	case result of
 		FormSuccess _ -> liftH $ do
-			dir <- liftAnnex $ fromRawFilePath <$> fromRepo Git.repoPath
+			dir <- liftAnnex $ fromRepo Git.repoPath
 			liftIO $ removeAutoStartFile dir
 
 			{- Disable syncing to this repository, and all
@@ -90,8 +90,7 @@ deleteCurrentRepository = dangerPage $ do
 				mapM_ (\r -> changeSyncable (Just r) False) rs
 
 			liftAnnex $ prepareRemoveAnnexDir dir
-			liftIO $ removeDirectoryRecursive . fromRawFilePath
-				=<< absPath (toRawFilePath dir)
+			liftIO $ removeDirectoryRecursive =<< absPath dir
 			
 			redirect ShutdownConfirmedR
 		_ -> $(widgetFile "configurators/delete/currentrepository")

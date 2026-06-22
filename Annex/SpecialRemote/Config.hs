@@ -1,6 +1,6 @@
 {- git-annex special remote configuration
  -
- - Copyright 2019-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2019-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -11,15 +11,18 @@
 module Annex.SpecialRemote.Config where
 
 import Common
-import Types.Remote (configParser)
+import Types.Remote (configParser, typename)
 import Types
 import Types.UUID
 import Types.ProposedAccepted
 import Types.RemoteConfig
 import Types.GitConfig
+import Git.Types
+import Config.Cost
 
 import qualified Data.Map as M
 import qualified Data.Set as S
+import Text.Read
 import Data.Typeable
 import GHC.Stack
 
@@ -56,6 +59,9 @@ typeField = Accepted "type"
 autoEnableField :: RemoteConfigField
 autoEnableField = Accepted "autoenable"
 
+costField :: RemoteConfigField
+costField = Accepted "cost"
+
 encryptionField :: RemoteConfigField
 encryptionField = Accepted "encryption"
 
@@ -80,6 +86,9 @@ chunksizeField = Accepted "chunksize"
 embedCredsField :: RemoteConfigField
 embedCredsField = Accepted "embedcreds"
 
+onlyEncryptCredsField :: RemoteConfigField
+onlyEncryptCredsField = Accepted "onlyencryptcreds"
+
 preferreddirField :: RemoteConfigField
 preferreddirField = Accepted "preferreddir"
 
@@ -88,12 +97,24 @@ exportTreeField = Accepted "exporttree"
 
 importTreeField :: RemoteConfigField
 importTreeField = Accepted "importtree"
+			
+versioningField :: RemoteConfigField
+versioningField = Accepted "versioning"
 
 exportTree :: ParsedRemoteConfig -> Bool
 exportTree = fromMaybe False . getRemoteConfigValue exportTreeField
 
 importTree :: ParsedRemoteConfig -> Bool
 importTree = fromMaybe False . getRemoteConfigValue importTreeField
+
+isVersioning :: ParsedRemoteConfig -> Bool
+isVersioning = fromMaybe False . getRemoteConfigValue versioningField
+
+annexObjectsField :: RemoteConfigField
+annexObjectsField = Accepted "annexobjects"
+
+annexObjects :: ParsedRemoteConfig -> Bool
+annexObjects = fromMaybe False . getRemoteConfigValue annexObjectsField
 
 {- Parsers for fields that are common to all special remotes. -}
 commonFieldParsers :: [RemoteConfigFieldParser]
@@ -102,17 +123,30 @@ commonFieldParsers =
 		(FieldDesc "name for the special remote")
 	, optionalStringParser sameasNameField HiddenField
 	, optionalStringParser sameasUUIDField HiddenField
-	, optionalStringParser typeField
+	, autoEnableFieldParser
+	, costParser costField
+		(FieldDesc "default cost of this special remote")
+	, optionalStringParser preferreddirField
+		(FieldDesc "directory whose content is preferred")
+	] ++ essentialFieldParsers
+
+{- Parsers for fields that are common to all special remotes, and are
+ - also essential to include in eg, annex:: urls. -}
+essentialFieldParsers :: [RemoteConfigFieldParser]
+essentialFieldParsers =
+	[ optionalStringParser typeField
 		(FieldDesc "type of special remote")
-	, trueFalseParser autoEnableField (Just False)
-		(FieldDesc "automatically enable special remote")
 	, yesNoParser exportTreeField (Just False)
 		(FieldDesc "export trees of files to this remote")
 	, yesNoParser importTreeField (Just False)
 		(FieldDesc "import trees of files from this remote")
-	, optionalStringParser preferreddirField
-		(FieldDesc "directory whose content is preferred")
+	, yesNoParser annexObjectsField (Just False)
+		(FieldDesc "store other objects in remote along with exported trees")
 	]
+
+autoEnableFieldParser :: RemoteConfigFieldParser
+autoEnableFieldParser = trueFalseParser autoEnableField (Just False)
+	(FieldDesc "automatically enable special remote")
 
 {- A remote with sameas-uuid set will inherit these values from the config
  - of that uuid. These values cannot be overridden in the remote's config. -}
@@ -127,8 +161,12 @@ sameasInherits = S.fromList
 	, pubkeysField
 	-- legacy chunking was either enabled or not, so has to be the same
 	-- across configs for remotes that access the same data
-	-- (new-style chunking does not have that limitation)
 	, chunksizeField
+	-- (new-style chunking does not have that limitation)
+	-- but there is no benefit to picking a different chunk size
+	-- for the sameas remote, since it's reading whatever chunks were
+	-- stored
+	, chunkField
 	]
 
 {- Each RemoteConfig that has a sameas-uuid inherits some fields
@@ -169,13 +207,23 @@ getRemoteConfigValue :: HasCallStack => Typeable v => RemoteConfigField -> Parse
 getRemoteConfigValue f (ParsedRemoteConfig m _) = case M.lookup f m of
 	Just (RemoteConfigValue v) -> case cast v of
 		Just v' -> Just v'
-		Nothing -> error $ unwords
-			[ "getRemoteConfigValue"
-			, fromProposedAccepted f
-			, "found value of unexpected type"
-			, show (typeOf v) ++ "."
-			, "This is a bug in git-annex!"
-			]
+		Nothing -> case cast v :: Maybe PassedThrough of
+			-- Handle the case where an external special remote
+			-- tries to SETCONFIG a value belonging to git-annex,
+			-- resulting in a PassedThrough type being stored.
+			Just _ -> giveup $ unwords
+				[ "Special remote config "
+				, fromProposedAccepted f
+				, "has been overwritten by SETCONFIG."
+				, "This is not supported."
+				]
+			Nothing -> error $ unwords
+				[ "getRemoteConfigValue"
+				, fromProposedAccepted f
+				, "found value of unexpected type"
+				, show (typeOf v) ++ "."
+				, "This is a bug in git-annex!"
+				]
 	Nothing -> Nothing
 
 {- Gets all fields that remoteConfigRestPassthrough matched. -}
@@ -252,6 +300,13 @@ trueFalseParser' "true" = Just True
 trueFalseParser' "false" = Just False
 trueFalseParser' _ = Nothing
 
+costParser :: RemoteConfigField -> FieldDesc -> RemoteConfigFieldParser
+costParser f fd = genParser readcost f Nothing fd
+	(Just (ValueDesc "a number"))
+  where
+	readcost :: String -> Maybe Cost
+	readcost = readMaybe
+
 genParser
 	:: Typeable t
 	=> (String -> Maybe t)
@@ -278,3 +333,33 @@ genParser parse f mdef fielddesc valuedesc = RemoteConfigFieldParser
 					Just (ValueDesc vd) ->
 						" (expected " ++ vd ++ ")"
 					Nothing -> ""
+
+newConfig
+	:: RemoteName
+	-> Maybe (Sameas UUID)
+	-> RemoteConfig
+	-- ^ configuration provided by the user
+	-> M.Map UUID RemoteConfig
+	-- ^ configuration of other special remotes, to inherit from
+	-- when sameas is used
+	-> RemoteConfig
+newConfig name sameas fromuser m = case sameas of
+	Nothing -> M.insert nameField (Proposed name) fromuser
+	Just (Sameas u) -> addSameasInherited m $ M.fromList
+		[ (sameasNameField, Proposed name)
+		, (sameasUUIDField, Proposed (fromUUID u))
+		] `M.union` fromuser
+
+findType' :: [RemoteType] -> RemoteConfig -> Either String RemoteType
+findType' typelist rc = maybe unspecified (specified . fromProposedAccepted) $
+	M.lookup typeField rc
+  where
+	unspecified = Left "Specify the type of remote with type="
+	specified s = case filter (findtype s) typelist of
+		[] -> Left $ "Unknown remote type " ++ s 
+			++ " (pick from: "
+			++ intercalate " " (map typename typelist)
+			++ ")"
+		(t:_) -> Right t
+	findtype s i = typename i == s
+

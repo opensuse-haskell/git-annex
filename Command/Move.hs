@@ -1,6 +1,6 @@
 {- git-annex command
  -
- - Copyright 2010-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -14,12 +14,14 @@ import qualified Command.Drop
 import qualified Annex
 import Annex.Content
 import qualified Remote
+import Remote.List
 import Annex.UUID
 import Annex.Transfer
-import Logs.Presence
 import Logs.Trust
 import Logs.File
+import Logs.Location
 import Annex.NumCopies
+import Types.Cluster
 
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Lazy as L
@@ -32,8 +34,8 @@ cmd = withAnnexOptions [jobsOption, jsonOptions, jsonProgressOption, annexedMatc
 
 data MoveOptions = MoveOptions
 	{ moveFiles :: CmdParams
-	, fromToOptions :: FromToHereOptions
-	, removeWhen :: RemoveWhen
+	, fromToOptions :: Maybe FromToHereOptions
+	, moveAction :: MoveAction
 	, keyOptions :: Maybe KeyOptions
 	, batchOption :: BatchMode
 	}
@@ -42,23 +44,39 @@ optParser :: CmdParamsDesc -> Parser MoveOptions
 optParser desc = MoveOptions
 	<$> cmdParams desc
 	<*> parseFromToHereOptions
-	<*> pure RemoveSafe
+	<*> pure Move
 	<*> optional (parseKeyOptions <|> parseFailedTransfersOption)
 	<*> parseBatchOption True
 
 instance DeferredParseClass MoveOptions where
 	finishParse v = MoveOptions
 		<$> pure (moveFiles v)
-		<*> finishParse (fromToOptions v)
-		<*> pure (removeWhen v)
+		<*> maybe (pure Nothing) (Just <$$> finishParse)
+			(fromToOptions v)
+		<*> pure (moveAction v)
 		<*> pure (keyOptions v)
 		<*> pure (batchOption v)
 
-data RemoveWhen = RemoveSafe | RemoveNever
+data MoveAction
+	= Move
+	| Copy { copyFast :: Bool }
+	| Put
+	| Get
 	deriving (Show, Eq)
 
+describeMoveAction :: MoveAction -> String
+describeMoveAction Move = "move"
+describeMoveAction (Copy _) = "copy"
+describeMoveAction Put = "put"
+describeMoveAction Get = "get"
+
 seek :: MoveOptions -> CommandSeek
-seek o = startConcurrency stages $ do
+seek o = case fromToOptions o of
+	Just fto -> seek' o fto
+	Nothing -> giveup "Specify --from or --to"
+
+seek' :: MoveOptions -> FromToHereOptions -> CommandSeek
+seek' o fto = startConcurrency (stages fto) $ do
 	case batchOption o of
 		NoBatch -> withKeyOptions (keyOptions o) False seeker
 			(commandAction . keyaction)
@@ -68,111 +86,120 @@ seek o = startConcurrency stages $ do
 			batchAnnexed fmt seeker keyaction
   where
 	seeker = AnnexedFileSeeker
-		{ startAction = start (fromToOptions o) (removeWhen o)
-		, checkContentPresent = case fromToOptions o of
-			Right (FromRemote _) -> Nothing
-			Right (ToRemote _) -> Just True
-			Left ToHere -> Nothing
+		{ startAction = startSingle $ 
+			const $ start NoLiveUpdate fto (moveAction o)
+		, checkContentPresent = case fto of
+			FromOrToRemote (FromRemote _) -> Nothing
+			FromOrToRemote (ToRemote _) -> Just True
+			ToHere -> Nothing
+			FromRemoteToRemote _ _ -> Nothing
+			FromAnywhereToRemote _ -> Nothing
 		, usesLocationLog = True
 		}
-	stages = case fromToOptions o of
-		Right (FromRemote _) -> downloadStages
-		Right (ToRemote _) -> commandStages
-		Left ToHere -> downloadStages
-	keyaction = startKey (fromToOptions o) (removeWhen o)
-	ww = WarnUnmatchLsFiles
+	keyaction = startKey NoLiveUpdate fto (moveAction o)
+	ww = WarnUnmatchLsFiles "move"
 
-start :: FromToHereOptions -> RemoveWhen -> SeekInput -> RawFilePath -> Key -> CommandStart
-start fromto removewhen si f k = start' fromto removewhen afile si k ai
+stages :: FromToHereOptions -> UsedStages
+stages (FromOrToRemote (FromRemote _)) = transferStages
+stages (FromOrToRemote (ToRemote _)) = commandStages
+stages ToHere = transferStages
+stages (FromRemoteToRemote _ _) = transferStages
+stages (FromAnywhereToRemote _) = transferStages
+
+start :: LiveUpdate -> FromToHereOptions -> MoveAction -> SeekInput -> OsPath -> Key -> CommandStart
+start lu fromto moveaction si f k = start' lu fromto moveaction afile si k ai
   where
 	afile = AssociatedFile (Just f)
 	ai = mkActionItem (k, afile)
 
-startKey :: FromToHereOptions -> RemoveWhen -> (SeekInput, Key, ActionItem) -> CommandStart
-startKey fromto removewhen (si, k, ai) = 
-	start' fromto removewhen (AssociatedFile Nothing) si k ai
+startKey :: LiveUpdate -> FromToHereOptions -> MoveAction -> (SeekInput, Key, ActionItem) -> CommandStart
+startKey lu fromto moveaction (si, k, ai) = 
+	start' lu fromto moveaction (AssociatedFile Nothing) si k ai
 
-start' :: FromToHereOptions -> RemoveWhen -> AssociatedFile -> SeekInput -> Key -> ActionItem -> CommandStart
-start' fromto removewhen afile si key ai =
+start' :: LiveUpdate -> FromToHereOptions -> MoveAction -> AssociatedFile -> SeekInput -> Key -> ActionItem -> CommandStart
+start' lu fromto moveaction afile si key ai =
 	case fromto of
-		Right (FromRemote src) ->
+		FromOrToRemote (FromRemote src) ->
 			checkFailedTransferDirection ai Download $
-				fromStart removewhen afile key ai si =<< getParsed src
-		Right (ToRemote dest) ->
+				fromStart lu moveaction afile key ai si =<< getParsed src
+		FromOrToRemote (ToRemote dest) ->
 			checkFailedTransferDirection ai Upload $
-				toStart removewhen afile key ai si =<< getParsed dest
-		Left ToHere ->
+				toStart lu moveaction afile key ai si =<< getParsed dest
+		ToHere ->
 			checkFailedTransferDirection ai Download $
-				toHereStart removewhen afile key ai si
+				toHereStart lu moveaction afile key ai si
+		FromRemoteToRemote src dest -> do
+			src' <- getParsed src
+			dest' <- getParsed dest
+			fromToStart lu moveaction afile key ai si src' dest'
+		FromAnywhereToRemote dest -> do
+			dest' <- getParsed dest
+			fromAnywhereToStart lu moveaction afile key ai si dest'
 
-describeMoveAction :: RemoveWhen -> String
-describeMoveAction RemoveNever = "copy"
-describeMoveAction _ = "move"
-
-toStart :: RemoveWhen -> AssociatedFile -> Key -> ActionItem -> SeekInput -> Remote -> CommandStart
-toStart removewhen afile key ai si dest = do
+toStart :: LiveUpdate -> MoveAction -> AssociatedFile -> Key -> ActionItem -> SeekInput -> Remote -> CommandStart
+toStart lu moveaction afile key ai si dest = do
 	u <- getUUID
 	if u == Remote.uuid dest
 		then stop
-		else toStart' dest removewhen afile key ai si
+		else toStart' lu dest moveaction afile key ai si
 
-toStart' :: Remote -> RemoveWhen -> AssociatedFile -> Key -> ActionItem -> SeekInput -> CommandStart
-toStart' dest removewhen afile key ai si = do
-	fast <- Annex.getRead Annex.fast
-	if fast && removewhen == RemoveNever
-		then ifM (expectedPresent dest key)
+toStart' :: LiveUpdate -> Remote -> MoveAction -> AssociatedFile -> Key -> ActionItem -> SeekInput -> CommandStart
+toStart' lu dest moveaction afile key ai si =
+	case moveaction of
+		Move -> checkhaskey
+		Copy { copyFast = False } -> checkhaskey
+		_ -> ifM (expectedPresent dest key)
 			( stop
 			, go True (pure $ Right False)
 			)
-		else go False (Remote.hasKey dest key)
   where
+	checkhaskey = go False (Remote.hasKey dest key)
 	go fastcheck isthere =
-		starting (describeMoveAction removewhen) (OnlyActionOn key ai) si $
-			toPerform dest removewhen key afile fastcheck =<< isthere
+		starting (describeMoveAction moveaction) (OnlyActionOn key ai) si $
+			toPerform lu dest moveaction key afile fastcheck =<< isthere
 
 expectedPresent :: Remote -> Key -> Annex Bool
 expectedPresent dest key = do
-	remotes <- Remote.keyPossibilities key
+	remotes <- Remote.keyPossibilities (Remote.IncludeIgnored True) key
 	return $ dest `elem` remotes
 
-toPerform :: Remote -> RemoveWhen -> Key -> AssociatedFile -> Bool -> Either String Bool -> CommandPerform
-toPerform dest removewhen key afile fastcheck isthere = do
+toPerform :: LiveUpdate -> Remote -> MoveAction -> Key -> AssociatedFile -> Bool -> Either String Bool -> CommandPerform
+toPerform = toPerform' Nothing
+
+toPerform' :: Maybe ContentRemovalLock -> LiveUpdate -> Remote -> MoveAction -> Key -> AssociatedFile -> Bool -> Either String Bool -> CommandPerform
+toPerform' mcontentlock lu dest moveaction key afile fastcheck isthere = do
 	srcuuid <- getUUID
 	case isthere of
 		Left err -> do
-			showNote err
+			showNote (UnquotedString err)
 			stop
-		Right False -> logMove srcuuid destuuid False key $ \deststartedwithcopy -> do
-			showAction $ "to " ++ Remote.name dest
+		Right False -> logMove moveaction srcuuid destuuid False key $ \deststartedwithcopy -> do
+			showAction $ UnquotedString $ "to " ++ Remote.name dest
 			ok <- notifyTransfer Upload afile $
 				upload dest key afile stdRetry
 			if ok
 				then finish deststartedwithcopy $
-					Remote.logStatus dest key InfoPresent
+					Remote.logStatus lu dest key InfoPresent
 				else do
 					logMoveCleanup deststartedwithcopy
 					when fastcheck $
 						warning "This could have failed because --fast is enabled."
 					stop
-		Right True -> logMove srcuuid destuuid True key $ \deststartedwithcopy ->
+		Right True -> logMove moveaction srcuuid destuuid True key $ \deststartedwithcopy ->
 			finish deststartedwithcopy $
 				unlessM (expectedPresent dest key) $
-					Remote.logStatus dest key InfoPresent
+					Remote.logStatus lu dest key InfoPresent
   where
 	destuuid = Remote.uuid dest
-	finish deststartedwithcopy setpresentremote = case removewhen of
-		RemoveNever -> do
-			setpresentremote
-			logMoveCleanup deststartedwithcopy
-			next $ return True
-		RemoveSafe -> lockContentForRemoval key lockfailed $ \contentlock -> do
+	finish deststartedwithcopy setpresentremote = case moveaction of
+		Move -> lockcontentforremoval $ \contentlock -> do
 			srcuuid <- getUUID
-			r <- willDropMakeItWorse srcuuid destuuid deststartedwithcopy key afile >>= \case
+			r <- willDropMakeItWorse lu srcuuid destuuid deststartedwithcopy key afile >>= \case
 				DropAllowed -> drophere setpresentremote contentlock "moved"
 				DropCheckNumCopies -> do
 					(numcopies, mincopies) <- getSafestNumMinCopies afile key
 					(tocheck, verified) <- verifiableCopies key [srcuuid]
-					verifyEnoughCopiesToDrop "" key (Just contentlock)
+					verifyEnoughCopiesToDrop "" key (Just srcuuid) (Just contentlock)
 						 numcopies mincopies [srcuuid] verified
 						 (UnVerifiedRemote dest : tocheck)
 						 (drophere setpresentremote contentlock . showproof)
@@ -180,6 +207,10 @@ toPerform dest removewhen key afile fastcheck isthere = do
 				DropWorse -> faileddrophere setpresentremote
 			logMoveCleanup deststartedwithcopy
 			return r
+		_ -> do
+			setpresentremote
+			logMoveCleanup deststartedwithcopy
+			next $ return True
 	showproof proof = "proof: " ++ show proof
 	drophere setpresentremote contentlock reason = do
 		fastDebug "Command.Move" $ unwords
@@ -189,10 +220,10 @@ toPerform dest removewhen key afile fastcheck isthere = do
 		-- Drop content before updating location logs,
 		-- in case disk space is very low this frees
 		-- up space before writing data to disk.
-		removeAnnex contentlock
+		removeAnnex remoteList contentlock
 		next $ do
 			() <- setpresentremote
-			Command.Drop.cleanupLocal key (Command.Drop.DroppingUnused False)
+			Command.Drop.cleanupLocal lu key (Command.Drop.DroppingUnused False)
 	faileddrophere setpresentremote = do
 		showLongNote "(Use --force to override this check, or adjust numcopies.)"
 		showLongNote "Content not dropped from here."
@@ -200,18 +231,23 @@ toPerform dest removewhen key afile fastcheck isthere = do
 			() <- setpresentremote
 			return False
 	
+	lockcontentforremoval a = case mcontentlock of
+		Nothing -> lockContentForRemoval key lockfailed a
+		Just contentlock -> a contentlock
+	
 	-- This occurs when, for example, two files are being dropped
 	-- and have the same content. The seek stage checks if the content
 	-- is present, but due to buffering, may find it present for the
 	-- second file before the first is dropped. If so, nothing remains
 	-- to be done except for cleaning up.
-	lockfailed = next $ Command.Drop.cleanupLocal key (Command.Drop.DroppingUnused False)
+	lockfailed = next $ Command.Drop.cleanupLocal lu key
+		(Command.Drop.DroppingUnused False)
 
-fromStart :: RemoveWhen -> AssociatedFile -> Key -> ActionItem -> SeekInput -> Remote -> CommandStart
-fromStart removewhen afile key ai si src = 
+fromStart :: LiveUpdate -> MoveAction -> AssociatedFile -> Key -> ActionItem -> SeekInput -> Remote -> CommandStart
+fromStart lu moveaction afile key ai si src = 
 	stopUnless (fromOk src key) $
-		starting (describeMoveAction removewhen) (OnlyActionOn key ai) si $
-			fromPerform src removewhen key afile
+		starting (describeMoveAction moveaction) (OnlyActionOn key ai) si $
+			fromPerform lu src moveaction key afile
 
 fromOk :: Remote -> Key -> Annex Bool
 fromOk src key
@@ -228,57 +264,79 @@ fromOk src key
   where
 	checklog = do
 		u <- getUUID
-		remotes <- Remote.keyPossibilities key
+		remotes <- Remote.keyPossibilities (Remote.IncludeIgnored True) key
 		return $ u /= Remote.uuid src && elem src remotes
 
-fromPerform :: Remote -> RemoveWhen -> Key -> AssociatedFile -> CommandPerform
-fromPerform src removewhen key afile = do
-	showAction $ "from " ++ Remote.name src
+fromPerform :: LiveUpdate -> Remote -> MoveAction -> Key -> AssociatedFile -> CommandPerform
+fromPerform lu src moveaction key afile = do
 	present <- inAnnex key
+	finish <- fromPerform' lu present True src moveaction key afile
+	finish moveaction
+
+fromPerform' :: LiveUpdate -> Bool -> Bool -> Remote -> MoveAction -> Key -> AssociatedFile -> Annex (MoveAction -> CommandPerform)
+fromPerform' lu present updatelocationlog src moveaction key afile = do
+	showAction $ UnquotedString $ "from " ++ Remote.name src
 	destuuid <- getUUID
-	logMove srcuuid destuuid present key $ \deststartedwithcopy ->
+	logMove moveaction (Remote.uuid src) destuuid present key $ \deststartedwithcopy ->
 		if present
-			then dispatch removewhen deststartedwithcopy True
-			else dispatch removewhen deststartedwithcopy =<< get
+			then return $ finish deststartedwithcopy True
+			else do
+				got <- get
+				return $ finish deststartedwithcopy got
   where
 	get = notifyTransfer Download afile $
-		download src key afile stdRetry
+		logdownload .
+			download src key afile stdRetry
 	
-	dispatch _ deststartedwithcopy False = do
+	logdownload a
+		| updatelocationlog = logStatusAfter lu key a
+		| otherwise = a
+
+	finish deststartedwithcopy False _ = do
 		logMoveCleanup deststartedwithcopy
 		stop -- copy failed
-	dispatch RemoveNever deststartedwithcopy True = do
+	finish deststartedwithcopy True Move = do
+		destuuid <- getUUID
+		lockContentShared key Nothing $ \_lck ->
+			fromDrop lu src destuuid deststartedwithcopy key afile id
+	finish deststartedwithcopy True _ = do
 		logMoveCleanup deststartedwithcopy
 		next $ return True -- copy complete
-	dispatch RemoveSafe deststartedwithcopy True = lockContentShared key $ \_lck -> do
-		destuuid <- getUUID
-		willDropMakeItWorse srcuuid destuuid deststartedwithcopy key afile >>= \case
-			DropAllowed -> dropremote deststartedwithcopy "moved"
-			DropCheckNumCopies -> do
-				(numcopies, mincopies) <- getSafestNumMinCopies afile key
-				(tocheck, verified) <- verifiableCopies key [Remote.uuid src]
-				verifyEnoughCopiesToDrop "" key Nothing numcopies mincopies [Remote.uuid src] verified
-					tocheck (dropremote deststartedwithcopy . showproof) (faileddropremote deststartedwithcopy)
-			DropWorse -> faileddropremote deststartedwithcopy
-	
-	srcuuid = Remote.uuid src
-	
+
+fromDrop :: LiveUpdate -> Remote -> UUID -> DestStartedWithCopy -> Key -> AssociatedFile -> ([UnVerifiedCopy] -> [UnVerifiedCopy])-> CommandPerform
+fromDrop lu src destuuid deststartedwithcopy key afile adjusttocheck =
+	willDropMakeItWorse lu (Remote.uuid src) destuuid deststartedwithcopy key afile >>= \case
+		DropAllowed -> dropremote Nothing "moved"
+		DropCheckNumCopies -> do
+			(numcopies, mincopies) <- getSafestNumMinCopies afile key
+			(tocheck, verified) <- verifiableCopies key [Remote.uuid src]
+			verifyEnoughCopiesToDrop "" key
+				(Just (Remote.uuid src)) Nothing
+				numcopies mincopies [Remote.uuid src]
+				verified (adjusttocheck tocheck)
+				dropremotewithproof faileddropremote
+		DropWorse -> faileddropremote
+  where
 	showproof proof = "proof: " ++ show proof
-	
-	dropremote deststartedwithcopy reason = do
+
+	dropremotewithproof proof = 
+		dropremote (Just proof) (showproof proof)
+
+	dropremote mproof reason = do
 		fastDebug "Command.Move" $ unwords
 			[ "Dropping from remote"
 			, show src
 			, "(" ++ reason ++ ")"
 			]
-		ok <- Remote.action (Remote.removeKey src key)
+		ok <- Remote.action (Remote.removeKey src mproof key)
 		when ok $
 			logMoveCleanup deststartedwithcopy
-		next $ Command.Drop.cleanupRemote key src (Command.Drop.DroppingUnused False) ok
-	
-	faileddropremote deststartedwithcopy = do
+		next $ Command.Drop.cleanupRemote lu key src
+			(Command.Drop.DroppingUnused False) ok
+
+	faileddropremote = do
 		showLongNote "(Use --force to override this check, or adjust numcopies.)"
-		showLongNote $ "Content not dropped from " ++ Remote.name src ++ "."
+		showLongNote $ UnquotedString $ "Content not dropped from " ++ Remote.name src ++ "."
 		logMoveCleanup deststartedwithcopy
 		next $ return False
 
@@ -287,15 +345,166 @@ fromPerform src removewhen key afile = do
  -
  - When moving, the content is removed from all the reachable remotes that
  - it can safely be removed from. -}
-toHereStart :: RemoveWhen -> AssociatedFile -> Key -> ActionItem -> SeekInput -> CommandStart
-toHereStart removewhen afile key ai si = 
+toHereStart ::LiveUpdate -> MoveAction -> AssociatedFile -> Key -> ActionItem -> SeekInput -> CommandStart
+toHereStart lu moveaction afile key ai si = 
 	startingNoMessage (OnlyActionOn key ai) $ do
-		rs <- Remote.keyPossibilities key
+		rs <- Remote.keyPossibilities (Remote.IncludeIgnored False) key
 		forM_ rs $ \r ->
 			includeCommandAction $
-				starting (describeMoveAction removewhen) ai si $
-					fromPerform r removewhen key afile
+				starting (describeMoveAction moveaction) ai si $
+					fromPerform lu r moveaction key afile
 		next $ return True
+
+fromToStart :: LiveUpdate -> MoveAction -> AssociatedFile -> Key -> ActionItem -> SeekInput -> Remote -> Remote -> CommandStart
+fromToStart lu moveaction afile key ai si src dest = 
+	stopUnless somethingtodo $ do
+		u <- getUUID
+		if u == Remote.uuid src
+			then toStart lu moveaction afile key ai si dest
+			else if u == Remote.uuid dest
+				then fromStart lu moveaction afile key ai si src
+				else stopUnless (fromOk src key) $
+					starting (describeMoveAction moveaction) (OnlyActionOn key ai) si $
+						fromToPerform lu src dest moveaction key afile
+  where
+	somethingtodo
+		| Remote.uuid src == Remote.uuid dest = return False
+		| otherwise = case moveaction of
+			Move -> return True
+			Copy { copyFast = False } -> return True
+			_ -> not <$> expectedPresent dest key
+
+fromAnywhereToStart :: LiveUpdate -> MoveAction -> AssociatedFile -> Key -> ActionItem -> SeekInput -> Remote -> CommandStart
+fromAnywhereToStart lu moveaction afile key ai si dest =
+	stopUnless somethingtodo $ do
+		u <- getUUID
+		if u == Remote.uuid dest
+			then toHereStart lu moveaction afile key ai si
+			else startingNoMessage (OnlyActionOn key ai) $ do
+				rs <- filter (/= dest) 
+					<$> Remote.keyPossibilities (Remote.IncludeIgnored False) key
+				forM_ rs $ \r ->
+					includeCommandAction $
+						starting (describeMoveAction moveaction) ai si $
+							fromToPerform lu r dest moveaction key afile
+				whenM (inAnnex key) $
+					void $ includeCommandAction $
+						toStart lu moveaction afile key ai si dest 
+				next $ return True
+  where
+	somethingtodo = case moveaction of
+		Move -> return True
+		Copy { copyFast = False } -> return True
+		_ -> not <$> expectedPresent dest key
+
+{- When there is a local copy, transfer it to the dest, and drop from the src.
+ -
+ - When the dest has a copy, drop it from the src.
+ -
+ - Otherwise, download a copy from the dest, populating the local annex
+ - copy, but not updating location logs. Then transfer that to the dest,
+ - drop the local copy, and finally drop from the src.
+ -
+ - Using a regular download of the local copy, rather than download to
+ - some other file makes resuming an interrupted download work as usual,
+ - and simplifies implementation. It does mean that, if `git-annex get` of
+ - the same content is being run at the same time as this move, the content
+ - may end up locally present, or not. This is similar to the behavior 
+ - when running `git-annex move --to` concurrently with git-annex get.
+ -}
+fromToPerform :: LiveUpdate -> Remote -> Remote -> MoveAction -> Key -> AssociatedFile -> CommandPerform
+fromToPerform lu src dest moveaction key afile = do
+	hereuuid <- getUUID
+	loggedpresent <- any (== hereuuid)
+		<$> loggedLocations key
+	ispresent <- inAnnex key
+	go ispresent loggedpresent
+  where
+	-- The content is present, and is logged as present, so it
+	-- can be sent to dest and dropped from src.
+	--
+	-- When resuming an interrupted move --from --to, where the content
+	-- was not present but got downloaded from src, it will not be
+	-- logged present, and so this won't be used. Instead, the local
+	-- content will get dropped after being copied to dest.
+	go True True = do
+		haskey <- Remote.hasKey dest key
+		-- Prepare to drop from src later. Doing this first
+		-- makes "from src" be shown consistently before
+		-- "to dest"
+		dropsrc <- fromsrc True
+		combinecleanups 
+			-- Send to dest, preserve local copy.
+			(todest Nothing (Copy False) haskey)
+			(\senttodest -> if senttodest
+				then dropsrc moveaction
+				else stop
+			)
+	go ispresent _loggedpresent = do
+		haskey <- Remote.hasKey dest key
+		case haskey of
+                	Left err -> do                   
+				showNote (UnquotedString err)
+				stop
+			Right True -> do
+				showAction $ UnquotedString $
+					"from " ++ Remote.name src
+				showAction $ UnquotedString $
+					"to " ++ Remote.name dest
+				-- The log may not indicate dest's copy
+				-- yet, so make sure it does.
+				logChange lu key (Remote.uuid dest) InfoPresent
+				-- Drop from src, checking copies including
+				-- the one already in dest.
+				dropfromsrc id
+			Right False -> do
+				-- Get local copy from src, defer dropping
+				-- from src until later. Note that fromsrc
+				-- does not update the location log.
+				cleanupfromsrc <- if ispresent
+					then return $ const $ next (return True)
+					else fromsrc False
+				-- Lock the local copy for removal early,
+				-- to avoid other processes relying on it
+				-- as a copy, and removing other copies
+				-- (such as the one in src), that prevents
+				-- dropping the local copy later.
+				lockContentForRemoval key stop $ \contentlock ->
+					combinecleanups
+						-- Send to dest and remove local copy.
+						(todest (Just contentlock) Move haskey)
+						(\senttodest ->
+							-- Drop from src, checking
+							-- copies including dest.
+							combinecleanups
+								(cleanupfromsrc (Copy False))
+								(\_ -> if senttodest
+									then dropfromsrc (\l -> UnVerifiedRemote dest : l)
+									else stop
+								)
+						)
+
+	fromsrc present = fromPerform' lu present False src moveaction key afile
+
+	todest mcontentlock moveaction' = toPerform' mcontentlock lu dest moveaction' key afile False
+
+	dropfromsrc adjusttocheck = case moveaction of
+		Move -> logMove moveaction (Remote.uuid src) (Remote.uuid dest) True key $ \deststartedwithcopy ->
+			fromDrop lu src (Remote.uuid dest) deststartedwithcopy key afile adjusttocheck
+		_ -> next (return True)
+
+	combinecleanups a b = a >>= \case
+		Just cleanupa -> b True >>= \case
+			Just cleanupb -> return $ Just $ do
+				oka <- cleanupa
+				okb <- cleanupb
+				return (oka && okb)
+			Nothing -> return (Just cleanupa)
+		Nothing -> b False >>= \case
+			Just cleanupb -> return $ Just $ do
+				void cleanupb
+				return False
+			Nothing -> return Nothing
 
 {- The goal of this command is to allow the user maximum freedom to move
  - files as they like, while avoiding making bad situations any worse
@@ -306,9 +515,11 @@ toHereStart removewhen afile key ai si =
  - repository reduces the number of copies, and should fail if
  - that would violate numcopies settings.
  -
- - On the other hand, when the destination repository does not already
- - have a copy of a file, it can be dropped without making numcopies
- - worse, so the move is allowed even if numcopies is not met.
+ - On the other hand, when the destination repository did not start
+ - with a copy of a file, it can be dropped from the source without
+ - making numcopies worse, so the move is allowed even if numcopies
+ - is not met. (However, when the source is a cluster, dropping from it 
+ - drops from all nodes, and so numcopies must be checked.)
  -
  - Similarly, a file can move from an untrusted repository to another
  - untrusted repository, even if that is the only copy of the file.
@@ -322,10 +533,10 @@ toHereStart removewhen afile key ai si =
  - This function checks all that. It needs to know if the destination
  - repository already had a copy of the file before the move began.
  -}
-willDropMakeItWorse :: UUID -> UUID -> DestStartedWithCopy -> Key -> AssociatedFile -> Annex DropCheck
-willDropMakeItWorse srcuuid destuuid (DestStartedWithCopy deststartedwithcopy _) key afile =
-	ifM (Command.Drop.checkRequiredContent (Command.Drop.PreferredContentChecked False) srcuuid key afile)
-		( if deststartedwithcopy
+willDropMakeItWorse :: LiveUpdate -> UUID -> UUID -> DestStartedWithCopy -> Key -> AssociatedFile -> Annex DropCheck
+willDropMakeItWorse lu srcuuid destuuid (DestStartedWithCopy deststartedwithcopy _) key afile =
+	ifM (Command.Drop.checkRequiredContent lu (Command.Drop.PreferredContentChecked False) srcuuid key afile)
+		( if deststartedwithcopy || isClusterUUID srcuuid
 			then unlessforced DropCheckNumCopies
 			else ifM checktrustlevel
 				( return DropAllowed
@@ -364,8 +575,8 @@ logMoveCleanup (DestStartedWithCopy _ a) = a
  - copy, and so could refuse to allow the drop. By providing the logged
  - DestStartedWithCopy, this avoids that annoyance.
  -}
-logMove :: UUID -> UUID -> Bool -> Key -> (DestStartedWithCopy -> Annex a) -> Annex a
-logMove srcuuid destuuid deststartedwithcopy key a = go =<< setup
+logMove :: MoveAction -> UUID -> UUID -> Bool -> Key -> (DestStartedWithCopy -> Annex a) -> Annex a
+logMove Move srcuuid destuuid deststartedwithcopy key a = go =<< setup
   where
 	logline = L.fromStrict $ B8.unwords
 		[ fromUUID srcuuid
@@ -403,3 +614,4 @@ logMove srcuuid destuuid deststartedwithcopy key a = go =<< setup
 
 	go' fs deststartedwithcopy' = a $
 		DestStartedWithCopy deststartedwithcopy' (cleanup fs)
+logMove _ _ _ _ _ a = a (DestStartedWithCopy False noop)

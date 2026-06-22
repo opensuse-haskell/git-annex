@@ -36,7 +36,7 @@
 /config/repository/edit/new/cloud/#UUID EditNewCloudRepositoryR GET POST
 /config/repository/sync/disable/#RepoId DisableSyncR GET
 /config/repository/sync/enable/#RepoId EnableSyncR GET
-/config/repository/upgrade/#RepoId UpgradeRepositoryR GET
+/config/repository/convert/#RepoId ConvertRepositoryR GET
 
 /config/repository/add/drive AddDriveR GET POST
 /config/repository/add/drive/confirm/#RemovableDrive ConfirmAddDriveR GET
@@ -55,10 +55,6 @@
 /config/repository/add/cloud/S3 AddS3R GET POST
 /config/repository/add/cloud/IA AddIAR GET POST
 /config/repository/add/cloud/glacier AddGlacierR GET POST
-
-/config/repository/pair/local/start StartLocalPairR GET POST
-/config/repository/pair/local/running/#SecretReminder RunningLocalPairR GET
-/config/repository/pair/local/finish/#PairMsg FinishLocalPairR GET POST
 
 /config/repository/pair/wormhole/start/self StartWormholePairSelfR GET
 /config/repository/pair/wormhole/start/friend StartWormholePairFriendR GET

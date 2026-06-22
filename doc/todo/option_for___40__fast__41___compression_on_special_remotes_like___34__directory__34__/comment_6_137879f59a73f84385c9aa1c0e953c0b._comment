@@ -1,0 +1,16 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 6"""
+ date="2026-04-28T17:33:19Z"
+ content="""
+Well, it could store the compressor in a byte or two at the start of the
+object file. Then there would only need to be a single namespace for
+compressed objects. That avoids the exponential blowup with chunking, more
+or less. If it currently tries 4 chunk sizes, also checking for compressed
+and non-compressed objects would double the overhead.
+
+When not using chunking, there would also be a doubling of the overhead.
+
+That seems acceptable, if only special remotes with compression enabled pay
+the price.
+"""]]

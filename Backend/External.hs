@@ -72,7 +72,8 @@ makeBackend' ebname@(ExternalBackendName bname) hasext (Right p) = do
 		, canUpgradeKey = Nothing
 		, fastMigrate = Nothing
 		, isStableKey = const isstable
-		, isCryptographicallySecure = const iscryptographicallysecure
+		, isCryptographicallySecure = iscryptographicallysecure
+		, isCryptographicallySecureKey = const (pure iscryptographicallysecure)
 		}
 makeBackend' ebname hasext (Left _) = return $ unavailBackend ebname hasext
 
@@ -86,7 +87,8 @@ unavailBackend (ExternalBackendName bname) hasext =
 		, canUpgradeKey = Nothing
 		, fastMigrate = Nothing
 		, isStableKey = const False
-		, isCryptographicallySecure = const False
+		, isCryptographicallySecure = False
+		, isCryptographicallySecureKey = const (pure False)
 		}
 
 genKeyExternal :: ExternalBackendName -> HasExt -> KeySource -> MeterUpdate -> Annex Key
@@ -94,7 +96,7 @@ genKeyExternal ebname hasext ks meterupdate =
 	withExternalState ebname hasext $ \st ->
 		handleRequest st req notavail go
   where
-	req = GENKEY (fromRawFilePath (contentLocation ks))
+	req = GENKEY (fromOsPath (contentLocation ks))
 	notavail = giveup $ "Cannot generate a key, since " ++ externalBackendProgram ebname ++ " is not available."
 	
 	go (GENKEY_SUCCESS pk) = Just $ Result <$> fromProtoKey pk hasext ks
@@ -105,12 +107,12 @@ genKeyExternal ebname hasext ks meterupdate =
 		return $ GetNextMessage go
 	go _ = Nothing
 
-verifyKeyContentExternal :: ExternalBackendName -> HasExt -> MeterUpdate -> Key -> RawFilePath -> Annex Bool
+verifyKeyContentExternal :: ExternalBackendName -> HasExt -> MeterUpdate -> Key -> OsPath -> Annex Bool
 verifyKeyContentExternal ebname hasext meterupdate k f = 
 	withExternalState ebname hasext $ \st ->
 		handleRequest st req notavail go
   where
-	req = VERIFYKEYCONTENT (toProtoKey k) (fromRawFilePath f)
+	req = VERIFYKEYCONTENT (toProtoKey k) (fromOsPath f)
 
 	-- This should not be able to happen, because CANVERIFY is checked
 	-- before this function is enable, and so the external program 
@@ -139,7 +141,8 @@ handleRequest st req whenunavail responsehandler =
 		loop
   where
 	handleExceptionalMessage _ (ERROR err) = do
-		warning ("external special remote error: " ++ err)
+		warning $ UnquotedString $
+			"external special remote error: " ++ err
 		whenunavail
 	handleExceptionalMessage loop (DEBUG msg) = do
 		fastDebug "Backend.External" msg
@@ -158,7 +161,7 @@ sendMessage p m = liftIO $ do
   where
 	line = unwords $ Proto.formatMessage m
 
-{- A response handler can yeild a result, or it can request that another
+{- A response handler can yield a result, or it can request that another
  - message be consumed from the external. -}
 data ResponseHandlerResult a
 	= Result a
@@ -170,7 +173,7 @@ result :: a -> Maybe (Annex (ResponseHandlerResult a))
 result = Just . return . Result
 
 {- Waits for a message from the external backend, and passes it to the
- - apppropriate handler. 
+ - appropriate handler. 
  -
  - If the handler returns Nothing, this is a protocol error.
  -}
@@ -212,7 +215,7 @@ poolVar = unsafePerformIO $ newMVar M.empty
 -- using it.
 newExternalState :: ExternalBackendName -> HasExt -> ExternalAddonPID -> Annex ExternalState
 newExternalState ebname hasext pid = do
-	st <- startExternalAddonProcess basecmd pid
+	st <- startExternalAddonProcessProtocol basecmd [] pid
 	st' <- case st of
 		Left (ProgramNotInstalled msg) -> warnonce msg >> return st
 		Left (ProgramFailure msg) -> warnonce msg >> return st
@@ -237,7 +240,7 @@ newExternalState ebname hasext pid = do
   where
 	basecmd = externalBackendProgram ebname
 	warnonce msg = when (pid == 1) $
-		warning msg
+		warning (UnquotedString msg)
 
 externalBackendProgram :: ExternalBackendName -> String
 externalBackendProgram (ExternalBackendName bname) = "git-annex-backend-X" ++ decodeBS bname

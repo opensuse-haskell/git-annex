@@ -1,0 +1,9 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 4"""
+ date="2024-06-03T16:30:34Z"
+ content="""
+Spotchecked a few other OpenNeuro datasets in the same numeric range and
+they seem ok, so this may have been a 1-off problem. It would be good to
+check all 1.1k datasets.
+"""]]

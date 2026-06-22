@@ -5,6 +5,8 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE OverloadedStrings #-}
+
 module Command.ExamineKey where
 
 import Command
@@ -14,6 +16,7 @@ import Annex.Link
 import Backend
 import Types.Backend
 import Types.Key
+import Utility.Terminal
 
 import Data.Char
 import qualified Data.ByteString as B
@@ -36,7 +39,7 @@ optParser :: Parser ExamineOptions
 optParser = ExamineOptions
 	<$> optional parseFormatOption
 	<*> (fmap (DeferredParse . tobackend) <$> migrateopt)
-	<*> (AssociatedFile <$> fileopt)
+	<*> (AssociatedFile . fmap stringToOsPath <$> fileopt)
   where
 	fileopt = optional $ strOption
 		( long "filename" <> metavar paramFile
@@ -54,9 +57,10 @@ run o _ input = do
 	
 	objectpath <- calcRepo $ gitAnnexLocation k
 	let objectpointer = formatPointer k
-	showFormatted (format o) (serializeKey' k) $
-		[ ("objectpath", fromRawFilePath objectpath)
-		, ("objectpointer", fromRawFilePath objectpointer)
+	isterminal <- liftIO $ checkIsTerminal stdout
+	showFormatted isterminal (format o) (serializeKey' k) $
+		[ ("objectpath", fromOsPath objectpath)
+		, ("objectpointer", decodeBS objectpointer)
 		] ++ formatVars k af
 	return True
   where
@@ -67,13 +71,13 @@ run o _ input = do
 	ik = fromMaybe (giveup "bad key") (deserializeKey' ikb)
 	af = if B.null ifb'
 		then associatedFile o
-		else AssociatedFile (Just ifb')
+		else AssociatedFile (Just (toOsPath ifb'))
 
 	getkey = case migrateToBackend o of
 		Nothing -> pure ik
 		Just v -> getParsed v >>= \b ->
 			maybeLookupBackendVariety (fromKey keyVariety ik) >>= \case
 				Just ib -> case fastMigrate ib of
-					Just fm -> fromMaybe ik <$> fm ik b af
+					Just fm -> fromMaybe ik <$> fm ik b af False
 					Nothing -> pure ik
 				Nothing -> pure ik

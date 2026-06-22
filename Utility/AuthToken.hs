@@ -1,6 +1,6 @@
 {- authentication tokens
  -
- - Copyright 2016 Joey Hess <id@joeyh.name>
+ - Copyright 2016-2025 Joey Hess <id@joeyh.name>
  -
  - License: BSD-2-clause
  -}
@@ -12,6 +12,7 @@ module Utility.AuthToken (
 	toAuthToken,
 	fromAuthToken,
 	nullAuthToken,
+	displayAuthToken,
 	genAuthToken,
 	AllowedAuthTokens,
 	allowedAuthTokens,
@@ -20,11 +21,11 @@ module Utility.AuthToken (
 
 import qualified Utility.SimpleProtocol as Proto
 import Utility.Hash
+import Utility.Exception
 
-import Data.SecureMem
 import Data.Maybe
 import Data.Char
-import Data.Byteable
+import qualified Data.ByteArray as BA
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as L
@@ -38,7 +39,7 @@ import "crypto-api" Crypto.Random
 -- To avoid decoding issues, and presentation issues, the content
 -- of an AuthToken is limited to ASCII characters a-z, and 0-9.
 -- This is enforced by all exported AuthToken constructors.
-newtype AuthToken = AuthToken SecureMem
+newtype AuthToken = AuthToken BA.ScrubbedBytes
 	deriving (Show, Eq)
 
 allowedChar :: Char -> Bool
@@ -49,7 +50,7 @@ instance Proto.Serializable AuthToken where
 	deserialize = toAuthToken . T.pack
 
 fromAuthToken :: AuthToken -> T.Text
-fromAuthToken (AuthToken t ) = TE.decodeLatin1 (toBytes t)
+fromAuthToken (AuthToken t ) = TE.decodeLatin1 (BA.convert t)
 
 -- | Upper-case characters are lower-cased to make them fit in the allowed
 -- character set. This allows AuthTokens to be compared effectively
@@ -59,14 +60,18 @@ fromAuthToken (AuthToken t ) = TE.decodeLatin1 (toBytes t)
 toAuthToken :: T.Text -> Maybe AuthToken
 toAuthToken t
 	| all allowedChar s = Just $ AuthToken $ 
-		secureMemFromByteString $ TE.encodeUtf8 $ T.pack s
+		BA.convert $ TE.encodeUtf8 $ T.pack s
 	| otherwise = Nothing
   where
 	s = map toLower $ T.unpack t
 
 -- | The empty AuthToken, for those times when you don't want any security.
 nullAuthToken :: AuthToken
-nullAuthToken = AuthToken $ secureMemFromByteString $ TE.encodeUtf8 T.empty
+nullAuthToken = AuthToken $ BA.convert $ TE.encodeUtf8 T.empty
+
+-- | Display in place of a real AuthToken in protocol dumps.
+displayAuthToken :: AuthToken
+displayAuthToken = AuthToken $ BA.convert $ TE.encodeUtf8 $ T.pack "<AUTHTOKEN>"
 
 -- | Generates an AuthToken of a specified length. This is done by
 -- generating a random bytestring, hashing it with sha2 512, and truncating
@@ -79,10 +84,11 @@ genAuthToken len = do
 	g <- newGenIO :: IO SystemRandom
 	return $
 		case genBytes 512 g of
-			Left e -> error $ "failed to generate auth token: " ++ show e
-			Right (s, _) -> fromMaybe (error "auth token encoding failed") $
+			Left e -> giveup $ "failed to generate auth token: " ++ show e
+			Right (s, _) -> fromMaybe (giveup "auth token encoding failed") $
 				toAuthToken $ T.pack $ take len $
-					show $ sha2_512 $ L.fromChunks [s]
+					show $ digestToHash $ 
+						sha2_512 $ L.fromChunks [s]
 
 -- | For when several AuthTokens are allowed to be used.
 newtype AllowedAuthTokens = AllowedAuthTokens [AuthToken]

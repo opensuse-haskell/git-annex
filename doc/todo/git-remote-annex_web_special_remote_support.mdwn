@@ -1,0 +1,24 @@
+datalad-annex supports cloning from the web special remote,
+using an url that contains the result of pushing to eg, a directory
+special remote.
+
+`datalad-annex::https://example.com?type=web&url={noquery}`
+
+Supporting something like this in git-remote-annex would be good.
+
+The httpalso special remote already exists to handle this kind of thing.
+
+In fact, it just works with git-remote-annex!
+
+Eg, this url on my laptop is a directory special remote
+accessed via the web server:
+
+    annex::13c2500f-a302-4331-9720-6ec43cb8da2b?encryption=none&exporttree=yes&type=httpalso&url=http%3A%2F%2Flocalhost%2F~joey%2Ftmp%2Fd
+
+But, while fetching from a httpalso special remote works, and cloning
+works, after cloning, fetching again fails:
+
+    joey@darkstar:~/tmp/newp2>git fetch origin
+    git-annex: no url configured for httpalso special remote
+
+> fixed that, [[done]] --[[Joey]]

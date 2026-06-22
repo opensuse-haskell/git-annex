@@ -7,21 +7,22 @@
 
 module Utility.DirWatcher.Win32Notify (watchDir) where
 
-import Common hiding (isDirectory)
+import Common
 import Utility.DirWatcher.Types
+import qualified Utility.RawFilePath as R
 
 import System.Win32.Notify
-import qualified System.PosixCompat.Files as Files
+import System.PosixCompat.Files (isRegularFile)
 
-watchDir :: FilePath -> (FilePath -> Bool) -> Bool -> WatchHooks -> IO WatchManager
+watchDir :: OsPath -> (OsPath -> Bool) -> Bool -> WatchHooks -> IO WatchManager
 watchDir dir ignored scanevents hooks = do
 	scan dir
 	wm <- initWatchManager
-	void $ watchDirectory wm dir True [Create, Delete, Modify, Move] dispatch
+	void $ watchDirectory wm (fromOsPath dir) True [Create, Delete, Modify, Move] dispatch
 	return wm
   where
 	dispatch evt
-		| ignoredPath ignored (filePath evt) = noop
+		| ignoredPath ignored (toOsPath (filePath evt)) = noop
 		| otherwise = case evt of
 			(Deleted _ _)
 				| isDirectory evt -> runhook delDirHook Nothing
@@ -32,17 +33,18 @@ watchDir dir ignored scanevents hooks = do
 			(Modified _ _)
 				| isDirectory evt -> noop
 				{- Add hooks are run when a file is modified for 
-				 - compatability with INotify, which calls the add
+				 - compatibility with INotify, which calls the add
 				 - hook when a file is closed, and so tends to call
 				 - both add and modify for file modifications. -}
 				| otherwise -> do
 					runhook addHook Nothing
 					runhook modifyHook Nothing
 	  where
-		runhook h s = maybe noop (\a -> a (filePath evt) s) (h hooks)
+		runhook h s = maybe noop (\a -> a (toOsPath (filePath evt)) s) (h hooks)
 
 	scan d = unless (ignoredPath ignored d) $
-		mapM_ go =<< dirContentsRecursiveSkipping (const False) False d
+		mapM_ go =<< emptyWhenDoesNotExist
+			(dirContentsRecursiveSkipping (const False) False d)
 	  where		
 		go f
 			| ignoredPath ignored f = noop
@@ -51,7 +53,7 @@ watchDir dir ignored scanevents hooks = do
 				case ms of
 					Nothing -> noop
 					Just s
-						| Files.isRegularFile s ->
+						| isRegularFile s ->
 							when scanevents $
 								runhook addHook ms
 						| otherwise ->
@@ -59,8 +61,8 @@ watchDir dir ignored scanevents hooks = do
 		  where
 			runhook h s = maybe noop (\a -> a f s) (h hooks)
 		
-	getstatus = catchMaybeIO . getFileStatus
+	getstatus = catchMaybeIO . R.getFileStatus . fromOsPath
 
 {- Check each component of the path to see if it's ignored. -}
-ignoredPath :: (FilePath -> Bool) -> FilePath -> Bool
+ignoredPath :: (OsPath -> Bool) -> OsPath -> Bool
 ignoredPath ignored = any ignored . map dropTrailingPathSeparator . splitPath

@@ -1,4 +1,4 @@
-all=git-annex git-annex-shell mans docs
+all=git-annex git-annex-shell git-remote-annex git-remote-p2p-annex git-remote-tor-annex mans docs
 
 # set to "./Setup" if you lack a cabal program. Or can be set to "stack"
 BUILDER?=cabal
@@ -15,11 +15,6 @@ SHAREDIR?=share
 # this to /usr/share/zsh/vendor-completions
 ZSH_COMPLETIONS_PATH?=$(PREFIX)/$(SHAREDIR)/zsh/site-functions
 
-# Am I typing :make in vim? Do a dev build.
-ifdef VIM
-all=dev
-endif
-
 build: $(all)
 
 # install system-wide
@@ -32,24 +27,33 @@ install-home:
 	$(MAKE) install-mans PREFIX=$(HOME)/.local
 	$(MAKE) install-desktop PREFIX=$(HOME)/.local USERDIR=1
 
+build-dependencies:
+	$(BUILDER) build --only-dependencies $(BUILDERCOMMONOPTIONS)
+
 tmp/configure-stamp: Build/TestConfig.hs Build/Configure.hs
 	if [ "$(BUILDER)" = ./Setup ]; then $(GHC) --make Setup; fi
 	if [ "$(BUILDER)" != stack ]; then \
-		$(BUILDER) configure $(BUILDERCOMMONOPTIONS) --ghc-options="$(shell Build/collect-ghc-options.sh)"; \
+		$(BUILDER) configure -fParallelBuild $(BUILDERCOMMONOPTIONS) --ghc-options="$(shell Build/collect-ghc-options.sh)"; \
+		rm cabal.project.local~* 2>/dev/null || true; \
 	else \
 		$(BUILDER) setup $(BUILDERCOMMONOPTIONS); \
 	fi
 	mkdir -p tmp
 	touch tmp/configure-stamp
 
+# Build with stack if it was used to build before, otherwise cabal.
+dev:
+	@if [ -d .stack-work ]; then BUILDER=stack make; else make; fi
+
 # Non-optimised build for development, with profiling enabled (for memory
 # profiling).
 #
-# This leaves cabal.project.local configured for a dev build,
-# so just running make will continue to do dev builds.
-dev:
-	$(BUILDER) configure -f"-Production" \
+# This leaves cabal.project.local configured for a prof build,
+# so just running make will continue to do prof builds.
+prof:
+	$(BUILDER) configure -f"-Production" -fParallelBuild \
 		--enable-executable-dynamic --enable-profiling
+	rm cabal.project.local~* 2>/dev/null || true
 	mkdir -p tmp
 	touch tmp/configure-stamp
 	$(MAKE) git-annex tags
@@ -60,20 +64,24 @@ git-annex: tmp/configure-stamp
 		ln -f $$(stack path $(BUILDERCOMMONOPTIONS) --dist-dir)/build/git-annex/git-annex git-annex; \
 	else \
 		if [ -d dist-newstyle ]; then \
-			ln -f $$(cabal exec -- sh -c 'command -v git-annex') git-annex; \
+			ln -f $$(cabal list-bin git-annex) git-annex || \
+				ln -f $$(cabal exec -- sh -c 'command -v git-annex') git-annex; \
 		else \
 			ln -f dist/build/git-annex/git-annex git-annex; \
 		fi; \
 	fi
 
 git-annex-shell: git-annex
-	ln -sf git-annex git-annex-shell
+	@ln -sf git-annex git-annex-shell
 
-# These are not built normally.
-git-union-merge.1: doc/git-union-merge.mdwn
-	./Build/mdwn2man git-union-merge 1 doc/git-union-merge.mdwn > git-union-merge.1
-git-union-merge:
-	$(GHC) --make -threaded $@
+git-remote-annex: git-annex
+	@ln -sf git-annex git-remote-annex
+
+git-remote-p2p-annex: git-annex
+	@ln -sf git-annex git-remote-p2p-annex
+
+git-remote-tor-annex: git-annex
+	@ln -sf git-annex git-remote-tor-annex
 
 install-mans: mans
 	install -d $(DESTDIR)$(PREFIX)/$(SHAREDIR)/man/man1
@@ -89,7 +97,9 @@ install-bins: build
 	install -d $(DESTDIR)$(PREFIX)/bin
 	install git-annex $(DESTDIR)$(PREFIX)/bin
 	ln -sf git-annex $(DESTDIR)$(PREFIX)/bin/git-annex-shell
+	ln -sf git-annex $(DESTDIR)$(PREFIX)/bin/git-remote-annex
 	ln -sf git-annex $(DESTDIR)$(PREFIX)/bin/git-remote-tor-annex
+	ln -sf git-annex $(DESTDIR)$(PREFIX)/bin/git-remote-p2p-annex
 
 install-desktop: build Build/InstallDesktopFile
 	./Build/InstallDesktopFile $(PREFIX)/bin/git-annex || true
@@ -104,7 +114,7 @@ install-completions: build
 	./git-annex --fish-completion-script git-annex 2>/dev/null \
 		> $(DESTDIR)$(PREFIX)/$(SHAREDIR)/fish/vendor_completions.d/git-annex.fish
 
-test: git-annex git-annex-shell
+test: git-annex git-annex-shell git-remote-annex
 	./git-annex test
 
 retest: git-annex
@@ -140,13 +150,13 @@ clean:
 		doc/.ikiwiki html dist tags Build/SysConfig Build/Version \
 		Setup Build/InstallDesktopFile Build/Standalone \
 		Build/DistributionUpdate Build/BuildVersion Build/MakeMans \
-		git-annex-shell git-union-merge .tasty-rerun-log
+		git-annex-shell git-remote-annex .tasty-rerun-log
 	find . -name \*.o -exec rm {} \;
 	find . -name \*.hi -exec rm {} \;
 
 Build/InstallDesktopFile: Build/InstallDesktopFile.hs
 	$(GHC) --make $@ -Wall -fno-warn-tabs
-Build/Standalone: Build/Standalone.hs tmp/configure-stamp
+Build/Standalone: Build/Standalone.hs Build/LinuxMkLibs.hs Utility/LinuxMkLibs.hs tmp/configure-stamp
 	$(GHC) --make $@ -Wall -fno-warn-tabs
 Build/BuildVersion: Build/BuildVersion.hs
 	$(GHC) --make $@ -Wall -fno-warn-tabs
@@ -231,7 +241,8 @@ osxapp:
 distributionupdate:
 	git pull
 	cabal configure
-	ghc -Wall -fno-warn-tabs --make Build/DistributionUpdate -XLambdaCase -XPackageImports
+	rm cabal.project.local~* 2>/dev/null || true
+	cabal exec -- ghc -Wall -fno-warn-tabs --make Build/DistributionUpdate -XLambdaCase -XPackageImports
 	./Build/DistributionUpdate
 
-.PHONY: git-annex git-union-merge tags
+.PHONY: git-annex tags

@@ -18,7 +18,6 @@ module Assistant.WebApp.Types (
 
 import Assistant.Common
 import Assistant.Ssh
-import Assistant.Pairing
 import Utility.NotificationBroadcaster
 import Utility.AuthToken
 import Utility.WebApp
@@ -153,14 +152,6 @@ instance PathPiece AlertId where
 	fromPathPiece = readish . unpack
 
 instance PathPiece Transfer where
-	toPathPiece = pack . show
-	fromPathPiece = readish . unpack
-
-instance PathPiece PairMsg where
-	toPathPiece = pack . show
-	fromPathPiece = readish . unpack
-
-instance PathPiece SecretReminder where
 	toPathPiece = pack . show
 	fromPathPiece = readish . unpack
 

@@ -1,6 +1,6 @@
 {- git-annex program path
  -
- - Copyright 2013-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2013-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -18,9 +18,11 @@ import Annex.Common
 import Config.Files
 import Utility.Env
 import Annex.PidLock
+import CmdLine.Multicall
 import qualified Annex
 
 import System.Environment (getExecutablePath, getArgs, getProgName)
+import qualified Data.Map as M
 
 {- A fully qualified path to the currently running git-annex program.
  - 
@@ -33,30 +35,42 @@ import System.Environment (getExecutablePath, getArgs, getProgName)
  - getExecutablePath. It sets GIT_ANNEX_DIR to the location of the
  - standalone build directory, and there are wrapper scripts for git-annex
  - and git-annex-shell in that directory.
+ -
+ - When the currently running program is not git-annex, but is instead eg
+ - git-annex-shell or git-remote-annex, this finds a git-annex program
+ - instead.
  -}
-programPath :: IO FilePath
+programPath :: IO OsPath
 programPath = go =<< getEnv "GIT_ANNEX_DIR"
   where
 	go (Just dir) = do
-		name <- getProgName
-		return (dir </> name)
+		name <- reqgitannex <$> getProgName
+		return (toOsPath dir </> toOsPath name)
 	go Nothing = do
-		exe <- getExecutablePath
-		p <- if isAbsolute exe
+		name <- getProgName
+		exe <- if isgitannex name
+			then getExecutablePath
+			else pure "git-annex"
+		p <- if isAbsolute (toOsPath exe)
 			then return exe
-			else fromMaybe exe <$> readProgramFile
+			else maybe exe fromOsPath <$> readProgramFile
 		maybe cannotFindProgram return =<< searchPath p
 
+	reqgitannex name
+		| isgitannex name = name
+		| otherwise = "git-annex"
+	isgitannex = flip M.notMember otherMulticallCommands
+
 {- Returns the path for git-annex that is recorded in the programFile. -}
-readProgramFile :: IO (Maybe FilePath)
-readProgramFile = do
+readProgramFile :: IO (Maybe OsPath)
+readProgramFile = catchDefaultIO Nothing $ do
 	programfile <- programFile
-	headMaybe . lines <$> readFile programfile
+	fmap toOsPath . headMaybe . lines <$> readFileString programfile
 
 cannotFindProgram :: IO a
 cannotFindProgram = do
 	f <- programFile
-	giveup $ "cannot find git-annex program in PATH or in " ++ f
+	giveup $ "cannot find git-annex program in PATH or in " ++ fromOsPath f
 
 {- Runs a git-annex child process.
  -
@@ -74,7 +88,7 @@ gitAnnexChildProcess
 gitAnnexChildProcess subcmd ps f a = do
 	cmd <- liftIO programPath
 	ps' <- gitAnnexChildProcessParams subcmd ps
-	pidLockChildProcess cmd ps' f a
+	pidLockChildProcess (fromOsPath cmd) ps' f a
 
 {- Parameters to pass to a git-annex child process to run a subcommand
  - with some parameters.
@@ -85,7 +99,11 @@ gitAnnexChildProcess subcmd ps f a = do
 gitAnnexChildProcessParams :: String -> [CommandParam] -> Annex [CommandParam]
 gitAnnexChildProcessParams subcmd ps = do
 	cps <- gitAnnexGitConfigOverrides
-	return (Param subcmd : cps ++ ps)
+	force <- Annex.getRead Annex.force
+	let cps' = if force
+		then Param "--force" : cps
+		else cps
+	return (Param subcmd : cps' ++ ps)
 
 gitAnnexGitConfigOverrides :: Annex [CommandParam]
 gitAnnexGitConfigOverrides = concatMap (\c -> [Param "-c", Param c])
@@ -95,7 +113,7 @@ gitAnnexGitConfigOverrides = concatMap (\c -> [Param "-c", Param c])
  - to daemonize it. Used with Utility.Daemon.daemonize. -}
 gitAnnexDaemonizeParams :: Annex [CommandParam]
 gitAnnexDaemonizeParams = do
-	-- This inclues -c parameters passed to git, as well as ones
+	-- This includes -c parameters passed to git, as well as ones
 	-- passed to git-annex.
 	cps <- gitAnnexGitConfigOverrides
 	-- Get every parameter git-annex was run with.

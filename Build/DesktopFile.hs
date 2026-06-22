@@ -1,22 +1,19 @@
 {- Generating and installing a desktop menu entry file and icon,
- - and a desktop autostart file. (And OSX equivilants.)
+ - and a desktop autostart file. (And OSX equivalents.)
  -
  - Copyright 2012 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fno-warn-tabs #-}
 
 module Build.DesktopFile where
 
-import Utility.Exception
+import Common
 import Utility.FreeDesktop
-import Utility.Path
-import Utility.Monad
-import Utility.Directory
-import Utility.FileSystemEncoding
 import Config.Files
 import Utility.OSX
 import Assistant.Install.AutoStart
@@ -24,10 +21,7 @@ import Assistant.Install.Menu
 
 import System.Environment
 #ifndef mingw32_HOST_OS 
-import System.PosixCompat.User
-import Data.Maybe
-import Control.Applicative
-import Prelude
+import System.Posix.User
 #endif
 
 systemwideInstall :: IO Bool
@@ -42,10 +36,10 @@ systemwideInstall = isroot <||> (not <$> userdirset)
 systemwideInstall = return False
 #endif
 
-inDestDir :: FilePath -> IO FilePath
+inDestDir :: OsPath -> IO OsPath
 inDestDir f = do
 	destdir <- catchDefaultIO "" (getEnv "DESTDIR")
-	return $ destdir ++ "/" ++ f
+	return $ toOsPath destdir <> literalOsPath "/" <> f
 
 writeFDODesktop :: FilePath -> IO ()
 writeFDODesktop command = do
@@ -54,7 +48,7 @@ writeFDODesktop command = do
 	datadir <- if systemwide then return systemDataDir else userDataDir
 	menufile <- inDestDir (desktopMenuFilePath "git-annex" datadir)
 	icondir <- inDestDir (iconDir datadir)
-	installMenu command menufile "doc" icondir
+	installMenu command menufile (literalOsPath "doc") icondir
 
 	configdir <- if systemwide then return systemConfigDir else userConfigDir
 	installAutoStart command 
@@ -78,8 +72,8 @@ install command = do
 		( return ()
 		, do
 			programfile <- inDestDir =<< programFile
-			createDirectoryIfMissing True (fromRawFilePath (parentDir (toRawFilePath programfile)))
-			writeFile programfile command
+			createDirectoryIfMissing True (parentDir programfile)
+			writeFileString programfile command
 		)
 
 installUser :: FilePath -> IO ()

@@ -150,7 +150,7 @@ doremove () {
 }
 
 # This has to come first, to get the protocol started.
-echo VERSION 1
+echo VERSION 2
 
 while read line; do
 	set -- $line
@@ -221,6 +221,12 @@ while read line; do
 					doretrieve "$key" "$file" "$LOC"
 				;;
 			esac
+		;;
+		GETORDERED)
+			# This remote writes to files in order when
+			# retrieving them. If it didn't, it
+			# would be important to respond with UNORDERED.
+			echo ORDERED
 		;;
 		CHECKPRESENT)
 			key="$2"

@@ -17,8 +17,9 @@ import Git.Types
 import Config
 import Utility.Directory.Create
 import Annex.Version
+import qualified Utility.FileIO as F
 
-import qualified System.FilePath.ByteString as P
+import qualified Data.ByteString as S
 
 configureSmudgeFilter :: Annex ()
 configureSmudgeFilter = unlessM (fromRepo Git.repoIsLocalBare) $ do
@@ -29,7 +30,11 @@ configureSmudgeFilter = unlessM (fromRepo Git.repoIsLocalBare) $ do
 	-- unexpected changes when the file is checked into git or annex
 	-- counter to the annex.largefiles configuration.
 	-- Avoid that problem by running git status now.
-	inRepo $ Git.Command.runQuiet [Param "status", Param "--porcelain"]
+	inRepo $ Git.Command.runQuiet
+		[ Param "status"
+		, Param "--porcelain"
+		, Param "--ignore-submodules"
+		]
 
 	setConfig (ConfigKey "filter.annex.smudge") "git-annex smudge -- %f"
 	setConfig (ConfigKey "filter.annex.clean") "git-annex smudge --clean -- %f"
@@ -40,11 +45,12 @@ configureSmudgeFilter = unlessM (fromRepo Git.repoIsLocalBare) $ do
 	lfs <- readattr lf
 	gfs <- readattr gf
 	gittop <- Git.localGitDir <$> gitRepo
-	liftIO $ unless ("filter=annex" `isInfixOf` (lfs ++ gfs)) $ do
-		createDirectoryUnder [gittop] (P.takeDirectory lf)
-		writeFile (fromRawFilePath lf) (lfs ++ "\n" ++ unlines stdattr)
+	liftIO $ unless ("filter=annex" `S.isInfixOf` (lfs <> gfs)) $ do
+		createDirectoryUnder [gittop] (takeDirectory lf)
+		F.writeFile' lf $
+			linesFile' (lfs <> encodeBS ("\n" ++ unlines stdattr))
   where
-	readattr = liftIO . catchDefaultIO "" . readFileStrict . fromRawFilePath
+	readattr = liftIO . catchDefaultIO mempty . F.readFile'
 
 configureSmudgeFilterProcess :: Annex ()
 configureSmudgeFilterProcess =
@@ -61,9 +67,10 @@ stdattr =
 -- git-annex does not commit that.
 deconfigureSmudgeFilter :: Annex ()
 deconfigureSmudgeFilter = do
-	lf <- fromRawFilePath <$> Annex.fromRepo Git.attributesLocal
-	ls <- liftIO $ catchDefaultIO [] $ lines <$> readFileStrict lf
-	liftIO $ writeFile lf $ unlines $
+	lf <- Annex.fromRepo Git.attributesLocal
+	ls <- liftIO $ catchDefaultIO [] $ 
+		map decodeBS . fileLines' <$> F.readFile' lf
+	liftIO $ writeFileString lf $ unlines $
 		filter (\l -> l `notElem` stdattr && not (null l)) ls
 	unsetConfig (ConfigKey "filter.annex.smudge")
 	unsetConfig (ConfigKey "filter.annex.clean")

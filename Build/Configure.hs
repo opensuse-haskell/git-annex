@@ -10,11 +10,11 @@ import Build.Version
 import Utility.SafeCommand
 import Utility.Env.Basic
 import qualified Git.Version
-import Utility.Directory
+import Utility.SystemDirectory
+import Utility.OsPath
+import qualified Utility.FileIO as F
 
 import Control.Monad
-import Control.Applicative
-import Prelude
 
 tests :: [TestCase]
 tests =
@@ -80,7 +80,7 @@ getGitVersion = go =<< getEnv "FORCE_GIT_VERSION"
 	go (Just s) = return $ Config "gitversion" $ StringConfig s
 	go Nothing = do
 		v <- Git.Version.installed
-		let oldestallowed = Git.Version.normalize "2.1"
+		let oldestallowed = Git.Version.normalize "2.22"
 		when (v < oldestallowed) $
 			error $ "installed git version " ++ show v ++ " is too old! (Need " ++ show oldestallowed ++ " or newer)"
 		return $ Config "gitversion" $ StringConfig $ show v
@@ -91,11 +91,11 @@ getSshConnectionCaching = Config "sshconnectioncaching" . BoolConfig <$>
 
 setup :: IO ()
 setup = do
-	createDirectoryIfMissing True tmpDir
-	writeFile testFile "test file contents"
+	createDirectoryIfMissing True (toOsPath tmpDir)
+	F.writeFileString (toOsPath testFile) "test file contents"
 
 cleanup :: IO ()
-cleanup = removeDirectoryRecursive tmpDir
+cleanup = removeDirectoryRecursive (toOsPath tmpDir)
 
 run :: [TestCase] -> IO ()
 run ts = do

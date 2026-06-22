@@ -14,7 +14,7 @@ module Annex.SpecialRemote (
 
 import Annex.Common
 import Annex.SpecialRemote.Config
-import Types.Remote (RemoteConfig, SetupStage(..), typename, setup)
+import Types.Remote (RemoteConfig, SetupStage(..), setup)
 import Types.GitConfig
 import Types.ProposedAccepted
 import Config
@@ -22,7 +22,7 @@ import Remote.List
 import Logs.Remote
 import Logs.Trust
 import qualified Types.Remote as Remote
-import Git.Types (RemoteName)
+import Utility.SafeOutput
 
 import qualified Data.Map as M
 
@@ -44,22 +44,6 @@ findExisting' name = do
 		. findByRemoteConfig (\c -> lookupName c == Just name)
 		<$> Logs.Remote.remoteConfigMap
 
-newConfig
-	:: RemoteName
-	-> Maybe (Sameas UUID)
-	-> RemoteConfig
-	-- ^ configuration provided by the user
-	-> M.Map UUID RemoteConfig
-	-- ^ configuration of other special remotes, to inherit from
-	-- when sameas is used
-	-> RemoteConfig
-newConfig name sameas fromuser m = case sameas of
-	Nothing -> M.insert nameField (Proposed name) fromuser
-	Just (Sameas u) -> addSameasInherited m $ M.fromList
-		[ (sameasNameField, Proposed name)
-		, (sameasUUIDField, Proposed (fromUUID u))
-		] `M.union` fromuser
-
 specialRemoteMap :: Annex (M.Map UUID RemoteName)
 specialRemoteMap = do
 	m <- Logs.Remote.remoteConfigMap
@@ -74,17 +58,7 @@ specialRemoteNameMap = M.fromList . mapMaybe go . M.toList
 
 {- find the remote type -}
 findType :: RemoteConfig -> Either String RemoteType
-findType config = maybe unspecified (specified . fromProposedAccepted) $
-	M.lookup typeField config
-  where
-	unspecified = Left "Specify the type of remote with type="
-	specified s = case filter (findtype s) remoteTypes of
-		[] -> Left $ "Unknown remote type " ++ s 
-			++ " (pick from: "
-			++ intercalate " " (map typename remoteTypes)
-			++ ")"
-		(t:_) -> Right t
-	findtype s i = typename i == s
+findType = findType' remoteTypes
 
 autoEnable :: Annex ()
 autoEnable = do
@@ -95,14 +69,14 @@ autoEnable = do
 			Just (Sameas u') -> u'
 			Nothing -> cu
 		case (lookupName c, findType c) of
-			(Just name, Right t) -> do
-				showSideAction $ "Auto enabling special remote " ++ name
+			(Just name, Right t) -> checkcanenable u name $ do
+				showSideAction $ UnquotedString $ "Auto enabling special remote " ++ name
 				dummycfg <- liftIO dummyRemoteGitConfig
-				tryNonAsync (setup t (AutoEnable c) (Just u) Nothing c dummycfg) >>= \case
-					Left e -> warning (show e)
+				tryNonAsync (setup t (AutoEnable c) (Just u) name Nothing c dummycfg) >>= \case
+					Left e -> warning (UnquotedString (show e))
 					Right (_c, _u) ->
 						when (cu /= u) $
-							setConfig (remoteAnnexConfig c "config-uuid") (fromUUID cu)
+							setRemoteConfigUUID c cu
 			_ -> return ()
   where
 	getenabledremotes = M.fromList
@@ -111,6 +85,19 @@ autoEnable = do
 	getcu r = fromMaybe
 		(Remote.uuid r)
 		(remoteAnnexConfigUUID (Remote.gitconfig r))
+	checkcanenable u name cont
+		-- Avoid auto-enabling when the name contains a control
+		-- character, because git does not avoid displaying control
+		-- characters in the name of a remote, and an attacker could
+		-- leverage autoenabling it as part of an attack.
+		| safeOutput name /= name = return ()
+		| otherwise = do
+			rs <- remoteList' False
+			case filter (\rmt -> Remote.name rmt == name) rs of
+				(rmt:_) | Remote.uuid rmt /= u -> warning $ 
+					UnquotedString $ "Cannot auto enable special remote " 
+						++ name ++ " because there is another remote with the same name."
+				_ -> cont
 
 autoEnableable :: Annex (M.Map UUID RemoteConfig)
 autoEnableable = do

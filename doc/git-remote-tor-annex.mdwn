@@ -21,13 +21,15 @@ service, its first line is used as the authtoken.
 
 # SEE ALSO
 
-git-remote-helpers(1)
+gitremote-helpers(1)
 
 [[git-annex]](1)
 
 [[git-annex-enable-tor]](1)
 
 [[git-annex-remotedaemon]](1)
+
+[[git-remote-p2p-annex]](1)
 
 # AUTHOR
 

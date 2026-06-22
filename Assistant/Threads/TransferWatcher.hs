@@ -15,6 +15,7 @@ import Logs.Transfer
 import Utility.DirWatcher
 import Utility.DirWatcher.Types
 import qualified Remote
+import qualified Annex
 import Annex.Perms
 
 import Control.Concurrent
@@ -37,32 +38,33 @@ transferWatcherThread = namedThread "TransferWatcher" $ do
 		, modifyHook = modifyhook
 		, errHook = errhook
 		}
-	void $ liftIO $ watchDir (fromRawFilePath dir) (const False) True hooks id
+	void $ liftIO $ watchDir dir (const False) True hooks id
 	debug ["watching for transfers"]
 
-type Handler = FilePath -> Assistant ()
+type Handler t = t -> Assistant ()
 
 {- Runs an action handler.
  -
  - Exceptions are ignored, otherwise a whole thread could be crashed.
  -}
-runHandler :: Handler -> FilePath -> Maybe FileStatus -> Assistant ()
+runHandler :: Handler t -> t -> Maybe FileStatus -> Assistant ()
 runHandler handler file _filestatus =
 	either (liftIO . print) (const noop) =<< tryIO <~> handler file
 
 {- Called when there's an error with inotify. -}
-onErr :: Handler
-onErr = error
+onErr :: Handler String
+onErr = giveup
 
 {- Called when a new transfer information file is written. -}
-onAdd :: Handler
+onAdd :: Handler OsPath
 onAdd file = case parseTransferFile file of
 	Nothing -> noop
 	Just t -> go t =<< liftAnnex (checkTransfer t)
   where
 	go _ Nothing = noop -- transfer already finished
 	go t (Just info) = do
-		debug [ "transfer starting:", describeTransfer t info ]
+		qp <- liftAnnex $ coreQuotePath <$> Annex.getGitConfig
+		debug [ "transfer starting:", describeTransfer qp t info ]
 		r <- liftAnnex $ Remote.remoteFromUUID $ transferUUID t
 		updateTransferInfo t info { transferRemote = r }
 
@@ -70,7 +72,7 @@ onAdd file = case parseTransferFile file of
  -
  - The only thing that should change in the transfer info is the
  - bytesComplete, so that's the only thing updated in the DaemonStatus. -}
-onModify :: Handler
+onModify :: Handler OsPath
 onModify file = case parseTransferFile file of
 	Nothing -> noop
 	Just t -> go t =<< liftIO (readTransferInfoFile Nothing file)
@@ -80,12 +82,12 @@ onModify file = case parseTransferFile file of
 		\i -> i { bytesComplete = bytesComplete newinfo }
 
 {- This thread can only watch transfer sizes when the DirWatcher supports
- - tracking modificatons to files. -}
+ - tracking modifications to files. -}
 watchesTransferSize :: Bool
 watchesTransferSize = modifyTracked
 
 {- Called when a transfer information file is removed. -}
-onDel :: Handler
+onDel :: Handler OsPath
 onDel file = case parseTransferFile file of
 	Nothing -> noop
 	Just t -> do

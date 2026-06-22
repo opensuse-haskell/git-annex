@@ -8,12 +8,12 @@ git annex importfeed `[url ...]`
 
 # DESCRIPTION
 
-Imports the contents of podcasts and other feeds. Only downloads files whose
-content has not already been added to the repository before, so you can
-delete, rename, etc the resulting files and repeated runs won't duplicate
-them.
+Imports the contents of podcasts and other rss and atom feeds. Only
+downloads files whose content has not already been added to the repository
+before, so you can delete, rename, etc the resulting files and repeated
+runs won't duplicate them.
 
-When `youtube-dl` is installed, it can be used to download links in the feed.
+When `yt-dlp` is installed, it can be used to download links in the feed.
 This allows importing e.g., YouTube playlists.
 (However, this is disabled by default as it can be a security risk. 
 See the documentation of annex.security.allowed-ip-addresses
@@ -37,33 +37,15 @@ resulting in the new url being downloaded to such a filename.
 
   Force downloading items it's seen before.
 
-* `--relaxed`, `--fast`, `--raw`
+* `--fast`, `--relaxed`, `--verifiable`, `--raw`, `--raw-except`
 
   These options behave the same as when using [[git-annex-addurl]](1).
 
-* `--fast`
+* `--scrape`
 
-  Avoid immediately downloading urls. The url is still checked
-  (via HEAD) to verify that it exists, and to get its size if possible.
-
-* `--relaxed`
-
-  Don't immediately download urls, and avoid storing the size of the
-  url's content. This makes git-annex accept whatever content is there
-  at a future point.
-
-* `--raw`
-
-  Prevent special handling of urls by youtube-dl, bittorrent, and other
-  special remotes. This will for example, make importfeed
-  download a .torrent file and not the contents it points to.
-
-* `--no-raw`
-
-  Require content pointed to by the url to be downloaded using youtube-dl
-  or a special remote, rather than the raw content of the url. if that
-  cannot be done, the import will fail, and the next import of the feed
-  will retry.
+  Rather than downloading the url and parsing it as a rss/atom feed
+  to find files to import, uses yt-dlp to screen scrape the equivilant
+  of a feed, and imports what it found.
 
 * `--template`
 
@@ -72,7 +54,7 @@ resulting in the new url being downloaded to such a filename.
   The default template is '${feedtitle}/${itemtitle}${extension}'
   
   The available variables in the template include these that
-  are information about the feed: feedtitle, feedauthor
+  are information about the feed: feedtitle, feedauthor, feedurl
 
   And these that are information about individual items in the feed:
   itemtitle, itemauthor, itemsummary, itemdescription, itemrights,
@@ -88,6 +70,8 @@ resulting in the new url being downloaded to such a filename.
   or sometimes ".m" if no extension can be determined.
 
   The template also has some variables for when an item was published.
+  (These may not be available when using --scrape, depending on the
+  website.)
   
   itempubyear (YYYY), itempubmonth (MM), itempubday (DD), itempubhour (HH),
   itempubminute (MM), itempubsecond (SS),
@@ -102,9 +86,29 @@ resulting in the new url being downloaded to such a filename.
   url to a file that would be ignored. This makes such files be added
   despite any ignores.
 
+* `--jobs=N` `-JN`
+
+  Runs multiple downloads parallel. For example: `-J4`  
+
+  Setting this to "cpus" will run one job per CPU core.
+
 * `--backend`
 
   Specifies which key-value backend to use.
+
+* `--json`
+
+  Enable JSON output. This is intended to be parsed by programs that use
+  git-annex. Each line of output is a JSON object.
+
+* `--json-progress`
+
+  Include progress objects in JSON output.
+
+* `--json-error-messages`
+
+  Messages that would normally be output to standard error are included in
+  the JSON instead.
 
 * Also the [[git-annex-common-options]](1) can be used.
 

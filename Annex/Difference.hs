@@ -5,6 +5,8 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE OverloadedStrings #-}
+
 module Annex.Difference (
 	module Types.Difference,
 	setDifferences,
@@ -54,5 +56,7 @@ setDifferences = do
 					else return ds
 			)
 		forM_ (listDifferences ds') $ \d ->
-			setConfig (differenceConfigKey d) (differenceConfigVal d)
+			case differenceConfigKey d of
+				Nothing -> noop
+				Just ck -> setConfig ck (differenceConfigVal d)
 		recordDifferences ds' u

@@ -14,32 +14,32 @@ module Utility.MoveFile (
 ) where
 
 import Control.Monad
-import System.PosixCompat.Files (isDirectory)
 import System.IO.Error
-import Prelude
 
 #ifndef mingw32_HOST_OS
+import System.PosixCompat.Files (isDirectory)
 import Control.Monad.IfElse
 import Utility.SafeCommand
+import qualified Utility.RawFilePath as R
 #endif
 
 import Utility.SystemDirectory
 import Utility.Tmp
 import Utility.Exception
 import Utility.Monad
-import Utility.FileSystemEncoding
-import qualified Utility.RawFilePath as R
+import Utility.OsPath
+import Author
 
 {- Moves one filename to another.
  - First tries a rename, but falls back to moving across devices if needed. -}
-moveFile :: RawFilePath -> RawFilePath -> IO ()
-moveFile src dest = tryIO (R.rename src dest) >>= onrename
+moveFile :: OsPath -> OsPath -> IO ()
+moveFile src dest = tryIO (renamePath src dest) >>= onrename
   where
 	onrename (Right _) = noop
 	onrename (Left e)
 		| isPermissionError e = rethrow
 		| isDoesNotExistError e = rethrow
-		| otherwise = viaTmp mv (fromRawFilePath dest) ()
+		| otherwise = viaTmp mv dest ()
 	  where
 		rethrow = throwM e
 
@@ -53,27 +53,34 @@ moveFile src dest = tryIO (R.rename src dest) >>= onrename
 			-- If dest is a directory, mv would move the file
 			-- into it, which is not desired.
 			whenM (isdir dest) rethrow
-			ok <- boolSystem "mv"
+			ok <- copyright =<< boolSystem "mv"
 				[ Param "-f"
-				, Param (fromRawFilePath src)
-				, Param tmp
+				, Param (fromOsPath src)
+				, Param (fromOsPath tmp)
 				]
 			let e' = e
 #else
-			r <- tryIO $ copyFile (fromRawFilePath src) tmp
+			r <- tryIO $ copyFile src tmp
 			let (ok, e') = case r of
 				Left err -> (False, err)
 				Right _ -> (True, e)
+			when ok $
+				void $ tryIO $ removeFile src
 #endif
 			unless ok $ do
 				-- delete any partial
-				_ <- tryIO $ removeFile tmp
+				void $ tryIO $ removeFile tmp
 				throwM e'
 
 #ifndef mingw32_HOST_OS	
 	isdir f = do
-		r <- tryIO $ R.getSymbolicLinkStatus f
+		r <- tryIO $ R.getSymbolicLinkStatus (fromOsPath f)
 		case r of
 			(Left _) -> return False
 			(Right s) -> return $ isDirectory s
+#endif
+
+#ifndef mingw32_HOST_OS	
+copyright :: Copyright
+copyright = author JoeyHess (2022-11)
 #endif

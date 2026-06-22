@@ -19,7 +19,6 @@ import qualified Git.Construct
 import qualified Annex.Branch
 import qualified Git.GCrypt
 import qualified Remote.GCrypt as GCrypt
-import Git.Types (RemoteName)
 import Assistant.WebApp.MakeRemote
 import Annex.SpecialRemote.Config
 import Logs.Remote
@@ -54,7 +53,7 @@ withNewSecretKey :: (KeyId -> Handler Html) -> Handler Html
 withNewSecretKey use = do
 	cmd <- liftAnnex $ gpgCmd <$> Annex.getGitConfig
 	userid <- liftIO $ newUserId cmd
-	liftIO $ genSecretKey cmd RSA "" userid maxRecommendedKeySize
+	liftIO $ genSecretKey cmd "" userid
 	results <- M.keys . M.filter (== userid) <$> liftIO (secretKeys cmd)
 	case results of
 		[] -> giveup "Failed to generate gpg key!"
@@ -110,5 +109,5 @@ checkGCryptRepoEncryption location notencrypted notinstalled encrypted =
  - Only works if the gcrypt repo was created as a git-annex remote. -}
 probeGCryptRemoteUUID :: String -> Annex (Maybe UUID)
 probeGCryptRemoteUUID repolocation = do
-	r <- inRepo $ Git.Construct.fromRemoteLocation repolocation
+	r <- inRepo $ Git.Construct.fromRemoteLocation repolocation False
 	GCrypt.getGCryptUUID False r

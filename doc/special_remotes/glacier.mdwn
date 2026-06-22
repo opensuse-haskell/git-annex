@@ -10,6 +10,10 @@ due to the data not yet being available. You can then wait approximately
 four hours, re-run the same command, and this time, it will actually
 download the data.
 
+Amazon has deprecated Glacier, except for existing users. Instead of using
+this special remote, you can use the [[S3]] special remote, configured with
+`storageclass=DEEP_ARCHIVE` and `restore=yes`
+
 ## configuration
 
 The standard environment variables `AWS_ACCESS_KEY_ID` and 
@@ -34,6 +38,10 @@ the Glacier remote.
   It is not the default when using shared encryption, or no encryption.
   Think carefully about who can access your repository before using
   embedcreds without gpg encryption.
+
+* `onlyencryptcreds` - Optional. Set to "yes" to make the `encryption`
+  only be used for the embedded login credentials, but not used to encrypt
+  the content stored on the special remote.
 
 * `datacenter` - Defaults to "us-east-1".
 

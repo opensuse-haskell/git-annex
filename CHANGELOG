@@ -1,14 +1,1133 @@
-git-annex (10.20221105) UNRELEASED; urgency=medium
+git-annex (10.20260602) UNRELEASED; urgency=medium
 
-  * Support quettabyte and yottabyte.
-  * Sped up the initial scan for annexed files by 21%.
-  * init: Avoid scanning for annexed files, which can be lengthy in a
-    large repository. Instead that scan is done on demand.
+  * Added Botan build flag, which speeds up checksumming significantly.
+  * Improve handling of synced/master and similar branches, by
+    only creating such branches when necessary to push to a non-bare
+    remote, and by removing the local synced branch once its changes
+    are merged.
+  * put: New command.
+  * move: Fix bug where an interrupted command other than move could
+    be treated as an interrupted move, resulting in dropping content
+    when not allowed by numcopies.
+  * Fix build with http-types-0.12.5
+  * merge, post-receive: Fix bug that prevented merging any synced/
+    branches into the current branch.
+    (Reversion introduced in 10.20260601)
+  * git-annex.cabal: Remove unused dependency on old-locale.
+  * Remove dependencies on securemem and byteable.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 03 Jun 2026 14:49:39 -0400
+
+git-annex (10.20260601) upstream; urgency=medium
+
+  * Avoid an error message displaying a password embedded in a git remote url.
+    (Reversion introduced in 10.20260421)
+  * Fix use of annex.commitmessage
+    (Reversion introduced in 10.20250115)
+  * disableremote: Avoid (temporarily) clearing size tracking information
+    for other repos than the one being disabled.
+  * Fix bug that prevented remote.name.annex-web-options from always taking
+    effect, and sometimes caused it to be used in situations where it
+    should not be.
+  * map: Don't try to use dot -Tx11 to display the map, that no longer
+    works in commonly available builds of graphviz.
+  * push: Avoid updating a view branch or adjusted branch.
+  * pull: Avoid propagating adjusted branch changes to the original branch.
+  * get, copy: Added --wanted option, which only transfers files
+    that are preferred content.
+  * fsck, drop, whereis: Support --failed option. 
+  * Display an introduction before other debug output.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 01 Jun 2026 11:53:04 -0400
+
+git-annex (10.20260525) upstream; urgency=medium
+
+  * Fix reversion introduced in 10.20260421 that caused commands
+    like git-annex copy to stop early due to SIGPIPE.
+  * p2phttp: Avoid hanging after HEAD request.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 26 May 2026 07:49:42 -0400
+
+git-annex (10.20260520) upstream; urgency=medium
+
+  * Behavior change: git-annex sync now defaults to syncing content,
+    for consistency with push and pull. However, to avoid surprising
+    behavior, this only affects repositories that have preferred content
+    configured.
+    (Use --no-content or configure annex.synccontent to avoid this.)
+  * Behavior change to git-annex pull and push's handling of unwanted
+    files. While previously both commands dropped unwanted files from
+    both the remote and the local repository, now pull only drops unwanted
+    files from the local repository, and push only drops unwanted files
+    from the remote.
+  * info: Report the total size of unused keys found by the last run
+    of git-annex unused.
+  * push: When pushing to a bare git repository, display git push
+    progress before the display of pushed branches.
+  * push, pull, assist: Fix behavior of --content to override the
+    annex.synccontent configuration.
+  * Send git-annex (or other configured) User-Agent when connecting to
+    annex+http remotes.
+  * Support GIT_SSL_CAINFO, GIT_SSL_CAPATH, http.sslCAPath, and http.sslCAPath
+    when connecting to https servers.
+  * Linux standalone builds now bundle CA certs. They are used only when
+    the system does not have its own CA cert store.
+  * Linux standalone build supports using Fedora's CA cert store location.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 20 May 2026 09:16:07 -0400
+
+git-annex (10.20260421) upstream; urgency=medium
+
+  * disableremote: New command.
+  * Fix annexUrl to inherit any password that is set in the remote url.
+  * Add DELEGATE extension to the external special remote protocol.
+  * Avoid dying of an exception when when stdout gets closed by eg head(1),
+    and avoid a crash loop when stderr is closed and git-annex dies of an
+    exception.
+    Fixes reversion introduced in version 10.20230407.
+  * Improve UUID sanitization.
+  * Deal with breaking changes to test concurrency in tasty-1.5.4.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 21 Apr 2026 14:39:56 -0400
+
+git-annex (10.20260316) upstream; urgency=medium
+
+  * Added CHECKPRESENT-URL extension to the external special remote protocol.
+  * Fix reversion in previous version that caused auto-initializing of
+    local git remotes that have annex-ignore set.
+  * Fix bug that caused git credential to be rejected when a http request
+    failed for some reason other than 401.
+  * Importing from the directory special remote will no longer add sizes
+    to keys, which overrode backends that generate unsized keys.
+  * Fix retrival from http git remotes of keys with '%' in their names.
+  * Fix behavior when initremote is used with --sameas= 
+    combined with --private.
+  * web, S3, git: Fix bugs in checking if content is present on a remote
+    when configuration does not allow accessing it.
+  * httpalso: Fix bugs in handling content not being present on the remote.
+  * adb: Avoid deleting contents of a non-empty directory when
+    removing the last exported file from the directory.
+  * Improve display of http exceptions.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 16 Mar 2026 06:53:22 -0400
+
+git-annex (10.20260213) upstream; urgency=medium
+
+  * When used with git forges that allow Push to Create, the remote's
+    annex-uuid is re-probed after the initial push.
+  * addurl, importfeed: Enable --verifiable by default.
+  * fromkey, registerurl: When passed an url, generate a VURL key.
+  * unregisterurl: Unregister both VURL and URL keys.
+  * Fix behavior of local git remotes that have annex-ignore
+    set to be the same as ssh git remotes.
+  * Added annex.security.allow-insecure-https config, which allows
+    using old http servers that use TLS 1.2 without Extended Main
+    Secret support.
+  * p2phttp: Commit git-annex branch changes promptly.
+  * p2phttp: Fix a server stall by disabling warp's slowloris attack
+    prevention.
+  * p2phttp: Added --cpus option.
+  * Avoid ever starting more capabilities than the number of cpus.
+  * fsck: Support repairing a corrupted file in a versioned S3 remote.
+  * Fix incorrect transfer direction in remote transfer log when
+    downloading from a local git remote.
+  * Fix bug that prevented 2 clones of a local git remote 
+    from concurrently downloading the same file.
+  * rsync: Avoid deleting contents of a non-empty directory when
+    removing the last exported file from the directory.
+  * unregisterurl: Fix display of action to not be "registerurl".
+  * The OsPath build flag requires file-io 0.2.0, which fixes several
+    issues.
+  * Remove deprecated commands direct, indirect, proxy, and transferkeys.
+  * Deprecate undo command.
+  * Remove undo action from kde and nautilus integrations.
+  * Fix build on BSDs. Thanks, Greg Steuck
+
+ -- Joey Hess <id@joeyh.name>  Fri, 13 Feb 2026 12:53:48 -0400
+
+git-annex (10.20260115) upstream; urgency=medium
+
+  * New git configs annex.initwanted, annex.initrequired, and
+    annex.initgroups.
+  * Fix bug that could result in a tree imported from a remote containing
+    missing git blobs.
+  * fix: Populate unlocked pointer files in situations where a git command,
+    like git reset or git stash, leaves them unpopulated.
+  * Pass www-authenticate headers in to to git credential, to support
+    eg, git-credential-oauth.
+  * import: Fix display of some import errors.
+  * external: Respond to GETGITREMOTENAME during INITREMOTE with the remote
+    name.
+  * When displaying sqlite error messages, include the path to the database.
+  * webapp: Remove support for local pairing; use wormhole pairing instead.
+  * git-annex.cabal: Removed pairing build flag, and no longer depends
+    on network-multicast or network-info.
+  * Remove support for building with old versions of persistent and 
+    persistent-sqlite.
+  * Removed support for building with ghc older than 9.6.6.
+  * stack.yaml: Update to lts-24.26.
+
+ -- Joey Hess <id@joeyh.name>  Fri, 16 Jan 2026 11:09:14 -0400
+
+git-annex (10.20251215) upstream; urgency=medium
+
+  * Added annex.trashbin configuration.
+  * Added --presentsince, --lackingsince, and --changedsince file
+    matching options.
+  * Added TRANSFER-RETRIEVE-URL extension to the external special remote
+    protocol.
+  * S3: Remote can be configured with an x-amz-tagging header.
+    (Needs aws-0.25)
+  * S3: Support Google Cloud Storage
+    (Needs aws-0.25.1)
+  * S3: Support restore=yes, when used with storageclass=DEEP_ARCHIVE and
+    similar. This is equivilant to the now deprecated Amazon Glacier.
+    (Needs aws-0.25.2)
+  * Add a build warning when the version of aws being built against is
+    too old to support all features.
+  * stack.yaml: Use aws-0.25.2.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 15 Dec 2025 13:23:29 -0400
+
+git-annex (10.20251114) upstream; urgency=medium
+
+  * p2p --pair: Fix to work with external P2P networks.
+  * p2phttp: Significant robustness fixes for bugs that caused the 
+    server to stall.
+  * p2phttp: Fix a file descriptor leak.
+  * p2phttp: Added the --lockedfiles option.
+  * dropunused: Run the annex.secure-erase-command 
+    (or .git/hooks/secure-erase-annex) when deleting
+    temp and bad object files.
+  * remotedaemon: Avoid crashing when run with --debug.
+
+ -- Joey Hess <id@joeyh.name>  Fri, 14 Nov 2025 12:46:45 -0400
+
+git-annex (10.20251029) upstream; urgency=medium
+
+  * Support ssh remotes with '#' and '?' in the path to the repository,
+    the same way git does.
+  * assistant: Fix reversion that caused files to be added locked by
+    default.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 29 Oct 2025 10:04:43 -0400
+
+git-annex (10.20250929) upstream; urgency=medium
+
+  * enableremote: Allow type= to be provided when it does not change the
+    type of the special remote.
+  * importfeed: Fix encoding issues parsing feeds when built with OsPath.
+  * Fix build with ghc 9.0.2.
+  * Remove the Servant build flag; always build with support for
+    annex+http urls and git-annex p2phttp.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 29 Sep 2025 11:28:09 -0400
+
+git-annex (10.20250925) upstream; urgency=medium
+
+  * Fix bug that made changes to a special remote sometimes be missed when
+    importing a tree from it. After upgrading, any such missed changes
+    will be included in the next tree imported from a special remote.
+    Fixes reversion introduced in version 10.20230626.
+  * Fix crash operating on filenames that are exactly 21 bytes long
+    and begin with a utf-8 character.
+  * Fix hang that could occur when using git-annex adjust on a branch with
+    a number of files greater than annex.queuesize.
+  * Fix bug that could cause an invalid utf-8 sequence to be used in a
+    temporary filename when the input filename was valid utf-8.
+  * Improve performance when used with a local git remote that has a
+    large working tree.
+  * drop: --fast support when dropping from a remote.
+  * Added annex.assistant.allowunlocked config.
+  * Add git-remote-p2p-annex and git-remote-tor-annex to standalone builds.
+  * enableremote: Disallow using type= to attempt to change the type of an
+    existing remote.
+  * Add build warnings when git-annex is built without the OsPath
+    build flag.
+  * version: Report on whether it was built with the OsPath build flag.
+  * Avoid leaking file descriptors to child processes started by git-annex
+    in some situations. Note that when not built with the OsPath build
+    flag, these leaks can still happen.
+  * git-annex.cabal: Turn on the OsPath build flag by default.
+  * p2phttp: Fix a hang that could occur when used with --directory,
+    and a repository in the directory got removed.
+  * Removed support for building with unmaintained cryptonite, use crypton.
+
+ -- Joey Hess <id@joeyh.name>  Thu, 25 Sep 2025 13:20:38 -0400
+
+git-annex (10.20250828) upstream; urgency=medium
+
+  * p2p: Added --enable option, which can be used to enable P2P networks
+    provided by external commands git-annex-p2p-<netname>
+  * Added git-remote-p2p-annex, which allows git pull and push to
+    P2P networks provided by commands git-annex-p2p-<netname>
+  * S3: Default to signature=v4 when using an AWS endpoint, since some
+    AWS regions need v4 and all support it. When host= is used to specify
+    a different S3 host, the default remains signature=v2.
+  * webapp: Support setting up S3 buckets in regions that need v4
+    signatures.
+  * S3: When initremote is given the name of a bucket that already exists,
+    automatically set datacenter to the right value, rather than needing it
+    to be explicitly set.
+  * info: Added --show option to pick which parts of the info to calculate
+    and display.
+  * Improve behavior when there are special remotes configured with
+    autoenable=yes with names that conflict with other remotes.
+  * adjust: When another branch has been manually merged into the adjusted
+    branch, re-adjusting errors out, rather than losing that merge commit.
+  * sync: When another branch has been manually merged into an adjusted
+    branch, error out rather than only displaying a warning.
+  * initremote: New onlyencryptcreds=yes which can be used along with
+    embedcreds=yes, to only encrypt the embedded creds, without encrypting
+    the content of the special remote. Useful for exporttree/importtree
+    remotes.
+  * Don't allow the type of encryption of an existing special remote to be
+    changed. Fixes reversion introduced in version 7.20191230.
+  * tahoe: Support tahoe-lafs command versions newer than 1.16.
+  * tahoe: Fix bug that made initremote require an encryption= parameter,
+    despite git-annex encryption not being used with this special remote.
+    Fixes reversion introduced in version 7.20191230.
+  * Improved error message when yt-dlp is not installed and is needed to
+    get a file from the web.
+  * The annex.youtube-dl-command git config is no longer used, git-annex
+    always runs the yt-dlp command, rather than the old youtube-dl command.
+  * Removed support for git versions older than 2.22.
+  * Bump aws build dependency to 0.24.1.
+  * stack.yaml: Update to lts-24.2.
+
+ -- Joey Hess <id@joeyh.name>  Fri, 29 Aug 2025 11:42:37 -0400
+
+git-annex (10.20250721) upstream; urgency=medium
+
+  * Improved workaround for git 2.50 bug, avoding an occasional test suite
+    failure, as well as some situations where an unlocked file did not get
+    populated when adding another file to the repository with the same
+    content.
+  * Add --url option and url= preferred content expression, to match
+    content that is recorded as present in an url.   
+  * p2phttp: Scan multilevel directories with --directory.
+  * p2phttp: Added --socket option.
+  * Fix bug in handling of linked worktrees on filesystems not supporting
+    symlinks, that caused annexed file content to be stored in the wrong
+    location inside the git directory, and also caused pointer files to not
+    get populated.
+  * fsck: Fix location of annexed files when run in linked worktrees
+    that have experienced the above bug.
+  * Fix symlinks generated to annexed content when in adjusted unlocked
+    branch in a linked worktree on a filesystem not supporting symlinks.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 22 Jul 2025 14:11:26 -0400
+
+git-annex (10.20250630) upstream; urgency=medium
+
+  * Work around git 2.50 bug that caused it to crash when there is a merge
+    conflict with an unlocked annexed file.
+  * Skip and warn when a tree import includes empty filenames,
+    which can happen with eg a S3 bucket.
+  * Avoid a problem with temp file names ending in whitespace on
+    filesystems like VFAT that don't support such filenames.
+  * webapp: Rename "Upgrade Repository" to "Convert Repository"
+    to avoid confusion with git-annex upgrade.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 30 Jun 2025 10:05:18 -0400
+
+git-annex (10.20250605) upstream; urgency=medium
+
+  * sync: Push the current branch first, rather than a synced branch,
+    to better support git forges (gitlab, gitea, forgejo, etc.) which
+    use push-to-create with the first pushed branch becoming the default
+    branch.
+  * Added annex.fastcopy and remote.name.annex-fastcopy config setting.
+    When set, this allows the copy_file_range syscall to be used, which
+    can eg allow for server-side copies on NFS. (For fastest copying, 
+    also disable annex.verify or remote.name.annex-verify.)
+  * map: Support --json option.
+  * map: Improve display of remote names.
+  * When annex.freezecontent-command or annex.thawcontent-command is
+    configured but fails, prevent initialization. This allows the user to
+    fix their configuration and avoid crippled filesystem detection
+    entering an adjusted branch.
+  * assistant: Avoid hanging at startup when a process has a *.lock file
+    open in the .git directory.
+  * Windows: Fix duplicate file bug that could occur when files were
+    supposed to be moved across devices.
+
+ -- Joey Hess <id@joeyh.name>  Thu, 05 Jun 2025 14:10:36 -0400
+
+git-annex (10.20250520) upstream; urgency=medium
+
+  * Preferred content now supports "balanced=groupname:lackingcopies"
+    to make files be evenly balanced amoung as many repositories as are
+    needed to satisfy numcopies.
+  * map: Fix buggy handling of remotes that are bare git repositories
+    accessed via ssh.
+  * map: Avoid looping forever with mutually recursive paths between
+    repositories accessed via ssh.
+  * whereused: Fix bug that could find matches from grafts 
+    in remote git-annex branches.
+  * Windows: Fix bug that can cause git status to show annexed files as
+    modified when built with OsPath.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 20 May 2025 10:25:47 -0400
+
+git-annex (10.20250416) upstream; urgency=medium
+
+  * Added the mask special remote.
+  * updatecluster, updateproxy: When a remote that has no annex-uuid is
+    configured as annex-cluster-node, warn and avoid writing bad data to
+    the git-annex branch.
+  * Fix build without the assistant.
+  * fsck: Avoid complaining about required content of dead repositories.
+  * drop: Avoid redundant object directory thawing.
+  * httpalso: Windows url fix.
+  * Added remote.name.annex-web-options config, which is a per-remote
+    version of the annex.web-options config.
+  * migrate: Fix --remove-size to work when a file is not present.
+    Fixes reversion introduced in version 10.20231129.
+  * Support git remotes that use a IPV6 link-local address with a zone ID.
+  * Support git remotes that use an url with a user name that is URL
+    encoded, or in the case of an "scp-style" url, a user name that must be
+    encoded to be legal in an URL.
+  * Fix git-lfs special remote ssh endpoint discovery when the repository
+    path is URL encoded.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 16 Apr 2025 13:34:40 -0400
+
+git-annex (10.20250320) upstream; urgency=medium
+
+  * Added the compute special remote.
+  * addcomputed: New command, adds a file that is generated by a compute
+    special remote.
+  * recompute: New command, recomputes computed files.
+  * findcomputed: New command, displays information about computed files.
+  * Support help.autocorrect settings "prompt", "never", and "immediate".
+  * Allow setting remote.foo.annex-tracking-branch to a branch name
+    that contains "/", as long as it's not a remote tracking branch.
+  * Added OsPath build flag, which speeds up git-annex's operations on files.
+  * git-lfs: Added an optional apiurl parameter.
+    (This needs version 1.2.5 of the haskell git-lfs library to be used.)
+  * fsck: Remember the files that are checked, so a later run with --more
+    will skip them, without needing to use --incremental.
+
+ -- Joey Hess <id@joeyh.name>  Thu, 20 Mar 2025 13:10:48 -0400
+
+git-annex (10.20250115) upstream; urgency=medium
+
+  * Improve handing of ssh connection problems during 
+    remote annex.uuid discovery.
+  * log: Support --key, as well as --branch and --unused.
+  * Avoid verification error when addurl --verifiable is used
+    with an url claimed by a special remote other than the web.
+  * Fix installation on Android.
+  * Allow enableremote of an existing webdav special remote that has
+    read-only access.
+  * git-remote-annex: Use enableremote rather than initremote.
+  * Windows: Fix permission denied error when dropping files that
+    have the readonly attribute set.
+  * Added freezecontent-annex and thawcontent-annex hooks that 
+    correspond to the git configs annex.freezecontent and
+    annex.thawcontent.
+  * Added secure-erase-annex hook that corresponds to the git config
+    annex.secure-erase-command.
+  * Added commitmessage-annex hook that corresponds to the git config
+    annex.commitmessage-command.
+  * Added http-headers-annex hook that corresponds to the git config
+    annex.http-headers-command.
+  * Added git configs annex.post-update-command and annex.pre-commit-command
+    that correspond to the post-update-annex and pre-commit-annex hooks.
+  * Added annex.pre-init-command git config and pre-init-annex hook
+    that is run before git-annex repository initialization.
+  * Linux standalone builds' bundled rsync updated to fix security holes.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 15 Jan 2025 11:39:12 -0400
+
+git-annex (10.20250102) upstream; urgency=medium
+
+  * Added config `url.<base>.annexInsteadOf` corresponding to git's
+    `url.<base>.pushInsteadOf`, to configure the urls to use for accessing
+    the git-annex repositories on a server without needing to configure
+    remote.name.annexUrl in each repository.
+  * Work around git hash-object --stdin-paths's odd stripping of carriage
+    return from the end of the line (some windows infection), avoiding
+    crashing when the repo contains a filename ending in a carriage return.
+  * Document that settting preferred content to "" is the same as the
+    default unset behavior.
+  * sync: Avoid misleading warning about future preferred content
+    transition when preferred content is set to "".
+  * Honor annex.addunlocked configuration when importing a tree from a
+    special remote.
+  * Removed the i386ancient standalone tarball build for linux, which
+    was increasingly unable to support new git-annex features.
+  * Removed support for building with ghc older than 9.0.2,
+    and with older versions of haskell libraries than are in current Debian
+    stable.
+  * stack.yaml: Update to lts-23.2.
+
+ -- Joey Hess <id@joeyh.name>  Thu, 02 Jan 2025 12:31:58 -0400
+
+git-annex (10.20241202) upstream; urgency=medium
+
+  * add: Consistently treat files in a dotdir as dotfiles, even
+    when ran inside that dotdir.
+  * add: When adding a dotfile as a non-large file, mention that it's a
+    dotfile.
+  * p2phttp: Added --directory option which serves multiple git-annex
+    repositories located inside a directory.
+  * When remote.name.annexUrl is an annex+http(s) url, that
+    uses the same hostname as remote.name.url, which is itself a http(s)
+    url, they are assumed to share a username and password. This avoids
+    unnecessary duplicate password prompts.
+  * git-remote-annex: Fix a reversion introduced in version 10.20241031
+    that broke cloning from a special remote.
+  * git-remote-annex: Fix cloning from a special remote on a crippled
+    filesystem.
+  * git-remote-annex: Fix buggy behavior when annex.stalldetection is
+    configured.
+  * git-remote-annex: Require git version 2.31 or newer, since old
+    ones had a buggy git bundle command.
+  * S3: Support versioning=yes with a readonly bucket.
+    (Needs aws-0.24.3)
+  * S3: Send git-annex or other configured User-Agent.
+    (Needs aws-0.24.3)
+  * S3: Fix infinite loop and memory blowup when importing from an
+    unversioned S3 bucket that is large enough to need pagination.
+  * S3: Use significantly less memory when importing from a
+    versioned S3 bucket.
+  * vpop: Only update state after successful checkout.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 02 Dec 2024 12:31:08 -0400
+
+git-annex (10.20241031) upstream; urgency=medium
+
+  * Sped up proxied downloads from special remotes, by streaming.
+  * Added GETORDERED request to external special remote protocol. 
+    When the external special remote responds with ORDERED, it can stream
+    through a proxy.
+  * p2phttp: Support serving unauthenticated users while requesting
+    authentication for operations that need it. Eg, --unauth-readonly
+    can be combined with --authenv.
+  * p2phttp: Allow unauthenticated users to lock content by default.
+  * p2phttp: Added --unauth-nolocking option to prevent unauthenticated
+    users from locking content.
+  * Allow enabling the servant build flag with older versions of stm,
+    allowing building with ghc 9.0.2.
+  * git-remote-annex: Fix bug that prevented using it with external special
+    remotes, leading to protocol error messages involving "GITMANIFEST".
+  * adjust: Allow any order of options when combining --hide-missing with
+    options like --unlock.
+  * Support P2P protocol version 4. This allows DATA-PRESENT to be sent
+    after PUT (and in the HTTP P2P protocol, v4/put has a data-present
+    parameter). When used with a proxy to a special remote like a S3
+    bucket, this allows a custom client to upload content to S3 itself,
+    and then use the P2P protocol to inform the proxy that the content has
+    been stored there, which will result in the same git-annex branch state
+    updates as sending DATA via the proxy.
+  * Fix hang when receiving a large file into a proxied special remote.
+
+ -- Joey Hess <id@joeyh.name>  Thu, 31 Oct 2024 17:19:56 -0400
+
+git-annex (10.20240927) upstream; urgency=medium
+
+  * Detect when a preferred content expression contains "not present",
+    which would lead to repeatedly getting and then dropping files,
+    and make it never match. This also applies to 
+    "not balanced" and "not sizebalanced".
+  * Fix --explain display of onlyingroup preferred content expression.
+  * Allow maxsize to be set to 0 to stop checking maxsize for a repository.
+  * Fix bug that prevented anything being stored in an empty
+    repository whose preferred content expression uses sizebalanced.
+  * sim: New command, can be used to simulate networks of repositories
+    and see how preferred content and other configuration makes file
+    content flow through it.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 30 Sep 2024 19:15:35 -0400
+
+git-annex (10.20240831) upstream; urgency=medium
+
+  * Special remotes configured with exporttree=yes annexobjects=yes 
+    can store objects in .git/annex/objects, as well as an exported tree.
+  * Support proxying to special remotes configured with 
+    exporttree=yes annexobjects=yes, and allow such remotes to be used as
+    cluster nodes.
+  * post-retrieve: When proxying is enabled for an exporttree=yes
+    special remote (or it is a cluster node) and the configured
+    remote.name.annex-tracking-branch is received, the tree is
+    exported to the special remote.
+  * Support "balanced=", "fullybalanced=", "sizebalanced=" and
+    "fullysizebalanced=" in preferred content expressions.
+  * Added --rebalance option.
+  * Added the annex.fullybalancedthreshhold git config.
+  * maxsize: New command to tell git-annex how large the expected maximum
+    size of a repository is, and to display repository sizes.
+  * vicfg: Include maxsize configuration.
+  * info: Improved speed by using new repository size tracking.
+  * lookupkey: Allow using --ref in a bare repository.
+  * export: Added --from option.
+  * git-remote-annex: Store objects in exportree=yes special remotes
+    in the same paths used by annexobjects=yes. This is a backwards
+    compatible change.
+  * updateproxy, updatecluster: Prevent using an exporttree=yes special
+    remote that does not have annexobjects=yes, since it will not work.
+  * The config versioning=true is now reserved for use by versioned special
+    remotes. External special remotes should not use that config for their
+    own purposes.
+
+ -- Joey Hess <id@joeyh.name>  Sat, 31 Aug 2024 19:48:17 -0400
+
+git-annex (10.20240808) upstream; urgency=medium
+
+  * Remove debug output (to stderr) accidentially included in
+    last version.
+  * When getting from a P2P HTTP remote, prompt for credentials when
+    required, instead of failing.
+  * When proxying an upload to a special remote, verify the hash.
+  * Avoid loading cluster log at startup.
+
+ -- Joey Hess <id@joeyh.name>  Thu, 08 Aug 2024 15:26:26 -0400
+
+git-annex (10.20240731) upstream; urgency=medium
+
+  * New HTTP API that is equivilant to the P2P protocol.
+  * New p2phttp command to serve the HTTP API.
+  * annex+http and annex+https urls can be configured for
+    remote.name.annexUrl to use the HTTP API to communicate with a server.
+    This supports writable repositories, as well as accessing clusters
+    and proxied remotes over HTTP.
+  * When a http remote has annex.url set to an annex+http url in
+    the git config file on the website, it will be copied into 
+    remote.name.annexUrl the first time git-annex uses the remote.
+  * assistant: Fix a race condition that could cause a pointer file to
+    get ingested into the annex.
+  * Avoid potential data loss in unlikely situations where git-annex-shell
+    or git-annex remotedaemon is killed while locking a key to prevent its
+    removal.
+  * When proxying a download from a special remote, avoid unncessary hashing.
+  * When proxying an upload to a special remote, verify the hash.
+  * Propagate --force to git-annex transferrer.
+  * Added a build flag for servant, enabling annex+http urls and 
+    git-annex p2phttp.
+  * Added a dependency on the haskell clock library.
+  * Updated stack.yaml to nightly-2024-07-29.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 31 Jul 2024 14:02:21 -0400
+
+git-annex (10.20240701) upstream; urgency=medium
+
+  * git-annex remotes can now act as proxies that provide access to
+    their remotes. Configure this with remote.name.annex-proxy
+    and the git-annex update proxy command.
+  * Clusters are now supported. These are collections of nodes that can
+    be accessed as a single entity, accessed by one or more gateway
+    repositories.
+  * Added git-annex initcluster, updatecluster, and extendcluster commands.
+  * Fix a bug where interrupting git-annex while it is updating the
+    git-annex branch for an export could later lead to git fsck
+    complaining about missing tree objects.
+  * Tab completion of options like --from now includes special remotes,
+    as well as proxied remotes and clusters.
+  * Tab completion of many commands like info and trust now includes
+    remotes.
+  * P2P protocol version 2.
+  * Fix Windows build with Win32 2.13.4+
+    Thanks, Oleg Tolmatcev
+  * When --debugfilter or annex.debugfilter is set, avoid propigating
+    debug output from git-annex-shell, since it cannot be filtered.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 01 Jul 2024 15:11:48 -0400
+
+git-annex (10.20240531) upstream; urgency=medium
+
+  * git-remote-annex: New program which allows pushing a git repo to a
+    git-annex special remote, and cloning from a special remote.
+    (Based on Michael Hanke's git-remote-datalad-annex.)
+  * initremote, enableremote: Added --with-url to enable using
+    git-remote-annex.
+  * When building an adjusted unlocked branch, make pointer files
+    executable when the annex object file is executable.
+  * group: Added --list option.
+  * fsck: Fix recent reversion that made it say it was checksumming files
+    whose content is not present.
+  * Avoid the --fast option preventing checksumming in some cases it
+    was not supposed to.
+  * testremote: Really fsck downloaded objects.
+  * Typo fixes.
+    Thanks, Yaroslav Halchenko
+
+ -- Joey Hess <id@joeyh.name>  Fri, 31 May 2024 12:32:29 -0400
+
+git-annex (10.20240430) upstream; urgency=medium
+
+  * Bug fix: While redundant concurrent transfers were already
+    prevented in most cases, it failed to prevent the case where
+    two different repositories were sending the same content to
+    the same repository.
+  * addurl, importfeed: Added --verifiable option, which improves
+    the safety of --fast or --relaxed by letting the content of
+    annexed files be verified with a checksum that is calculated
+    on a later download from the web. This will become the default later.
+  * Added rclone special remote, which can be used without needing
+    to install the git-annex-remote-rclone program. This needs
+    a forthcoming version of rclone (1.67.0), which supports 
+    "rclone gitannex".
+  * sync, assist, import: Allow -m option to be specified multiple
+    times, to provide additional paragraphs for the commit message.
+  * reregisterurl: New command that can change an url from being
+    used by a special remote to being used by the web remote.
+  * annex.maxextensions configuration controls how many filename
+    extensions to preserve.
+  * find: Fix --help for --copies.
+    Thanks, Gergely Risko
+  * Windows: Fix escaping output to terminal when using old
+    versions of MinTTY.
+  * Added dependency on unbounded-delays.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 30 Apr 2024 15:26:32 -0400
+
+git-annex (10.20240227) upstream; urgency=medium
+
+  * importfeed: Added --scrape option, which uses yt-dlp to screen scrape
+    the equivilant of an RSS feed.
+  * importfeed --force: Don't treat it as a failure when an already
+    downloaded file exists. (Fixes a behavior change introduced in
+    10.20230626.)
+  * importfeed --force: Avoid creating duplicates of existing
+    already downloaded files when yt-dlp or a special remote was used.
+  * addurl, importfeed: Added --raw-except option.
+  * stack.yaml: Update to lts-22.9 and use crypton.
+  * assistant, undo: When committing, let the usual git commit
+    hooks run.
+  * Added annex.commitmessage-command config.
+  * pre-commit: Avoid committing the git-annex branch
+    (except when a commit is made in a view, which changes metadata).
+  * Pass --no-warnings to yt-dlp.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 27 Feb 2024 12:58:30 -0400
+
+git-annex (10.20240129) upstream; urgency=medium
+
+  * info: Added "annex sizes of repositories" table to the overall display.
+  * import: Sped up import from special remotes.
+  * import: Added --message/-m option.
+  * Support using commands that implement the Stateless OpenPGP command line
+    interface, as an alternative to gpg.
+    Currently only supported for encryption=shared special remotes,
+    when annex.shared-sop-command is configured.
+  * test: Test a specified Stateless OpenPGP command when
+    run with eg --test-git-config annex.shared-sop-command=sqop
+  * Improve disk free space checking when transferring unsized keys to
+    local git remotes.
+  * Added configs annex.stalldetection-download, annex.stalldetection-upload,
+    annex.bwlimit-download, annex.bwlimit-upload,
+    and similar per-remote configs.
+  * Improve annex.stalldetection to handle remotes that update progress
+    less frequently than the configured time period.
+  * external: Monitor file size when getting content from external
+    special remotes and use that to update the progress meter,
+    in case the external special remote program does not report progress.
+  * Added --expected-present file matching option.
+  * webapp: Added --port option, and annex.port config.
+  * assistant: When generating a gpg secret key, avoid hardcoding the
+    key algorithm and size.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 29 Jan 2024 13:12:00 -0400
+
+git-annex (10.20231227) upstream; urgency=medium
+
+  * migrate: Support distributed migrations by recording each migration,
+    and adding a --update option that updates the local repository
+    incrementally, hard linking annex objects to their new keys.
+  * pull, sync: When operating on content, automatically handle
+    distributed migrations.
+  * Added annex.syncmigrations config that can be set to false to prevent
+    pull and sync from migrating object content.
+  * migrate: Added --apply option that (re)applies all recorded 
+    distributed migrations to the objects in repository.
+  * migrate: Support adding size to URL keys that were added with
+    --relaxed, by running eg: git-annex migrate --backend=URL foo
+  * When importing from a special remote, support preferred content
+    expressions that use terms that match on keys (eg "present", "copies=1").
+    Such terms are ignored when importing, since the key is not known yet.
+    Before, such expressions caused the import to fail.
+  * Support git-annex copy/move --from-anywhere --to remote.
+  * Make git-annex get/copy/move --from foo override configuration of 
+    remote.foo.annex-ignore, as documented.
+  * Lower precision of timestamps in git-annex branch, which can reduce the
+    size of the branch by up to 8%.
+  * sync: Fix locking problems during merge when annex.pidlock is set.
+  * Avoid a problem with temp file names ending in "." on certian
+    filesystems that have problems with such filenames.
+  * sync, push: Avoid trying to send individual files to special remotes
+    configured with importtree=yes exporttree=no, which would always fail.
+  * Fix a crash opening sqlite databases when run in a non-unicode locale.
+    (Needs persistent-sqlite 2.13.3.)
+
+ -- Joey Hess <id@joeyh.name>  Wed, 27 Dec 2023 19:27:37 -0400
+
+git-annex (10.20231129) upstream; urgency=medium
+
+  * Fix bug in git-annex copy --from --to that skipped files that were
+    locally present.
+  * Make git-annex copy --from --to --fast actually fast.
+  * Fix crash of enableremote when the special remote has embedcreds=yes.
+  * Ignore directories and other unusual files in .git/annex/journal/
+  * info: Added calculation of combined annex size of all repositories.
+  * log: Added options --sizesof, --sizes and --totalsizes that
+    display how the size of repositories changed over time.
+  * log: Added options --interval, --bytes, --received, and --gnuplot
+    to tune the output of the above added options.
+  * findkeys: Support --largerthan and --smallerthan.
+  * importfeed: Use caching database to avoid needing to list urls
+    on every run, and avoid using too much memory.
+  * Improve memory use of --all when using annex.private.
+  * lookupkey: Sped up --batch.
+  * Windows: Consistently avoid ending standard output lines with CR.
+    This matches the behavior of git on Windows.
+  * Windows: Fix CRLF handling in some log files.
+  * Windows: When git-annex init is installing hook scripts, it will
+    avoid ending lines with CR for portability. Existing hook scripts
+    that do have CR line endings will not be changed.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 29 Nov 2023 15:59:20 -0400
+
+git-annex (10.20230926) upstream; urgency=medium
+
+  * Fix more breakage caused by git's fix for CVE-2022-24765, this time
+    involving a remote (either local or ssh) that is a repository not owned
+    by the current user.
+  * Fix using git remotes that are bare when git is configured with 
+    safe.bareRepository = explicit.
+  * Fix linker optimisation in linux standalone tarballs.
+  * adb: Avoid some problems with unusual characters in exporttree 
+    filenames that confuse adb shell commands.
+  * push: When on an adjusted branch, propagate changes to parent branch
+    before updating export remotes.
+  * lookupkey: Added --ref option.
+  * enableremote: Avoid overwriting existing git remote when passed the uuid
+    of a specialremote that was earlier initialized with the same name.
+  * Support being built with crypton rather than the no-longer maintained 
+    cryptonite.
+  * Removed the vendored git-lfs and the GitLfs build flag.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 26 Sep 2023 13:23:37 -0400
+
+git-annex (10.20230828) upstream; urgency=medium
+
+  * oldkeys: New command that lists the keys used by old versions of a file.
+  * Fix behavior of onlyingroup.
+  * info: Added --dead-repositories option. 
+  * Significant startup speed increase by avoiding repeatedly checking
+    if some remote git-annex branch refs need to be merged.
+  * Fix behavior when importing a tree from a directory remote when the
+    directory does not exist. An empty tree was imported, rather than the
+    import failing.
+  * sync, assist, push, pull: Skip more types of remotes when they
+    are not available due to eg being on a drive that is offline.
+    (directory, borg, bup, ddar, gcrypt, rsync)
+  * info: Added available to the info displayed for a remote.
+  * Added AVAILABILITY UNAVAILABLE and the UNAVAILABLERESPONSE extension
+    to the external special remote protocol.
+  * The remote.name.annex-availability git config is no longer used.
+  * Avoid using curl when annex.security.allowed-ip-addresses is set
+    but neither annex.web-options nor annex.security.allowed-url-schemes
+    is set to a value that needs curl.
+  * Stop bundling curl in the OSX dmg and linux standalone image.
+  * diffdriver: Added --get option.
+  * diffdriver: Refuse to run when not in a git-annex repository.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 28 Aug 2023 12:40:37 -0400
+
+git-annex (10.20230802) upstream; urgency=medium
+
+  * satisfy: New command that gets/sends/drops content to satisfy
+    preferred content settings. This is like to the --content
+    part of git-annex sync.
+  * --explain: New option to display explanations of what git-annex
+    takes into account when deciding what to do. Including explaining
+    matching of preferred content expressions, annex.largefiles, and 
+    annex.addunlocked.
+  * reinject: Added --guesskeys option.
+  * diffdriver: Added --text option for easy diffing of the contents of
+    annexed text files.
+  * assist: With --jobs, parallelize transferring content to/from remotes.
+  * Bug fix: Re-running git-annex adjust or sync when in an adjusted branch
+    would overwrite the original branch, losing any commits that had been
+    made to it since the adjusted branch was created.
+  * Bug fix: Fix behavior when git is configured with 
+    safe.bareRepository = explicit.
+  * importfeed bug fix: When -J was used with multiple feeds, some feeds
+    did not get their items downloaded.
+  * importfeed: Add feedurl to the metadata (and allow it to be used in the
+    --template)
+  * Improve resuming interrupted download when using yt-dlp.
+  * S3: Amazon S3 buckets created after April 2023 do not support ACLs,
+    so public=yes cannot be used with them. Existing buckets configured
+    with public=yes will keep working.
+  * S3: Allow setting publicurl=yes without public=yes, to support
+    buckets that are configured with a Bucket Policy that allows public
+    access.
+  * directory, gcrypt: Remove empty hash directories when dropping content.
+  * dropunused: Support --jobs
+  * Support "onlyingroup=" in preferred content expressions.
+  * Support --onlyingroup= matching option.
+  * Setup.hs: Stop installing man pages, desktop files, and the
+    git-annex-shell and git-remote-tor-annex symlinks.
+    Anything still relying on that, eg via cabal v1-install will need to
+    change to using make install-home.
+  * Support building with unix-compat 0.7
+  * Support building with unix-2.8.0.
+  * stack.yaml: Update to build with ghc-9.6.2 and aws-0.24.
+    (For windows, stack-lts-18.13.yaml has to be used instead for now.)
+
+ -- Joey Hess <id@joeyh.name>  Wed, 02 Aug 2023 13:55:30 -0400
+
+git-annex (10.20230626) upstream; urgency=medium
+
+  * Split out two new commands, git-annex pull and git-annex push.
+    Those plus a git commit are equivalent to git-annex sync.
+    (Note that the new commands default to syncing content, unless
+    annex.synccontent is explicitly set to false.)
+  * assist: New command, which is the same as git-annex sync but with
+    new files added and content transferred by default.
+  * sync: Started a transition to --content being enabled by default.
+    When used without --content or --no-content, warn about the upcoming
+    transition, and suggest using one of the options, or setting
+    annex.synccontent.
+  * sync: Added -g as a short option for --no-content.
+  * Many commands now quote filenames that contain unusual characters the
+    same way that git does, to avoid exposing control characters to the
+    terminal.
+  * Support core.quotePath, which can be set to false to display utf8
+    characters as-is in filenames.
+  * Control characters in non-filename data coming from the repository or
+    other possible untrusted sources are filtered out of the display of many
+    commands. When the command output is intended for use in scripting,
+    control characters are only filtered out when displaying to the
+    terminal.
+  * find, findkeys, examinekey: When outputting to a terminal and --format
+    is not used, quote control characters. Output to a pipe is unchanged.
+    (Similar to the behavior of GNU find.)
+  * addurl --preserve-filename now rejects filenames that contain other
+    control characters, besides the escape sequences it already rejected.
+  * init: Avoid autoenabling special remotes that have control characters
+    in their names.
+  * Support core.sharedRepository=0xxx at long last.
+  * Support --json and --json-error-messages in many more commands
+    (addunused, configremote, dead, describe, dropunused, enableremote,
+    expire, fix, importfeed, init, initremote, log, merge, migrate, reinit,
+    reinject, rekey, renameremote, rmurl, semitrust, setpresentkey, trust,
+    unannex, undo, uninit, untrust, unused, upgrade)
+  * importfeed: Support -J
+  * importfeed: Support --json-progress
+  * httpalso: Support being used with special remotes that use chunking.
+  * Several significant speedups to importing large trees from special
+    remotes. Imports that took over an hour now take only a few minutes.
+  * Cache negative lookups of global numcopies and mincopies. 
+    Speeds up eg git-annex sync --content by up to 50%.
+  * Speed up sync in an adjusted branch by avoiding re-adjusting the branch
+    unnecessarily, particularly when it is adjusted with --hide-missing
+    or --unlock-present.
+  * config: Added the --show-origin and --for-file options.
+  * config: Support annex.numcopies and annex.mincopies.
+  * whereused: Fix display of branch:file when run in a subdirectory.
+  * enableremote: Support enableremote of a git remote (that was previously
+    set up with initremote) when additional parameters such as autoenable=
+    are passed.
+  * configremote: New command, currently limited to changing autoenable=
+    setting of a special remote.
+  * Honor --force option when operating on a local git remote.
+  * When a nonexistant file is passed to a command and 
+    --json-error-messages is enabled, output a JSON object indicating the
+    problem. (But git ls-files --error-unmatch still displays errors about
+    such files in some situations.)
+  * Bug fix: Create .git/annex/, .git/annex/fsckdb,
+    .git/annex/sentinal, .git/annex/sentinal.cache, and
+    .git/annex/journal/* with permissions configured by core.sharedRepository.
+  * Bug fix: Lock files were created with wrong modes for some combinations
+    of core.sharedRepository and umask.
+  * initremote: Avoid creating a remote that is not encrypted when gpg is
+    broken.
+  * log: When --raw-date is used, display only seconds from the epoch, as
+    documented, omitting a trailing "s" that was included in the output
+    before.
+  * addunused: Displays the names of the files that it adds.
+  * reinject: Fix support for operating on multiple pairs of files and keys.
+  * sync: Fix buggy handling of --no-pull and --no-push when syncing
+    --content. With --no-pull, avoid downloading content, and with
+    --no-push avoid uploading content. This was done before, but
+    inconsistently.
+  * uninit: Avoid buffering the names of all annexed files in memory.
+  * Fix bug in -z handling of trailing NUL in input.
+  * version: Avoid error message when entire output is not read.
+  * Fix excessive CPU usage when parsing yt-dlp (or youtube-dl) progress
+    output fails.
+  * Use --progress-template with yt-dlp to fix a failure to parse
+    progress output when only an estimated total size is known.
+  * When yt-dlp is available, default to using it in preference to
+    youtube-dl. Using youtube-dl is now deprecated, and git-annex no longer
+    tries to parse its output to display download progress
+  * Improve resuming interrupted download when using yt-dlp or youtube-dl.
+  * assistant: Add dotfiles to git by default, unless annex.dotfiles
+    is configured, the same as git-annex add does.
+  * assistant --autostop: Avoid crashing when ~/.config/git-annex/autostart
+    lists a directory that it cannot chdir to.
+  * Fix display when run with -J1.
+  * assistant: Fix a crash when a small file is deleted immediately after
+    being created.
+  * repair: Fix handling of git ref names on Windows.
+  * repair: Fix a crash when .git/annex/journal/ does not exist.
+  * Support building with optparse-applicative 0.18.1
+    (Thanks, Peter Simons)
+
+ -- Joey Hess <id@joeyh.name>  Mon, 26 Jun 2023 10:37:36 -0400
+
+git-annex (10.20230407) upstream; urgency=medium
+
+  * Fix laziness bug introduced in last release that breaks use
+    of --unlock-present and --hide-missing adjusted branches.
+  * Support user.useConfigOnly git config.
+  * registerurl, unregisterurl: Added --remote option.
+  * registerurl: When an url is claimed by a special remote other than the
+    web, update location tracking for that special remote.
+    (This was the behavior before version 6.20181011)
+  * Sped up sqlite inserts 2x when built with persistent 2.14.5.0
+  * git-annex.cabal: Prevent building with unix-compat 0.7 which
+    removed System.PosixCompat.User.
+
+ -- Joey Hess <id@joeyh.name>  Fri, 07 Apr 2023 13:36:23 -0400
+
+git-annex (10.20230329) upstream; urgency=medium
+
+  * sync: Fix parsing of gcrypt::rsync:// urls that use a relative path.
+  * Avoid failure to update adjusted branch --unlock-present after git-annex
+    drop when annex.adjustedbranchrefresh=1
+  * Avoid leaving repo with a detached head when there is a failure
+    checking out an updated adjusted branch.
+  * view: Support annex.maxextensionlength when generating filenames for
+    the view branch.
+  * Windows: Support urls like "file:///c:/path"
+  * addurl, importfeed: Fix failure when annex.securehashesonly is set.
+  * Copy with a reflink when exporting a tree to a directory special remote.
+  * Fix bug that caused broken protocol to be used with external remotes
+    that use exporttree=yes. In some cases this could result in the wrong
+    content being exported to, or retrieved from the remote.
+  * Support VERSION 2 in the external special remote protocol, which is
+    identical to VERSION 1, but avoids external remote programs needing
+    to work around the above bug. External remote program that support
+    exporttree=yes are recommended to be updated to send VERSION 2.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 29 Mar 2023 13:29:07 -0400
+
+git-annex (10.20230321) upstream; urgency=medium
+
+  * Using git-annex view in an adjusted branch, or git-annex adjust in a
+    view branch, will enter an adjusted view branch.
+  * sync: Fix a reversion that prevented sending files to exporttree=yes
+    remotes when annex-tracking-branch was configured to branch:subdir
+    (Introduced in version 10.20230214)
+  * status: This command is deprecated because it was only needed in direct
+    mode; git status --short is very similar.
+  * Windows: Support long filenames in more (possibly all) of the code.
+  * Added arm64 build for ancient kernels, needed to support Android phones
+    whose kernels are too old to support kernels used by the current arm64
+    build.
+  * importfeed: Display feed title.
+  * init: Support being ran in a repository that has a newline in its path.
+  * copy: When --from and --to are combined and the content is already
+    present on the destination remote, update location tracking as
+    necessary.
+  * Fixed spelling of some messages and added a .codespellrc
+    Thanks, Yaroslav Halchenko
+
+ -- Joey Hess <id@joeyh.name>  Tue, 21 Mar 2023 16:13:46 -0400
+
+git-annex (10.20230227) upstream; urgency=medium
+
+  * Fix more breakage caused by git's fix for CVE-2022-24765, this time
+    involving a remote that is a local bare repository not owned by the
+    current user.
+  * info: Fix reversion in last release involving handling of unsupported
+    input by continuing to handle any other inputs, before exiting nonzero
+    at the end.
+  * git-annex.cabal: Move webapp build deps under the Assistant build flag
+    so git-annex can be built again without yesod etc installed.
+  * Improve error message when unable to read a sqlite database due to
+    permissions problem.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 27 Feb 2023 12:23:12 -0400
+
+git-annex (10.20230214) upstream; urgency=medium
+
+  * sync: Fix a bug that caused files to be removed from an 
+    importtree=yes exporttree=yes special remote when the remote's
+    annex-tracking-branch was not the currently checked out branch.
+  * S3: Support a region= configuration useful for some non-Amazon S3
+    implementations. This feature needs git-annex to be built with aws-0.24.
+  * view: New field?=glob and ?tag syntax that includes a directory "_"
+    in the view for files that do not have the specified metadata set.
+  * Added annex.viewunsetdirectory git config to change the name of the
+    "_" directory in a view.
+  * Changed the name of view branches to include the parent branch.
+    Existing view branches checked out using an old name will still work.
+  * sync: Avoid pushing view branches to remotes.
+  * sync: When run in a view branch, refresh the view branch to reflect any
+    changes that have been made to the parent branch or metadata.
+  * sync: When run in a view branch, avoid updating synced/ branches,
+    or trying to merge anything from remotes.
+  * Support http urls that contain ":" that is not followed by a port
+    number, the same as git does.
+  * sync: Warn when the adjusted basis ref cannot be found, as happens eg when
+    the user has renamed branches.
+  * Sped up view branch construction by 50%.
+  * info, enableremotemote, renameremote: Avoid a confusing message when more
+    than one repository matches the user provided name.
+  * info: Exit nonzero when the input is not supported.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 14 Feb 2023 14:07:11 -0400
+
+git-annex (10.20230126) upstream; urgency=medium
+
+  * Change --metadata comparisons < > <= and >= to fall back to
+    lexicographical comparisons when one or both values being compared
+    are not numbers.
+  * Improve handling of some .git/annex/ subdirectories being on other
+    filesystems, in the bittorrent special remote, and youtube-dl
+    integration, and git-annex addurl.
+  * Added --anything (and --nothing). Eg, git-annex find --anything
+    will list all annexed files whether or not the content is present.
+    This is slightly faster and clearer than --include=* or --exclude=*
+  * Speed up git-annex upgrade (from v5) and init in a repository that has
+    submodules.
+  * Added libgcc_s.so.1 to the linux standalone build so pthread_cancel
+    will work.
+  * Speed up initial scanning for annexed files when built
+    with persistent-2.14.4.1
+  * Allow initremote of additional special remotes with type=web,
+    in addition to the default web special remote. When --sameas=web is used,
+    these provide additional names for the web special remote, and may
+    also have their own additional configuration and cost.
+  * web: Add urlinclude and urlexclude configuration settings.
+  * Added an optional cost= configuration to all special remotes.
+  * adb: Support the remote.name.cost and remote.name.cost-command configs.
+  * findkeys: New command, very similar to git-annex find but operating on
+    keys.
+  * move, copy: Support combining --from and --to, which will send content
+    from one remote across to another remote.
+
+ -- Joey Hess <id@joeyh.name>  Thu, 26 Jan 2023 15:26:22 -0400
+
+git-annex (10.20221212) upstream; urgency=medium
+
+  * Fix a hang that occasionally occurred during commands such as move,
+    when operating on unlocked files. (A bug introduced in 10.20220927)
   * When youtube-dl is not available in PATH, use yt-dlp instead.
   * Support parsing yt-dpl output to display download progress.
+  * init: Avoid scanning for annexed files, which can be lengthy in a
+    large repository. Instead that scan is done on demand.
+  * Sped up the initial scan for annexed files by 21%.
   * test: Add --test-debug option.
+  * Support quettabyte and yottabyte.
 
- -- Joey Hess <id@joeyh.name>  Fri, 18 Nov 2022 12:58:06 -0400
+ -- Joey Hess <id@joeyh.name>  Mon, 12 Dec 2022 12:20:06 -0400
 
 git-annex (10.20221104) upstream; urgency=medium
 
@@ -92,7 +1211,7 @@ git-annex (10.20220927) upstream; urgency=medium
   * Fix updating git index file after getting an unlocked file 
     when annex.stalldetection is set.
   * restage: New git-annex command, handles restaging unlocked files.
-  * test: Added --test-with-git-config option.
+  * test: Added --test-git-config option.
   * Run annex.freezecontent-command and annex.thawcontent-command
     when on a crippled filesystem.
     Thanks, Reiko Asakura
@@ -4114,7 +5233,7 @@ git-annex (5.20150508) unstable; urgency=medium
     --clean-duplicates mode, verify that enough copies of its content still
     exist.
   * Improve integration with KDE's file manager to work with dolphin
-    version 14.12.3 while still being compatable with 4.14.2.
+    version 14.12.3 while still being compatible with 4.14.2.
     Thanks, silvio.
   * assistant: Added --autostop to complement --autostart.
   * Work around wget bug #784348 which could cause it to clobber git-annex
@@ -5019,14 +6138,14 @@ git-annex (5.20140227) unstable; urgency=medium
 
   * metadata: Field names limited to alphanumerics and a few whitelisted
     punctuation characters to avoid issues with views, etc.
-  * metadata: Field names are now case insensative.
+  * metadata: Field names are now case insensitive.
   * When constructing views, metadata is available about the location of the
     file in the view's reference branch. Allows incorporating parts of the
     directory hierarchy in a view.
     For example `git annex view tag=* podcasts/=*` makes a view in the form
     tag/showname.
   * --metadata field=value can now use globs to match, and matches
-    case insensatively, the same as git annex view field=value does.
+    case insensitively, the same as git annex view field=value does.
   * annex.genmetadata can be set to make git-annex automatically set
     metadata (year and month) when adding files.
   * Make annex.web-options be used in several places that call curl.
@@ -5446,7 +6565,7 @@ git-annex (4.20131101) unstable; urgency=low
   * sync: Show a hint about receive.denyNonFastForwards when a push fails.
   * directory, webdav: Fix bug introduced in version 4.20131002 that
     caused the chunkcount file to not be written. Work around repositories
-    without such a file, so files can still be retreived from them.
+    without such a file, so files can still be retrieved from them.
   * assistant: Automatically repair damanged git repository, if it can
     be done without losing data.
   * assistant: Support repairing git remotes that are locally accessible

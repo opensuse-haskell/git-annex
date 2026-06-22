@@ -12,8 +12,8 @@ module Git.Config where
 import qualified Data.Map as M
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Char8 as S8
+import qualified Data.List.NonEmpty as NE
 import Data.Char
-import qualified System.FilePath.ByteString as P
 import Control.Concurrent.Async
 
 import Common
@@ -31,7 +31,7 @@ get key fallback repo = M.findWithDefault fallback key (config repo)
 
 {- Returns a list of values. -}
 getList :: ConfigKey -> Repo -> [ConfigValue]
-getList key repo = M.findWithDefault [] key (fullconfig repo)
+getList key repo = maybe [] NE.toList $ M.lookup key (fullconfig repo)
 
 {- Returns a single git config setting, if set. -}
 getMaybe :: ConfigKey -> Repo -> Maybe ConfigValue
@@ -57,25 +57,37 @@ reRead r = read' $ r
 read' :: Repo -> IO Repo
 read' repo = go repo
   where
-	go Repo { location = Local { gitdir = d } } = git_config True d
-	go Repo { location = LocalUnknown d } = git_config False d
+	-- Passing --git-dir changes git's behavior when run in a
+	-- repository belonging to another user. When the git directory
+	-- was explicitly specified, pass that in order to get the local
+	-- git config.
+	go Repo { location = Local { gitdir = d } }
+		| gitDirSpecifiedExplicitly repo = git_config ["--git-dir=."] d
+	-- Run in worktree when there is one, since running in the .git
+	-- directory will trigger safe.bareRepository=explicit, even
+	-- when not in a bare repository.
+	go Repo { location = Local { worktree = Just d } } = git_config [] d
+	go Repo { location = Local { gitdir = d } } = git_config [] d
+	go Repo { location = LocalUnknown d } = git_config [] d
 	go _ = assertLocal repo $ error "internal"
-	git_config isgitdir d = withCreateProcess p (git_config' p)
+	git_config addparams d = withCreateProcess p (git_config' p)
 	  where
-		params = 
-			-- Passing --git-dir changes git's behavior
-			-- when run in a repository belonging to another
-			-- user. When a gitdir is known, pass that in order
-			-- to get the local git config.
-			(if isgitdir && gitDirSpecifiedExplicitly repo
-				then ["--git-dir=."]
-				else [])
+		params = addparams ++ explicitrepoparams
 			++ ["config", "--null", "--list"]
 		p = (proc "git" params)
-			{ cwd = Just (fromRawFilePath d)
+			{ cwd = Just (fromOsPath d)
 			, env = gitEnv repo
 			, std_out = CreatePipe 
 			}
+		explicitrepoparams = if repoPathSpecifiedExplicitly repo 
+			then 
+				-- Use * rather than d, because git treats
+				-- "dir/" differently than "dir" when comparing
+				-- for safe.directory purposes.
+				[ "-c", "safe.directory=*"
+				, "-c", "safe.bareRepository=all" 
+				]
+			else []
 	git_config' p _ (Just hout) _ pid = 
 		forceSuccessProcess p pid
 			`after`
@@ -86,7 +98,7 @@ read' repo = go repo
 global :: IO (Maybe Repo)
 global = do
 	home <- myHomeDir
-	ifM (doesFileExist $ home </> ".gitconfig")
+	ifM (doesFileExist $ toOsPath home </> literalOsPath ".gitconfig")
 		( Just <$> withCreateProcess p go
 		, return Nothing
 		)
@@ -104,26 +116,32 @@ global = do
 hRead :: Repo -> ConfigStyle -> Handle -> IO Repo
 hRead repo st h = do
 	val <- S.hGetContents h
-	store val st repo
+	let c = parse val st
+	debug (DebugSource "Git.Config") $ "git config read: " ++
+		show (map (\(k, v) -> (show k, map show (NE.toList v))) 
+			(M.toList c))
+	storeParsed c repo
 
 {- Stores a git config into a Repo, returning the new version of the Repo.
  - The git config may be multiple lines, or a single line.
  - Config settings can be updated incrementally.
  -}
 store :: S.ByteString -> ConfigStyle -> Repo -> IO Repo
-store s st repo = do
-	let c = parse s st
-	updateLocation $ repo
-		{ config = (M.map Prelude.head c) `M.union` config repo
-		, fullconfig = M.unionWith (++) c (fullconfig repo)
-		}
+store s st = storeParsed (parse s st)
+
+storeParsed :: M.Map ConfigKey (NE.NonEmpty ConfigValue) -> Repo -> IO Repo
+storeParsed c repo = updateLocation $ repo
+	{ config = (M.map NE.head c) `M.union` config repo
+	, fullconfig = M.unionWith (<>) c (fullconfig repo)
+	}
 
 {- Stores a single config setting in a Repo, returning the new version of
  - the Repo. Config settings can be updated incrementally. -}
 store' :: ConfigKey -> ConfigValue -> Repo -> Repo
 store' k v repo = repo
 	{ config = M.singleton k v `M.union` config repo
-	, fullconfig = M.unionWith (++) (M.singleton k [v]) (fullconfig repo)
+	, fullconfig = M.unionWith (<>) (M.singleton k (v NE.:| []))
+		(fullconfig repo)
 	}
 
 {- Updates the location of a repo, based on its configuration.
@@ -133,34 +151,49 @@ store' k v repo = repo
  - based on the core.bare and core.worktree settings.
  -}
 updateLocation :: Repo -> IO Repo
-updateLocation r@(Repo { location = LocalUnknown d })
-	| isBare r = ifM (doesDirectoryExist (fromRawFilePath dotgit))
-			( updateLocation' r $ Local dotgit Nothing
-			, updateLocation' r $ Local d Nothing
-			)
-	| otherwise = updateLocation' r $ Local dotgit (Just d)
+updateLocation r@(Repo { location = LocalUnknown d }) = case isBare r of
+	Just True -> ifM (doesDirectoryExist dotgit)
+		( updateLocation' r $ Local dotgit Nothing
+		, updateLocation' r $ Local d Nothing
+		)
+	Just False -> mknonbare
+	{- core.bare not in config, probably because safe.directory
+	 - did not allow reading the config -}
+	Nothing -> ifM (Git.Construct.isBareRepo d)
+		( mkbare
+		, mknonbare
+		)
   where
-	dotgit = d P.</> ".git"
+	dotgit = d </> literalOsPath ".git"
+	-- git treats eg ~/foo as a bare git repository located in
+	-- ~/foo/.git if ~/foo/.git/config has core.bare=true
+	mkbare = ifM (doesDirectoryExist dotgit)
+		( updateLocation' r $ Local dotgit Nothing
+		, updateLocation' r $ Local d Nothing
+		)
+	mknonbare = updateLocation' r $ Local dotgit (Just d)
+
 updateLocation r@(Repo { location = l@(Local {}) }) = updateLocation' r l
 updateLocation r = return r
 
 updateLocation' :: Repo -> RepoLocation -> IO Repo
-updateLocation' r l = do
+updateLocation' r l@(Local {}) = do
 	l' <- case getMaybe "core.worktree" r of
 		Nothing -> return l
 		Just (ConfigValue d) -> do
 			{- core.worktree is relative to the gitdir -}
 			top <- absPath (gitdir l)
-			let p = absPathFrom top d
+			let p = absPathFrom top (toOsPath d)
 			return $ l { worktree = Just p }
 		Just NoConfigValue -> return l
 	return $ r { location = l' }
+updateLocation' r l = return r { location = l }
 
 data ConfigStyle = ConfigList | ConfigNullList
 
 {- Parses git config --list or git config --null --list output into a
  - config map. -}
-parse :: S.ByteString -> ConfigStyle -> M.Map ConfigKey [ConfigValue]
+parse :: S.ByteString -> ConfigStyle -> M.Map ConfigKey (NE.NonEmpty ConfigValue)
 parse s st
 	| S.null s = M.empty
 	| otherwise = case st of
@@ -170,8 +203,8 @@ parse s st
 	nl = fromIntegral (ord '\n')
 	eq = fromIntegral (ord '=')
 
-	sep c = M.fromListWith (++)
-		. map (\(k,v) -> (ConfigKey k, [mkval v])) 
+	sep c = M.fromListWith (<>)
+		. map (\(k,v) -> (ConfigKey k, mkval v NE.:| []))
 		. map (S.break (== c))
 	
 	mkval v 
@@ -212,17 +245,18 @@ boolConfig' :: Bool -> S.ByteString
 boolConfig' True = "true"
 boolConfig' False = "false"
 
-isBare :: Repo -> Bool
-isBare r = fromMaybe False $ isTrueFalse' =<< getMaybe coreBare r
+{- Note that repoIsLocalBare is often better to use than this. -}
+isBare :: Repo -> Maybe Bool
+isBare r = isTrueFalse' =<< getMaybe coreBare r
 
 coreBare :: ConfigKey
 coreBare = "core.bare"
 
 {- Runs a command to get the configuration of a repo,
  - and returns a repo populated with the configuration, as well as the raw
- - output and the standard error of the command. -}
-fromPipe :: Repo -> String -> [CommandParam] -> ConfigStyle -> IO (Either SomeException (Repo, S.ByteString, String))
-fromPipe r cmd params st = tryNonAsync $ withCreateProcess p go
+ - output and the exit status and standard error of the command. -}
+fromPipe :: Repo -> String -> [CommandParam] -> ConfigStyle -> IO (Repo, S.ByteString, ExitCode, String)
+fromPipe r cmd params st = withCreateProcess p go
   where
 	p = (proc cmd $ toCommand params)
 		{ std_out = CreatePipe
@@ -232,9 +266,13 @@ fromPipe r cmd params st = tryNonAsync $ withCreateProcess p go
 		withAsync (getstderr pid herr []) $ \errreader -> do
 			val <- S.hGetContents hout
 			err <- wait errreader
-			forceSuccessProcess p pid
-			r' <- store val st r
-			return (r', val, err)
+			exitcode <- waitForProcess pid
+			case exitcode of
+				ExitSuccess -> do
+					r' <- store val st r
+					return (r', val, exitcode, err)
+				ExitFailure _ ->
+					return (r, val, exitcode, err)
 	go _ _ _ _ = error "internal"
 
 	getstderr pid herr c = hGetLineUntilExitOrEOF pid herr >>= \case
@@ -243,7 +281,7 @@ fromPipe r cmd params st = tryNonAsync $ withCreateProcess p go
 
 {- Reads git config from a specified file and returns the repo populated
  - with the configuration. -}
-fromFile :: Repo -> FilePath -> IO (Either SomeException (Repo, S.ByteString, String))
+fromFile :: Repo -> FilePath -> IO (Repo, S.ByteString, ExitCode, String)
 fromFile r f = fromPipe r "git"
 	[ Param "config"
 	, Param "--file"
@@ -298,7 +336,7 @@ checkRepoConfigInaccessible r
 		-- Cannot use gitCommandLine here because specifying --git-dir
 		-- will bypass the git security check.
 		let p = (proc "git" ["config", "--local", "--list"])
-			{ cwd = Just (fromRawFilePath (repoPath r))
+			{ cwd = Just (fromOsPath (repoPath r))
 			, env = gitEnv r
 			}
 		(out, ok) <- processTranscript' p Nothing

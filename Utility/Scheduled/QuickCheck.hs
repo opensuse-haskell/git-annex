@@ -12,9 +12,6 @@ module Utility.Scheduled.QuickCheck (prop_schedule_roundtrips) where
 import Utility.Scheduled
 import Utility.QuickCheck
 
-import Control.Applicative
-import Prelude
-
 instance Arbitrary Schedule where
 	arbitrary = Schedule <$> arbitrary <*> arbitrary
 
@@ -26,7 +23,7 @@ instance Arbitrary ScheduledTime where
 			<*> choose (1, 59)
 		]
 
-instance Arbitrary Recurrance where
+instance Arbitrary Recurrence where
 	arbitrary = oneof
 		[ pure Daily
 		, Weekly <$> arbday

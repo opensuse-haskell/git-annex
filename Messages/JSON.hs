@@ -1,56 +1,55 @@
 {- git-annex command-line JSON output and input
  -
- - Copyright 2011-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2023 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
-{-# LANGUAGE OverloadedStrings, GADTs, CPP #-}
+{-# LANGUAGE OverloadedStrings, GADTs #-}
 
 module Messages.JSON (
 	JSONBuilder,
 	JSONChunk(..),
 	emit,
 	emit',
-	encode,
 	none,
 	start,
+	startActionItem,
 	end,
 	finalize,
 	addErrorMessage,
 	note,
 	info,
+	messageid,
 	add,
 	complete,
 	progress,
 	DualDisp(..),
 	ObjectMap(..),
 	JSONActionItem(..),
-	AddJSONActionItemFields(..),
+	AddJSONActionItemField(..),
+	module Utility.Aeson,
 ) where
 
-import Control.Applicative
 import qualified Data.Map as M
 import qualified Data.Vector as V
+import qualified Data.ByteString as S
 import qualified Data.ByteString.Lazy as L
-#if MIN_VERSION_aeson(2,0,0)
 import qualified Data.Aeson.KeyMap as HM
-#else
-import qualified Data.HashMap.Strict as HM
-#endif
 import System.IO
 import System.IO.Unsafe (unsafePerformIO)
 import Control.Concurrent
 import Data.Maybe
-import Data.Monoid
-import Prelude
 
 import Types.Command (SeekInput(..))
+import Types.ActionItem
+import Types.UUID
 import Key
 import Utility.Metered
 import Utility.Percentage
 import Utility.Aeson
-import Utility.FileSystemEncoding
+import Utility.OsPath
+import Types.Messages
 
 -- A global lock to avoid concurrent threads emitting json at the same time.
 {-# NOINLINE emitLock #-}
@@ -68,13 +67,14 @@ emit' b = do
 	putMVar emitLock ()
 
 -- Building up a JSON object can be done by first using start,
--- then add and note any number of times, and finally complete.
+-- then add and note and messageid any number of times, and finally
+-- complete.
 type JSONBuilder = Maybe (Object, Bool) -> Maybe (Object, Bool)
 
 none :: JSONBuilder
 none = id
 
-start :: String -> Maybe RawFilePath -> Maybe Key -> SeekInput -> JSONBuilder
+start :: String -> Maybe OsPath -> Maybe Key -> SeekInput -> JSONBuilder
 start command file key si _ = case j of
 	Object o -> Just (o, False)
 	_ -> Nothing
@@ -82,7 +82,22 @@ start command file key si _ = case j of
 	j = toJSON' $ JSONActionItem
 		{ itemCommand = Just command
 		, itemKey = key
-		, itemFile = fromRawFilePath <$> file
+		, itemFile = file
+		, itemUUID = Nothing
+		, itemFields = Nothing :: Maybe Bool
+		, itemSeekInput = si
+		}
+
+startActionItem :: String -> ActionItem -> SeekInput -> JSONBuilder
+startActionItem command ai si _ = case j of
+	Object o -> Just (o, False)
+	_ -> Nothing
+  where
+	j = toJSON' $ JSONActionItem
+		{ itemCommand = Just command
+		, itemKey = actionItemKey ai
+		, itemFile = actionItemFile ai
+		, itemUUID = actionItemUUID ai
 		, itemFields = Nothing :: Maybe Bool
 		, itemSeekInput = si
 		}
@@ -111,6 +126,12 @@ note s (Just (o, e)) = Just (HM.unionWith combinelines (HM.singleton "note" (toJ
 	combinelines (String new) (String old) =
 		String (old <> "\n" <> new)
 	combinelines new _old = new
+
+messageid :: MessageId -> JSONBuilder
+messageid _ Nothing = Nothing
+messageid mid (Just (o, e)) = Just (HM.unionWith replaceold (HM.singleton "message-id" (toJSON' (show mid))) o, e)
+  where
+	replaceold new _old = new
 
 info :: String -> JSONBuilder
 info s _ = case j of
@@ -183,7 +204,8 @@ instance ToJSON' a => ToJSON' (ObjectMap a) where
 data JSONActionItem a = JSONActionItem
 	{ itemCommand :: Maybe String
 	, itemKey :: Maybe Key
-	, itemFile :: Maybe FilePath
+	, itemFile :: Maybe OsPath
+	, itemUUID :: Maybe UUID
 	, itemFields :: Maybe a
 	, itemSeekInput :: SeekInput
 	}
@@ -195,9 +217,16 @@ instance ToJSON' a => ToJSON' (JSONActionItem a) where
 		, case itemKey i of
 			Just k -> Just $ "key" .= toJSON' k
 			Nothing -> Nothing
-		, Just $ "file" .= toJSON' (itemFile i)
+		, case itemFile i of
+			Just f -> 
+				let f' = (fromOsPath f) :: S.ByteString
+				in Just $ "file" .= toJSON' f'
+			Nothing -> Nothing
 		, case itemFields i of
 			Just f -> Just $ "fields" .= toJSON' f
+			Nothing -> Nothing
+		, case itemUUID i of
+			Just u -> Just $ "uuid" .= toJSON' u
 			Nothing -> Nothing
 		, Just $ "input" .= fromSeekInput (itemSeekInput i)
 		]
@@ -206,15 +235,18 @@ instance FromJSON a => FromJSON (JSONActionItem a) where
 	parseJSON (Object v) = JSONActionItem
 		<$> (v .:? "command")
 		<*> (maybe (return Nothing) parseJSON =<< (v .:? "key"))
-		<*> (v .:? "file")
+		<*> (fmap stringToOsPath <$> (v .:? "file"))
+		<*> (v .:? "uuid")
 		<*> (v .:? "fields")
+		-- ^ fields is used for metadata, which is currently the
+		-- only json that gets parsed
 		<*> pure (SeekInput [])
 	parseJSON _ = mempty
 
--- This can be used to populate the "fields" after a JSONActionItem
+-- This can be used to populate a field after a JSONActionItem
 -- has already been started.
-newtype AddJSONActionItemFields a = AddJSONActionItemFields a
+data AddJSONActionItemField a = AddJSONActionItemField String a
 	deriving (Show)
 
-instance ToJSON' a => ToJSON' (AddJSONActionItemFields a) where
-	toJSON' (AddJSONActionItemFields a) = object [ ("fields", toJSON' a) ]
+instance ToJSON' a => ToJSON' (AddJSONActionItemField a) where
+	toJSON' (AddJSONActionItemField f a) = object [ (textKey (packString f), toJSON' a) ]

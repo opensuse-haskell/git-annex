@@ -62,7 +62,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
 
 newtype MetaData = MetaData (M.Map MetaField (S.Set MetaValue))
-	deriving (Show, Eq, Ord)
+	deriving (Read, Show, Eq, Ord)
 
 instance ToJSON' MetaData where
 	toJSON' (MetaData m) = object $ map go (M.toList m)
@@ -137,14 +137,14 @@ instance MetaSerializable MetaValue where
 	serialize (MetaValue isset v) =
 		serialize isset <>
 		if B8.any (`elem` [' ', '\r', '\n']) v || "!" `B8.isPrefixOf` v
-			then "!" <> toB64' v
+			then "!" <> toB64 v
 			else v
 	deserialize b = do
 		(isset, b') <- B8.uncons b
 		case B8.uncons b' of
 			Just ('!', b'') -> MetaValue
 				<$> deserialize (B8.singleton isset)
-				<*> fromB64Maybe' b''
+				<*> fromB64Maybe b''
 			_ -> MetaValue
 				<$> deserialize (B8.singleton isset)
 				<*> pure b'

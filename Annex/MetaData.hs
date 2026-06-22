@@ -26,6 +26,7 @@ import qualified Data.Text as T
 import Data.Time.Calendar
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
+import Text.Read
 
 {- Adds metadata for a file that has just been ingested into the
  - annex, but has not yet been committed to git.
@@ -37,7 +38,7 @@ import Data.Time.Clock.POSIX
  -
  - Also, can generate new metadata, if configured to do so.
  -}
-genMetaData :: Key -> RawFilePath -> Maybe POSIXTime -> Annex ()
+genMetaData :: Key -> OsPath -> Maybe POSIXTime -> Annex ()
 genMetaData key file mmtime = do
 	catKeyFileHEAD file >>= \case
 		Nothing -> noop
@@ -55,9 +56,9 @@ genMetaData key file mmtime = do
 					dateMetaData (posixSecondsToUTCTime mtime) old
 			Nothing -> noop
   where
-	warncopied = warning $ 
-		"Copied metadata from old version of " ++ fromRawFilePath file ++ " to new version. " ++ 
-		"If you don't want this copied metadata, run: git annex metadata --remove-all " ++ fromRawFilePath file
+	warncopied = warning $ UnquotedString $
+		"Copied metadata from old version of " ++ fromOsPath file ++ " to new version. " ++ 
+		"If you don't want this copied metadata, run: git annex metadata --remove-all " ++ fromOsPath file
 	-- If the only fields copied were date metadata, and they'll
 	-- be overwritten with the current mtime, no need to warn about
 	-- copying.
@@ -104,15 +105,17 @@ parseMetaDataMatcher p = (,)
 	(f, op_v) = break (`elem` "=<>") p
 	matcher = case op_v of
 		('=':v) -> checkglob v
-		('<':'=':v) -> checkcmp (<=) v
-		('<':v) -> checkcmp (<) v
-		('>':'=':v) -> checkcmp (>=) v
-		('>':v) -> checkcmp (>) v
+		('<':'=':v) -> checkcmp (<=) (<=) v
+		('<':v) -> checkcmp (<) (<) v
+		('>':'=':v) -> checkcmp (>=) (>=) v
+		('>':v) -> checkcmp (>) (>) v
 		_ -> checkglob ""
 	checkglob v =
-		let cglob = compileGlob v CaseInsensative (GlobFilePath False)
+		let cglob = compileGlob v CaseInsensitive (GlobFilePath False)
 		in matchGlob cglob . decodeBS . fromMetaValue
-	checkcmp cmp v v' = case (doubleval v, doubleval (decodeBS (fromMetaValue v'))) of
-		(Just d, Just d') -> d' `cmp` d
-		_ -> False
-	doubleval v = readish v :: Maybe Double
+	checkcmp cmp cmp' v mv' = 
+		let v' = decodeBS (fromMetaValue mv')
+		in case (doubleval v, doubleval v') of
+			(Just d, Just d') -> d' `cmp` d
+			_ -> v' `cmp'` v
+	doubleval v = readMaybe v :: Maybe Double

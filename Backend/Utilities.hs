@@ -1,6 +1,6 @@
 {- git-annex backend utilities
  -
- - Copyright 2012-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2012-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -14,11 +14,11 @@ import qualified Annex
 import Utility.Hash
 import Types.Key
 import Types.KeySource
+import qualified Utility.OsString as OS
 
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Short as S (ShortByteString, toShort)
 import qualified Data.ByteString.Lazy as L
-import qualified System.FilePath.ByteString as P
 import Data.Char
 import Data.Word
 
@@ -29,12 +29,12 @@ import Data.Word
 genKeyName :: String -> S.ShortByteString
 genKeyName s
 	-- Avoid making keys longer than the length of a SHA256 checksum.
-	| bytelen > sha256len = S.toShort $ encodeBS $
-		truncateFilePath (sha256len - md5len - 1) s' ++ "-" ++ 
-			show (md5 bl)
-	| otherwise = S.toShort $ encodeBS s'
+	| bytelen > sha256len = S.toShort $
+		truncateFilePath (sha256len - md5len - 1) s' 
+			<> "-" <> hashByteString (digestToHash (md5 bl))
+	| otherwise = S.toShort s'
   where
-	s' = preSanitizeKeyName s
+	s' = encodeBS $ preSanitizeKeyName s
 	bl = encodeBL s
 	bytelen = fromIntegral $ L.length bl
 
@@ -45,26 +45,31 @@ genKeyName s
  - file that the key was generated from.  -}
 addE :: KeySource -> (KeyVariety -> KeyVariety) -> Key -> Annex Key
 addE source sethasext k = do
-	maxlen <- annexMaxExtensionLength <$> Annex.getGitConfig
-	let ext = selectExtension maxlen (keyFilename source)
+	c <- Annex.getGitConfig
+	let ext = selectExtension
+		(annexMaxExtensionLength c)
+		(annexMaxExtensions c)
+		(keyFilename source)
 	return $ alterKey k $ \d -> d
 		{ keyName = keyName d <> S.toShort ext
 		, keyVariety = sethasext (keyVariety d)
 		}
 
-selectExtension :: Maybe Int -> RawFilePath -> S.ByteString
-selectExtension maxlen f
+selectExtension :: Maybe Int -> Maybe Int -> OsPath -> S.ByteString
+selectExtension maxlen maxextensions f
 	| null es = ""
 	| otherwise = S.intercalate "." ("":es)
   where
 	es = filter (not . S.null) $ reverse $
-		take 2 $ filter (S.all validInExtension) $
+		take (fromMaybe maxExtensions maxextensions) $
+		filter (S.all validInExtension) $
 		takeWhile shortenough $
-		reverse $ S.split (fromIntegral (ord '.')) (P.takeExtensions f')
+		reverse $ S.split (fromIntegral (ord '.')) $
+			fromOsPath $ takeExtensions f'
 	shortenough e = S.length e <= fromMaybe maxExtensionLen maxlen
 	-- Avoid treating a file ".foo" as having its whole name as an
 	-- extension.
-	f' = S.dropWhile (== fromIntegral (ord '.')) (P.takeFileName f)
+	f' = OS.dropWhile (== unsafeFromChar '.') (takeFileName f)
 
 validInExtension :: Word8 -> Bool
 validInExtension c
@@ -75,3 +80,6 @@ validInExtension c
 
 maxExtensionLen :: Int
 maxExtensionLen = 4 -- long enough for "jpeg"
+
+maxExtensions :: Int
+maxExtensions = 2 -- include both extensions of "tar.gz"

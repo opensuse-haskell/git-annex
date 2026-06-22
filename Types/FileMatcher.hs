@@ -1,6 +1,6 @@
 {- git-annex file matcher types
  -
- - Copyright 2013-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2013-2023 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -11,9 +11,10 @@ import Types.UUID (UUID)
 import Types.Key (Key)
 import Types.Link (LinkType)
 import Types.Mime
-import Utility.Matcher (Matcher, Token)
+import Types.RepoSize (LiveUpdate)
+import Utility.Matcher (Matcher, Token, MatchDesc)
 import Utility.FileSize
-import Utility.FileSystemEncoding
+import Utility.OsPath
 
 import Control.Monad.IO.Class
 import qualified Data.Map as M
@@ -26,10 +27,10 @@ data MatchInfo
 	| MatchingUserInfo UserProvidedInfo
 
 data FileInfo = FileInfo
-	{ contentFile :: RawFilePath
+	{ contentFile :: OsPath
 	-- ^ path to a file containing the content, for operations
 	-- that examine it
-	, matchFile :: RawFilePath
+	, matchFile :: OsPath
 	-- ^ filepath to match on; may be relative to top of repo or cwd,
 	-- depending on how globs in preferred content expressions
 	-- are intended to be matched
@@ -38,7 +39,7 @@ data FileInfo = FileInfo
 	}
 
 data ProvidedInfo = ProvidedInfo
-	{ providedFilePath :: Maybe RawFilePath
+	{ providedFilePath :: Maybe OsPath
 	-- ^ filepath to match on, should not be accessed from disk.
 	, providedKey :: Maybe Key
 	, providedFileSize :: Maybe FileSize
@@ -47,7 +48,7 @@ data ProvidedInfo = ProvidedInfo
 	, providedLinkType :: Maybe LinkType
 	}
 
-keyMatchInfoWithoutContent :: Key -> RawFilePath -> MatchInfo
+keyMatchInfoWithoutContent :: Key -> OsPath -> MatchInfo
 keyMatchInfoWithoutContent key file = MatchingInfo $ ProvidedInfo
 	{ providedFilePath = Just file
 	, providedKey = Just key
@@ -60,7 +61,7 @@ keyMatchInfoWithoutContent key file = MatchingInfo $ ProvidedInfo
 -- This is used when testing a matcher, with values to match against
 -- provided by the user.
 data UserProvidedInfo = UserProvidedInfo
-	{ userProvidedFilePath :: UserInfo FilePath
+	{ userProvidedFilePath :: UserInfo OsPath
 	, userProvidedKey :: UserInfo Key
 	, userProvidedFileSize :: UserInfo FileSize
 	, userProvidedMimeType :: UserInfo MimeType
@@ -76,6 +77,8 @@ getUserInfo :: MonadIO m => UserInfo a -> m a
 getUserInfo (Right i) = return i
 getUserInfo (Left e) = liftIO e
 
+newtype MatcherDesc = MatcherDesc String
+
 type FileMatcherMap a = M.Map UUID (FileMatcher a)
 
 type MkLimit a = String -> Either String (MatchFiles a)
@@ -83,7 +86,7 @@ type MkLimit a = String -> Either String (MatchFiles a)
 type AssumeNotPresent = S.Set UUID
 
 data MatchFiles a = MatchFiles 
-	{ matchAction :: AssumeNotPresent -> MatchInfo -> a Bool
+	{ matchAction :: LiveUpdate -> AssumeNotPresent -> MatchInfo -> a Bool
 	, matchNeedsFileName :: Bool
 	-- ^ does the matchAction need a filename in order to match?
 	, matchNeedsFileContent :: Bool
@@ -93,12 +96,18 @@ data MatchFiles a = MatchFiles
 	-- ^ does the matchAction look at information about the key?
 	, matchNeedsLocationLog :: Bool
 	-- ^ does the matchAction look at the location log?
+	, matchNeedsLiveRepoSize :: Bool
+	-- ^ does the matchAction need live repo size information?
+	, matchNegationUnstable :: Bool
+	-- ^ does negating the matchAction lead to unstable behavior?
+	, matchDesc :: Maybe Bool -> MatchDesc
+	-- ^ displayed to the user to describe whether it matched or not
 	}
 
-type FileMatcher a = Matcher (MatchFiles a)
+type FileMatcher a = (Matcher (MatchFiles a), MatcherDesc)
 
 -- This is a matcher that can have tokens added to it while it's being
--- built, and once complete is compiled to an unchangable matcher.
+-- built, and once complete is compiled to an unchangeable matcher.
 data ExpandableMatcher a
 	= BuildingMatcher [Token (MatchFiles a)]
 	| CompleteMatcher (Matcher (MatchFiles a))

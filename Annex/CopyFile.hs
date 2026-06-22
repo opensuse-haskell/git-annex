@@ -1,6 +1,6 @@
 {- Copying files.
  -
- - Copyright 2011-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2025 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -10,15 +10,19 @@
 module Annex.CopyFile where
 
 import Annex.Common
+import qualified Annex
 import Utility.Metered
 import Utility.CopyFile
 import Utility.FileMode
 import Utility.Touch
-import Utility.Hash (IncrementalVerifier(..))
+import Utility.Hash.Incremental
+import qualified Utility.FileIO as F
+import qualified Utility.RawFilePath as R
 
 import Control.Concurrent
 import qualified Data.ByteString as S
 import Data.Time.Clock.POSIX
+import System.PosixCompat.Files (fileMode)
 
 -- To avoid the overhead of trying copy-on-write every time, it's tried
 -- once and if it fails, is not tried again.
@@ -27,19 +31,17 @@ newtype CopyCoWTried = CopyCoWTried (MVar Bool)
 newCopyCoWTried :: IO CopyCoWTried
 newCopyCoWTried = CopyCoWTried <$> newEmptyMVar
 
-{- Copies a file is copy-on-write is supported. Otherwise, returns False.
+{- Copies a file if copy-on-write is supported. Otherwise, returns False.
  -
- - The destination file must not exist yet, or it will fail to make a CoW copy,
- - and will return false.
+ - The destination file must not exist yet (or may exist but be empty), 
+ - or it will fail to make a CoW copy, and will return false.
  -}
-tryCopyCoW :: CopyCoWTried -> FilePath -> FilePath -> MeterUpdate -> IO Bool
+tryCopyCoW :: CopyCoWTried -> OsPath -> OsPath -> MeterUpdate -> IO Bool
 tryCopyCoW (CopyCoWTried copycowtried) src dest meterupdate =
 	-- If multiple threads reach this at the same time, they
 	-- will both try CoW, which is acceptable.
 	ifM (isEmptyMVar copycowtried)
-		-- If dest exists, don't try CoW, since it would
-		-- have to be deleted first.
-		( ifM (doesFileExist dest)
+		( ifM destfilealreadypopulated
 			( return False
 			, do
 				ok <- docopycow
@@ -57,14 +59,45 @@ tryCopyCoW (CopyCoWTried copycowtried) src dest meterupdate =
 			)
 		)
   where
-	docopycow = watchFileSize dest meterupdate $
+	docopycow = watchFileSize dest meterupdate $ const $
 		copyCoW CopyTimeStamps src dest
+
+	-- Check if the dest file already exists, which would prevent
+	-- probing CoW. If the file exists but is empty, there's no benefit
+	-- to resuming from it when CoW does not work, so remove it.
+	destfilealreadypopulated = 
+		tryIO (R.getFileStatus (fromOsPath dest)) >>= \case
+			Left _ -> return False
+			Right st -> do
+				sz <- getFileSize' dest st
+				if sz == 0
+					then tryIO (removeFile dest) >>= \case
+						Right () -> return False
+						Left _ -> return True
+					else return True
 
 data CopyMethod = CopiedCoW | Copied
 
+-- Should cp be allowed to copy the file with --reflink=auto?
+--
+-- The benefit is that this lets it use the copy_file_range
+-- syscall, which is not used with --reflink=always. The drawback is that
+-- the IncrementalVerifier is not updated, so verification, if it is done,
+-- will need to re-read the whole content of the file. And, interrupted
+-- copies are not resumed but are restarted from the beginning.
+-- 
+-- Using this will result in CopiedCow being returned even in cases
+-- where cp fell back to a slow copy.
+newtype FastCopy = FastCopy Bool
+
+getFastCopy :: RemoteGitConfig -> Annex FastCopy
+getFastCopy gc = case remoteAnnexFastCopy gc of
+	False -> FastCopy . annexFastCopy <$> Annex.getGitConfig
+	True -> return (FastCopy True)
+
 {- Copies from src to dest, updating a meter. Preserves mode and mtime.
  - Uses copy-on-write if it is supported. If the the destination already
- - exists, an interruped copy will resume where it left off.
+ - exists, an interrupted copy will resume where it left off.
  -
  - The IncrementalVerifier is updated with the content of the file as it's
  - being copied. But it is not finalized at the end.
@@ -79,43 +112,53 @@ data CopyMethod = CopiedCoW | Copied
  - (eg when isStableKey is false), and doing this avoids getting a
  - corrupted file in such cases.
  -}
-fileCopier :: CopyCoWTried -> FilePath -> FilePath -> MeterUpdate -> Maybe IncrementalVerifier -> IO CopyMethod
+fileCopier :: CopyCoWTried -> FastCopy -> OsPath -> OsPath -> MeterUpdate -> Maybe IncrementalVerifier -> IO CopyMethod
+fileCopier copycowtried (FastCopy True) src dest meterupdate iv = do
+	ok <- watchFileSize dest meterupdate $ const $
+		copyFileExternal CopyTimeStamps src dest
+	if ok
+		then do
+			maybe noop unableIncrementalVerifier iv
+			return CopiedCoW
+		else fileCopier copycowtried (FastCopy False) src dest meterupdate iv
 #ifdef mingw32_HOST_OS
-fileCopier _ src dest meterupdate iv = docopy
+fileCopier _ _ src dest meterupdate iv =
+	fileCopier' src dest meterupdate iv
 #else
-fileCopier copycowtried src dest meterupdate iv =
+fileCopier copycowtried _ src dest meterupdate iv =
 	ifM (tryCopyCoW copycowtried src dest meterupdate)
 		( do
 			maybe noop unableIncrementalVerifier iv
 			return CopiedCoW
-		, docopy
+		, fileCopier' src dest meterupdate iv
 		)
 #endif
-  where
-	docopy = do
-		-- The file might have had the write bit removed,
-		-- so make sure we can write to it.
-		void $ tryIO $ allowWrite dest'
 
-		withBinaryFile src ReadMode $ \hsrc ->
-			fileContentCopier hsrc dest meterupdate iv
+fileCopier' :: OsPath -> OsPath -> MeterUpdate -> Maybe IncrementalVerifier -> IO CopyMethod
+fileCopier' src dest meterupdate iv = do
+	-- The file might have had the write bit removed,
+	-- so make sure we can write to it.
+	void $ tryIO $ allowWrite dest
+
+	F.withBinaryFile src ReadMode $ \hsrc ->
+		fileContentCopier hsrc dest meterupdate iv
 		
-		-- Copy src mode and mtime.
-		mode <- fileMode <$> getFileStatus src
-		mtime <- utcTimeToPOSIXSeconds <$> getModificationTime src
-		setFileMode dest mode
-		touch dest' mtime False
+	-- Copy src mode and mtime.
+	mode <- fileMode <$> R.getFileStatus (fromOsPath src)
+	mtime <- utcTimeToPOSIXSeconds <$> getModificationTime src
+	let dest' = fromOsPath dest
+	R.setFileMode dest' mode
+	touch dest' mtime False
 
-		return Copied
-	
-	dest' = toRawFilePath dest
+	return Copied
 
 {- Copies content from a handle to a destination file. Does not
  - use copy-on-write, and does not copy file mode and mtime.
+ - Updates the IncementalVerifier with the content it copies.
  -}
-fileContentCopier :: Handle -> FilePath -> MeterUpdate -> Maybe IncrementalVerifier -> IO ()
+fileContentCopier :: Handle -> OsPath -> MeterUpdate -> Maybe IncrementalVerifier -> IO ()
 fileContentCopier hsrc dest meterupdate iv =
-	withBinaryFile dest ReadWriteMode $ \hdest -> do
+	F.withBinaryFile dest ReadWriteMode $ \hdest -> do
 		sofar <- compareexisting hdest zeroBytesProcessed
 		docopy hdest sofar
   where

@@ -1,6 +1,6 @@
 {- P2P protocol, Annex implementation
  -
- - Copyright 2016-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2016-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -18,40 +18,42 @@ import Annex.Common
 import Annex.Content
 import Annex.Transfer
 import Annex.ChangedRefs
+import Annex.Verify
 import P2P.Protocol
 import P2P.IO
 import Logs.Location
 import Types.NumCopies
 import Utility.Metered
-import Annex.Verify
+import Utility.MonotonicClock
+import qualified Utility.FileIO as F
 
 import Control.Monad.Free
 import Control.Concurrent.STM
-import qualified Data.ByteString as S
+import Data.Time.Clock.POSIX
 
 -- Full interpreter for Proto, that can receive and send objects.
-runFullProto :: RunState -> P2PConnection -> Proto a -> Annex (Either ProtoFailure a)
-runFullProto runst conn = go
+runFullProto :: RunState -> Annex [Remote] -> P2PConnection -> Proto a -> Annex (Either ProtoFailure a)
+runFullProto runst remotelist conn = go
   where
 	go :: RunProto Annex
 	go (Pure v) = return (Right v)
 	go (Free (Net n)) = runNet runst conn go n
-	go (Free (Local l)) = runLocal runst go l
+	go (Free (Local l)) = runLocal runst remotelist go l
 
-runLocal :: RunState -> RunProto Annex -> LocalF (Proto a) -> Annex (Either ProtoFailure a)
-runLocal runst runner a = case a of
+runLocal :: RunState -> Annex [Remote] -> RunProto Annex -> LocalF (Proto a) -> Annex (Either ProtoFailure a)
+runLocal runst remotelist runner a = case a of
 	TmpContentSize k next -> do
 		tmp <- fromRepo $ gitAnnexTmpObjectLocation k
 		size <- liftIO $ catchDefaultIO 0 $ getFileSize tmp
 		runner (next (Len size))
 	FileSize f next -> do
-		size <- liftIO $ catchDefaultIO 0 $ getFileSize (toRawFilePath f)
+		size <- liftIO $ catchDefaultIO 0 $ getFileSize f
 		runner (next (Len size))
 	ContentSize k next -> do
 		let getsize = liftIO . catchMaybeIO . getFileSize
 		size <- inAnnex' isJust Nothing getsize k
 		runner (next (Len <$> size))
-	ReadContent k af o sender next -> do
+	ReadContent k af o offset sender next -> do
 		let proceed c = do
 			r <- tryNonAsync c
 			case r of
@@ -62,12 +64,12 @@ runLocal runst runner a = case a of
 		-- run for any other reason, the sender action still must
 		-- be run, so is given empty and Invalid data.
 		let fallback = runner (sender mempty (return Invalid))
-		v <- tryNonAsync $ prepSendAnnex k
+		v <- tryNonAsync $ prepSendAnnex k o
 		case v of
-			Right (Just (f, checkchanged)) -> proceed $ do
+			Right (Just (f, _sz, checkchanged)) -> proceed $ do
 				-- alwaysUpload to allow multiple uploads of the same key.
 				let runtransfer ti = transfer alwaysUpload k af Nothing $ \p ->
-					sinkfile f o checkchanged sender p ti
+					sinkfile f offset checkchanged sender p ti
 				checktransfer runtransfer fallback
  			Right Nothing -> proceed fallback
 			Left e -> return $ Left $ ProtoFailureException e
@@ -79,8 +81,8 @@ runLocal runst runner a = case a of
 			iv <- startVerifyKeyContentIncrementally DefaultVerify k
 			let runtransfer ti = 
 				Right <$> transfer download' k af Nothing (\p ->
-					logStatusAfter k $ getViaTmp rsp DefaultVerify k af $ \tmp ->
-						storefile (fromRawFilePath tmp) o l getb iv validitycheck p ti)
+					logStatusAfter NoLiveUpdate k $ getViaTmp rsp DefaultVerify k Nothing $ \tmp ->
+						storefile tmp o l getb iv validitycheck p ti)
 			let fallback = return $ Left $
 				ProtoFailureMessage "transfer already in progress, or unable to take transfer lock"
 			checktransfer runtransfer fallback
@@ -99,8 +101,28 @@ runLocal runst runner a = case a of
 			Left e -> return $ Left $ ProtoFailureException e
 			Right (Left e) -> return $ Left e
 			Right (Right ok) -> runner (next ok)
+	SendContentWith consumer getb validitycheck next -> do
+		v <- tryNonAsync $ do
+			let fallback = return $ Left $
+				ProtoFailureMessage "Transfer failed"
+			let consumer' b ti = do
+				validator <- consumer b
+				indicatetransferred ti
+				return validator
+			runner getb >>= \case
+				Left e -> giveup $ describeProtoFailure e
+				Right b -> checktransfer (\ti -> Right <$> consumer' b ti) fallback >>= \case
+					Left e -> return (Left e)
+					Right validator ->
+						runner validitycheck >>= \case
+							Right v -> Right <$> validator v
+							_ -> Right <$> validator Nothing
+		case v of
+			Left e -> return $ Left $ ProtoFailureException e
+			Right (Left e) -> return $ Left e
+			Right (Right ok) -> runner (next ok)
 	SetPresent k u next -> do
-		v <- tryNonAsync $ logChange k u InfoPresent
+		v <- tryNonAsync $ logChange NoLiveUpdate k u InfoPresent
 		case v of
 			Left e -> return $ Left $ ProtoFailureException e
 			Right () -> runner next
@@ -109,22 +131,31 @@ runLocal runst runner a = case a of
 		case v of
 			Left e -> return $ Left $ ProtoFailureException e
 			Right result -> runner (next result)
-	RemoveContent k next -> do
+	RemoveContent k mts next -> do
 		let cleanup = do
-			logStatus k InfoMissing
+			logStatus NoLiveUpdate k InfoMissing
 			return True
+		let checkts = case mts of
+			Nothing -> return True
+			Just ts -> do
+				now <- liftIO currentMonotonicTimestamp
+				return (now < ts)
 		v <- tryNonAsync $
 			ifM (Annex.Content.inAnnex k)
-				( lockContentForRemoval k cleanup $ \contentlock -> do
-					removeAnnex contentlock
-					cleanup
+				( lockContentForRemoval k cleanup $ \contentlock ->
+					ifM checkts
+						( do
+							removeAnnex remotelist contentlock
+							cleanup
+						, return False
+						)
 				, return True
 				)
 		case v of
 			Left e -> return $ Left $ ProtoFailureException e
 			Right result -> runner (next result)
 	TryLockContent k protoaction next -> do
-		v <- tryNonAsync $ lockContentShared k $ \verifiedcopy -> 
+		v <- tryNonAsync $ lockContentShared k (Just p2pDefaultLockContentRetentionDuration) $ \verifiedcopy -> 
 			case verifiedcopy of
 				LockedCopy _ -> runner (protoaction True)
 				_ -> runner (protoaction False)
@@ -146,7 +177,10 @@ runLocal runst runner a = case a of
 	UpdateMeterTotalSize m sz next -> do
 		liftIO $ setMeterTotalSize m sz
 		runner next
-	RunValidityCheck checkaction next -> runner . next =<< checkaction
+	RunValidityCheck checkaction next ->
+		runner . next =<< checkaction
+	GetLocalCurrentTime next ->
+		runner . next =<< liftIO getPOSIXTime
   where
 	transfer mk k af sd ta = case runst of
 		-- Update transfer logs when serving.
@@ -157,47 +191,17 @@ runLocal runst runner a = case a of
 		-- a client.
 		Client _ -> ta nullMeterUpdate
 	
-	resumefromoffset o incrementalverifier p h
-		| o /= 0 = do
-			p' <- case incrementalverifier of
-				Just iv -> do
-					go iv o
-					return p
-				_ -> return $ offsetMeterUpdate p (toBytesProcessed o)
-			-- Make sure the handle is seeked to the offset.
-			-- (Reading the file probably left it there
-			-- when that was done, but let's be sure.)
-			hSeek h AbsoluteSeek o
-			return p'
-		| otherwise = return p
-	  where
-		go iv n
-			| n == 0 = return ()
-			| otherwise = do
-				let c = if n > fromIntegral defaultChunkSize
-					then defaultChunkSize
-					else fromIntegral n
-				b <- S.hGet h c
-				updateIncrementalVerifier iv b
-				unless (b == S.empty) $
-					go iv (n - fromIntegral (S.length b))
-
 	storefile dest (Offset o) (Len l) getb incrementalverifier validitycheck p ti = do
 		v <- runner getb
 		case v of
 			Right b -> do
-				liftIO $ withBinaryFile dest ReadWriteMode $ \h -> do
-					p' <- resumefromoffset o incrementalverifier p h
-					let writechunk = case incrementalverifier of
-						Nothing -> \c -> S.hPut h c
-						Just iv -> \c -> do
-							S.hPut h c
-							updateIncrementalVerifier iv c
-					meteredWrite p' writechunk b
+				liftIO $ F.withBinaryFile dest ReadWriteMode $ \h -> do
+					p' <- resumeVerifyFromOffset o incrementalverifier p h
+					meteredWrite p' (writeVerifyChunk incrementalverifier h) b
 				indicatetransferred ti
 
 				rightsize <- do
-					sz <- liftIO $ getFileSize (toRawFilePath dest)
+					sz <- liftIO $ getFileSize dest
 					return (toInteger sz == l + o)
 					
 				runner validitycheck >>= \case
@@ -207,7 +211,7 @@ runLocal runst runner a = case a of
 								Nothing -> return (True, UnVerified)
 								Just True -> return (True, Verified)
 								Just False -> do
-									verificationOfContentFailed (toRawFilePath dest)
+									verificationOfContentFailed dest
 									return (False, UnVerified)
 							| otherwise -> return (False, UnVerified)
 						Nothing -> return (rightsize, UnVerified)
@@ -225,11 +229,11 @@ runLocal runst runner a = case a of
 						-- known. Force content
 						-- verification.
 						return (rightsize, MustVerify)
-			Left e -> error $ describeProtoFailure e
+			Left e -> giveup $ describeProtoFailure e
 	
 	sinkfile f (Offset o) checkchanged sender p ti = bracket setup cleanup go
 	  where
-		setup = liftIO $ openBinaryFile f ReadMode
+		setup = liftIO $ F.openBinaryFile f ReadMode
 		cleanup = liftIO . hClose
 		go h = do
 			let p' = offsetMeterUpdate p (toBytesProcessed o)

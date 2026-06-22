@@ -1,0 +1,8 @@
+[[!comment format=mdwn
+ username="matrss"
+ avatar="http://cdn.libravatar.org/avatar/cd1c0b3be1af288012e49197918395f0"
+ subject="comment 1"
+ date="2026-05-06T10:16:52Z"
+ content="""
+In a Debian 13 container this is all working fine. AFAICT the ca-certificates packages are very different between Rocky and Debian, on Debian I am getting /etc/ssl/certs populated with a bunch of files (presumably all CAs) and with a ca-certificates.crt file, while on Rocky I am only getting /etc/ssl/certs/ca-bundle.crt and /etc/ssl/certs/ca-bundle.trust.crt. After uninstalling ca-certificates on Debian the only file left in that directory is ca-certificates.crt and git-annex continues to work, so I assume this file is required but doesn't exist on Rocky.
+"""]]

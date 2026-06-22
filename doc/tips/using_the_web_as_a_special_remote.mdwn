@@ -1,3 +1,7 @@
+[[!toc ]]
+
+## basic use
+
 The web can be used as a [[special_remote|special_remotes]] too.
 
 	# git annex addurl http://example.com/video.mpeg
@@ -48,7 +52,7 @@ You can also attach urls to any file already in the annex:
   	00000000-0000-0000-0000-000000000001 -- web
    	27a9510c-760a-11e1-b9a0-c731d2b77df9 -- here
 
-## configuring filenames
+## configuring addurl filenames
 
 By default, `addurl` will generate a filename for you. You can use
 `--file=` to specify the filename to use.
@@ -71,9 +75,9 @@ number takes that many paths from the end.
 <a name=videos></a>
 
 There's support for downloading videos from sites like YouTube, Vimeo,
-and many more. This relies on youtube-dl to download the videos.
+and many more. This relies on yt-dlp to download the videos.
 
-When you have youtube-dl installed, you can just 
+When you have yt-dlp installed, you can just 
 `git annex addurl http://youtube.com/foo` and it will detect that
 it is a video and download the video content for offline viewing.
 
@@ -82,23 +86,19 @@ See the documentation of annex.security.allowed-ip-addresses
 in [[git-annex]] for details.)
 
 Later, in another clone of the repository, you can run `git annex get` on
-the file and it will also be downloaded with youtube-dl. This works
+the file and it will also be downloaded with yt-dlp. This works
 even if the video host has transcoded or otherwise changed the video
 in the meantime; the assumption is that these video files are equivalent.
 
 There is an `annex.youtube-dl-options` configuration setting that can be used
-to pass parameters to quvi. For example, you could set `git config
+to pass parameters to yt-dlp. For example, you could set `git config
 annex.youtube-dl-options "--format worst"` to configure it to download low
-quality videos from YouTube. Note that the youtube-dl configuration files
-are not read when git-annex runs youtube-dl, to avoid config settings that
-break its integration.
+quality videos from YouTube.
 
-To download a youtube channel, you need to find the RSS feed associated with
-that channel, and pass it to `git annex importfeed`. There does not seem to
-be an easy link anywhere to get the RSS feed, but you can construct its url
-manually. For a channel like
-"https://www.youtube.com/channel/$foo", the
-feed is "https://www.youtube.com/feeds/videos.xml?channel_id=$foo"
+To download all the videos in a youtube channel, you can use 
+`git-annex importfeed --scrape` with the url to the
+channel, or you can find the RSS feed for the channel, and 
+`git-annex importfeed` that url (without `--scrape`).
 
 ## bittorrent
 
@@ -115,3 +115,36 @@ to work.
 ## podcasts
 
 This is done using `git annex importfeed`. See [[downloading podcasts]].
+
+## configuring which url is used when there are several
+
+An annexed file can have content at multiple urls that git-annex knows
+about, and git-annex may use any of those urls for downloading a file.
+
+If some urls are especially fast, or especially slow, you might want to
+configure which urls git-annex prefers to use first, or should only use as
+a last resory. To accomplish that, you can create additional remotes, that
+are web special remotes, and are configured to only be used for some urls,
+and have a different cost than the web special remote.
+
+For example, suppose that you want to prioritize using urls on "fasthost.com".
+
+    git-annex initremote --sameas=web fasthost type=web urlinclude='*//fasthost.com/*' cost=150
+
+Now, `git-annex get` of a file that is on both fasthost.com and another url
+will prefer to use the fasthost special remote, rather than the web special
+remote (which has a higher cost of 200), and so will use the fasthost.com
+url. If that url is not available, it will fall back to the web special
+remote, and use the other url.
+
+Suppose that you want to avoid using urls on "slowhost.com", except
+as a last resort.
+    
+    git-annex initremote --sameas=web slowhost type=web urlinclude='*//slowhost.com/*' cost=300
+
+Now, `git-annex get` of a file that is on both slowhost.com and another url
+will first try the fasthost remote. If fasthost does not support the url,
+it will next try the regular "web" remote. Which will avoid using
+urls that are used by the configuration of either fasthost or slowhost.
+Finally, if it's unable to get the file from some other url, it will
+use the slowhost remote to get it from the slow url.

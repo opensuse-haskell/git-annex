@@ -6,19 +6,21 @@
  -}
 
 {-# LANGUAGE OverloadedStrings, TypeSynonymInstances, FlexibleInstances #-}
+{-# LANGUAGE CPP #-}
 
 module Git.Types where
+
+import Utility.SafeCommand
+import Utility.FileSystemEncoding
+import Utility.OsPath
 
 import Network.URI
 import Data.String
 import Data.Default
 import qualified Data.Map as M
 import qualified Data.ByteString as S
+import qualified Data.List.NonEmpty as NE
 import System.Posix.Types
-import Utility.SafeCommand
-import Utility.FileSystemEncoding
-import qualified Data.Semigroup as Sem
-import Prelude
 
 {- Support repositories on local disk, and repositories accessed via an URL.
  -
@@ -31,8 +33,8 @@ import Prelude
  - else known about it.
  -}
 data RepoLocation
-	= Local { gitdir :: RawFilePath, worktree :: Maybe RawFilePath }
-	| LocalUnknown RawFilePath
+	= Local { gitdir :: OsPath, worktree :: Maybe OsPath }
+	| LocalUnknown OsPath
 	| Url URI
 	| UnparseableUrl String
 	| Unknown
@@ -40,9 +42,9 @@ data RepoLocation
 
 data Repo = Repo
 	{ location :: RepoLocation
-	, config :: M.Map ConfigKey ConfigValue
+	, config :: RepoConfig
 	-- a given git config key can actually have multiple values
-	, fullconfig :: M.Map ConfigKey [ConfigValue]
+	, fullconfig :: RepoFullConfig
 	-- remoteName holds the name used for this repo in some other
 	-- repo's list of remotes, when this repo is such a remote
 	, remoteName :: Maybe RemoteName
@@ -53,7 +55,19 @@ data Repo = Repo
 	, gitGlobalOpts :: [CommandParam]
 	-- True only when --git-dir or GIT_DIR was used
 	, gitDirSpecifiedExplicitly :: Bool
+	-- Use when the path to the repository was specified explicitly,
+	-- eg in a git remote, and so it's safe to set 
+	-- -c safe.directory=* and -c safe.bareRepository=all 
+	-- when using this repository.
+	, repoPathSpecifiedExplicitly :: Bool
+	-- When a Repo is a linked git worktree, this is the path
+	-- from its gitdir to the git directory of the main worktree.
+	, mainWorkTreePath :: Maybe OsPath
 	} deriving (Show, Eq, Ord)
+	
+type RepoConfig = M.Map ConfigKey ConfigValue
+
+type RepoFullConfig = M.Map ConfigKey (NE.NonEmpty ConfigValue)
 
 newtype ConfigKey = ConfigKey S.ByteString
 	deriving (Ord, Eq)
@@ -65,7 +79,7 @@ data ConfigValue
 	-- with an empty value
 	deriving (Ord, Eq)
 
-instance Sem.Semigroup ConfigValue where
+instance Semigroup ConfigValue where
 	ConfigValue a <> ConfigValue b = ConfigValue (a <> b)
 	a <> NoConfigValue = a
 	NoConfigValue <> b = b
@@ -79,6 +93,9 @@ instance Default ConfigValue where
 fromConfigKey :: ConfigKey -> String
 fromConfigKey (ConfigKey s) = decodeBS s
 
+fromConfigKey' :: ConfigKey -> S.ByteString
+fromConfigKey' (ConfigKey s) = s
+
 instance Show ConfigKey where
 	show = fromConfigKey
 
@@ -91,6 +108,11 @@ instance FromConfigValue S.ByteString where
 
 instance FromConfigValue String where
 	fromConfigValue = decodeBS . fromConfigValue
+
+#ifdef WITH_OSPATH
+instance FromConfigValue OsPath where
+	fromConfigValue v = toOsPath (fromConfigValue v :: S.ByteString)
+#endif
 
 instance Show ConfigValue where
 	show = fromConfigValue
@@ -124,7 +146,7 @@ newtype RefDate = RefDate String
 
 {- Types of objects that can be stored in git. -}
 data ObjectType = BlobObject | CommitObject | TreeObject
-	deriving (Show)
+	deriving (Show, Eq)
 
 readObjectType :: S.ByteString -> Maybe ObjectType
 readObjectType "blob" = Just BlobObject

@@ -50,6 +50,10 @@ received from remotes.
 
   Show whereis information for files found by last run of git-annex unused.
 
+* `--failed`
+
+  Operate on files that have recently failed to be transferred.
+
 * `--batch`
 
   Enables batch mode, in which a file is read in a line from stdin,
@@ -76,7 +80,7 @@ received from remotes.
 * `--json-error-messages`
 
   Messages that would normally be output to standard error are included in
-  the json instead.
+  the JSON instead.
 
 * `--format=value`
 
@@ -85,7 +89,8 @@ received from remotes.
   The value is a format string, in which '${var}' is expanded to the
   value of a variable. To right-justify a variable with whitespace,
   use '${var;width}' ; to left-justify a variable, use '${var;-width}';
-  to escape unusual characters in a variable, use '${escaped_var}'
+  to escape unusual characters (including control characters)
+  in a variable, use '${escaped_var}'
 
   These variables are available for use in formats: file, key, uuid,
   url, backend, bytesize, humansize, keyname, hashdirlower, hashdirmixed,

@@ -32,10 +32,11 @@ recordContentIdentifier :: RemoteStateHandle -> ContentIdentifier -> Key -> Anne
 recordContentIdentifier (RemoteStateHandle u) cid k = do
 	c <- currentVectorClock
 	config <- Annex.getGitConfig
-	Annex.Branch.maybeChange
+	void $ Annex.Branch.maybeChange
 		(Annex.Branch.RegardingUUID [u])
 		(remoteContentIdentifierLogFile config k)
 		(addcid c . parseLog)
+		noop
   where
 	addcid c v
 		| cid `elem` l = Nothing -- no change needed

@@ -1,6 +1,6 @@
 {- git-annex main program
  -
- - Copyright 2010-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -34,11 +34,11 @@ import qualified Command.MatchExpression
 import qualified Command.FromKey
 import qualified Command.RegisterUrl
 import qualified Command.UnregisterUrl
+import qualified Command.ReregisterUrl
 import qualified Command.SetKey
 import qualified Command.DropKey
 import qualified Command.Transferrer
 import qualified Command.TransferKey
-import qualified Command.TransferKeys
 import qualified Command.SetPresentKey
 import qualified Command.ReadPresentKey
 import qualified Command.CheckPresentKey
@@ -56,7 +56,9 @@ import qualified Command.Init
 import qualified Command.Describe
 import qualified Command.InitRemote
 import qualified Command.EnableRemote
+import qualified Command.ConfigRemote
 import qualified Command.RenameRemote
+import qualified Command.DisableRemote
 import qualified Command.EnableTor
 import qualified Command.Multicast
 import qualified Command.Expire
@@ -70,6 +72,7 @@ import qualified Command.PreCommit
 import qualified Command.PostReceive
 import qualified Command.FilterBranch
 import qualified Command.Find
+import qualified Command.FindKeys
 import qualified Command.FindRef
 import qualified Command.Whereis
 import qualified Command.WhereUsed
@@ -98,6 +101,11 @@ import qualified Command.Ungroup
 import qualified Command.Config
 import qualified Command.Vicfg
 import qualified Command.Sync
+import qualified Command.Assist
+import qualified Command.Pull
+import qualified Command.Push
+import qualified Command.Put
+import qualified Command.Satisfy
 import qualified Command.Mirror
 import qualified Command.AddUrl
 import qualified Command.ImportFeed
@@ -105,17 +113,25 @@ import qualified Command.RmUrl
 import qualified Command.Import
 import qualified Command.Export
 import qualified Command.Map
-import qualified Command.Direct
-import qualified Command.Indirect
 import qualified Command.Upgrade
 import qualified Command.Forget
+import qualified Command.OldKeys
 import qualified Command.P2P
-import qualified Command.Proxy
+import qualified Command.P2PHttp
 import qualified Command.DiffDriver
 import qualified Command.Smudge
 import qualified Command.FilterProcess
 import qualified Command.Restage
 import qualified Command.Undo
+import qualified Command.InitCluster
+import qualified Command.UpdateCluster
+import qualified Command.ExtendCluster
+import qualified Command.UpdateProxy
+import qualified Command.MaxSize
+import qualified Command.Sim
+import qualified Command.AddComputed
+import qualified Command.Recompute
+import qualified Command.FindComputed
 import qualified Command.Version
 import qualified Command.RemoteDaemon
 #ifdef WITH_ASSISTANT
@@ -143,6 +159,11 @@ cmds testoptparser testrunner mkbenchmarkgenerator = map addGitAnnexCommonOption
 	, Command.Unlock.editcmd
 	, Command.Lock.cmd
 	, Command.Sync.cmd
+	, Command.Assist.cmd
+	, Command.Pull.cmd
+	, Command.Push.cmd
+	, Command.Put.cmd
+	, Command.Satisfy.cmd
 	, Command.Mirror.cmd
 	, Command.AddUrl.cmd
 	, Command.ImportFeed.cmd
@@ -153,7 +174,9 @@ cmds testoptparser testrunner mkbenchmarkgenerator = map addGitAnnexCommonOption
 	, Command.Describe.cmd
 	, Command.InitRemote.cmd
 	, Command.EnableRemote.cmd
+	, Command.ConfigRemote.cmd
 	, Command.RenameRemote.cmd
+	, Command.DisableRemote.cmd
 	, Command.EnableTor.cmd
 	, Command.Multicast.cmd
 	, Command.Reinject.cmd
@@ -184,11 +207,11 @@ cmds testoptparser testrunner mkbenchmarkgenerator = map addGitAnnexCommonOption
 	, Command.FromKey.cmd
 	, Command.RegisterUrl.cmd
 	, Command.UnregisterUrl.cmd
+	, Command.ReregisterUrl.cmd
 	, Command.SetKey.cmd
 	, Command.DropKey.cmd
 	, Command.Transferrer.cmd
 	, Command.TransferKey.cmd
-	, Command.TransferKeys.cmd
 	, Command.SetPresentKey.cmd
 	, Command.ReadPresentKey.cmd
 	, Command.CheckPresentKey.cmd
@@ -208,6 +231,7 @@ cmds testoptparser testrunner mkbenchmarkgenerator = map addGitAnnexCommonOption
 	, Command.AddUnused.cmd
 	, Command.FilterBranch.cmd
 	, Command.Find.cmd
+	, Command.FindKeys.cmd
 	, Command.FindRef.cmd
 	, Command.Whereis.cmd
 	, Command.WhereUsed.cmd
@@ -220,17 +244,25 @@ cmds testoptparser testrunner mkbenchmarkgenerator = map addGitAnnexCommonOption
 	, Command.Inprogress.cmd
 	, Command.Migrate.cmd
 	, Command.Map.cmd
-	, Command.Direct.cmd
-	, Command.Indirect.cmd
 	, Command.Upgrade.cmd
 	, Command.Forget.cmd
+	, Command.OldKeys.cmd
 	, Command.P2P.cmd
-	, Command.Proxy.cmd
+	, Command.P2PHttp.cmd
 	, Command.DiffDriver.cmd
 	, Command.Smudge.cmd
 	, Command.FilterProcess.cmd
 	, Command.Restage.cmd
 	, Command.Undo.cmd
+	, Command.InitCluster.cmd
+	, Command.UpdateCluster.cmd
+	, Command.ExtendCluster.cmd
+	, Command.UpdateProxy.cmd
+	, Command.MaxSize.cmd
+	, Command.Sim.cmd
+	, Command.AddComputed.cmd
+	, Command.Recompute.cmd
+	, Command.FindComputed.cmd
 	, Command.Version.cmd
 	, Command.RemoteDaemon.cmd
 #ifdef WITH_ASSISTANT

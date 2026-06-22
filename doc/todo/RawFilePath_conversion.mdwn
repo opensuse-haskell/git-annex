@@ -1,0 +1,56 @@
+For a long time (since 2019) git-annex has been progressively converting from
+FilePath to RawFilePath. And more recently, to OsPath.
+
+[[!meta title="OsPath conversion"]]
+
+The reason is mostly performance, also a simpler representation of
+filepaths that doesn't need encoding hacks to support non-UTF8 values.
+
+Some commands like `git-annex find` have been converted end-to-end
+with good performance results. And OsPath is used very widly now. 
+But this conversion is not yet complete. This is a todo to keep track
+of the status.
+
+* The OsPath build flag makes git-annex build with OsPath. Otherwise,
+  it builds with RawFilePath. That build flag is now on by default,
+  and there is a build warning when it is not set.
+
+* The plan is to eventually remove the build flag and simplify code in
+  git-annex to not need to support two different build methods.
+
+* unix has modules that operate on RawFilePath but no OSPath versions yet.
+  See https://github.com/haskell/unix/issues/240
+  However, this is not really a performance problem, because converting
+  from an OsPath to a RawFilePath in order to use such a function
+  is the same amount of work as calling a native OsPath version of the
+  function would be, because passing a ShortByteString into the FFI entails
+  making a copy of it.
+
+* filepath-bytestring is used when not building with OsPath. It's also
+  in Setup-Depends. In order to stop needing to maintain that library,
+  the goal is to eliminate it from dependencies. This may need to wait
+  until the OsPath build flag is removed and OsPath is always used.
+
+* Git.LsFiles has several `pipeNullSplit'` calls that have toOsPath
+  mapped over the results. That adds an additional copy, so the lazy
+  ByteString is converted to strict,
+  and then to ShortByteString, with a copy each time. This is in the
+  critical path for large git repos, and might be a noticable slowdown.
+  There is currently no easy way to go direct from a lazy ByteString to a
+  ShortByteString, although it would certianly be possible to write low
+  level code to do it efficiently. Alternatively, it would be possible to
+  read a strict ByteString direct from a handle, like hGetLine does
+  (although in this case it would need to stop at the terminating 0 byte)
+  and unsafePerformIO to stream to a list would avoid needing to rewrite
+  this code to not use a list.
+
+* OsPath has by now been pushed about as far as it will go, but here and
+  there use of FilePath remains in odd corners. These are unlikely to cause
+  any noticiable performance impact.
+
+The `require_OsPath` branch removes the OsPath build flag,
+and merging it would resolve this. But it needs a newer version of file-io
+than is in Debian yet.
+--[[Joey]]
+
+[[!tag confirmed]]

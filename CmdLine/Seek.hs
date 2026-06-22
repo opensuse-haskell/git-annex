@@ -4,10 +4,12 @@
  - the values a user passes to a command, and prepare actions operating
  - on them.
  -
- - Copyright 2010-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
+
+{-# LANGUAGE OverloadedStrings #-}
 
 module CmdLine.Seek where
 
@@ -46,19 +48,28 @@ import qualified Database.Keys
 import qualified Utility.RawFilePath as R
 import Utility.Tuple
 import Utility.HumanTime
+import qualified Utility.OsString as OS
 
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import System.Posix.Types
 import Data.IORef
 import Data.Time.Clock.POSIX
-import qualified System.FilePath.ByteString as P
+import System.PosixCompat.Files (isDirectory, isSymbolicLink, deviceID, fileID)
 
 data AnnexedFileSeeker = AnnexedFileSeeker
-	{ startAction :: SeekInput -> RawFilePath -> Key -> CommandStart
+	{ startAction :: Maybe KeySha -> SeekInput -> OsPath -> Key -> Annex [CommandStart]
 	, checkContentPresent :: Maybe Bool
 	, usesLocationLog :: Bool
 	}
+
+startSingle
+	:: (Maybe KeySha -> SeekInput -> OsPath -> Key -> CommandStart)
+	-> Maybe KeySha -> SeekInput -> OsPath -> Key -> Annex [CommandStart]
+startSingle a ks i p k = return [a ks i p k]
+
+-- The Sha that was read to get the Key.
+newtype KeySha = KeySha Git.Sha
 
 withFilesInGitAnnex :: WarnUnmatchWhen -> AnnexedFileSeeker -> WorkTreeItems -> CommandSeek
 withFilesInGitAnnex ww a l = seekFilteredKeys a $
@@ -75,7 +86,7 @@ withFilesInGitAnnexNonRecursive ww needforce a (WorkTreeItems l) = ifM (Annex.ge
 	getfiles c [] = return (reverse c, pure True)
 	getfiles c (p:ps) = do
 		os <- seekOptions ww
-		(fs, cleanup) <- inRepo $ LsFiles.inRepoDetails os [toRawFilePath p]
+		(fs, cleanup) <- inRepo $ LsFiles.inRepoDetails os [toOsPath p]
 		r <- case fs of
 			[f] -> do
 				propagateLsFilesError cleanup
@@ -89,18 +100,18 @@ withFilesInGitAnnexNonRecursive ww needforce a (WorkTreeItems l) = ifM (Annex.ge
 		return (r, pure True)
 withFilesInGitAnnexNonRecursive _ _ _ NoWorkTreeItems = noop
 
-withFilesNotInGit :: CheckGitIgnore -> WarnUnmatchWhen -> ((SeekInput, RawFilePath) -> CommandSeek) -> WorkTreeItems -> CommandSeek
+withFilesNotInGit :: CheckGitIgnore -> WarnUnmatchWhen -> ((SeekInput, OsPath) -> CommandSeek) -> WorkTreeItems -> CommandSeek
 withFilesNotInGit (CheckGitIgnore ci) ww a l = do
 	force <- Annex.getRead Annex.force
 	let include_ignored = force || not ci
 	seekFiltered (const (pure True)) a $
 		seekHelper id ww (const $ LsFiles.notInRepo [] include_ignored) l
 
-withPathContents :: ((RawFilePath, RawFilePath) -> CommandSeek) -> CmdParams -> CommandSeek
+withPathContents :: ((OsPath, OsPath) -> CommandSeek) -> CmdParams -> CommandSeek
 withPathContents a params = do
 	matcher <- Limit.getMatcher
 	checktimelimit <- mkCheckTimeLimit
-	go matcher checktimelimit params []
+	go matcher checktimelimit (map toOsPath params) []
   where
 	go _ _ [] [] = return ()
 	go matcher checktimelimit (p:ps) [] =
@@ -114,15 +125,12 @@ withPathContents a params = do
 	-- fail if the path that the user provided is a broken symlink,
 	-- the same as it fails if the path that the user provided does not
 	-- exist.
-	get p = ifM (isDirectory <$> getFileStatus p)
+	get p = ifM (isDirectory <$> R.getFileStatus (fromOsPath p))
 		( map (\f -> 
-			let f' = toRawFilePath f
-			in (f', P.makeRelative (P.takeDirectory (P.dropTrailingPathSeparator p')) f'))
-			<$> dirContentsRecursiveSkipping (".git" `isSuffixOf`) False p
-		, return [(p', P.takeFileName p')]
+			(f, makeRelative (takeDirectory (dropTrailingPathSeparator p)) f))
+			<$> dirContentsRecursiveSkipping (literalOsPath ".git" `OS.isSuffixOf`) False p
+		, return [(p, takeFileName p)]
 		)
-	  where
-		p' = toRawFilePath p
 
 	checkmatch matcher (f, relf) = matcher $ MatchingFile $ FileInfo
 		{ contentFile = f
@@ -144,24 +152,24 @@ withPairs a params = sequence_ $
 	pairs c (x:y:xs) = pairs ((x,y):c) xs
 	pairs _ _ = giveup "expected pairs"
 
-withFilesToBeCommitted :: ((SeekInput, RawFilePath) -> CommandSeek) -> WorkTreeItems -> CommandSeek
-withFilesToBeCommitted a l = seekFiltered (const (pure True)) a $
-	seekHelper id WarnUnmatchWorkTreeItems (const LsFiles.stagedNotDeleted) l
+withFilesToBeCommitted :: WarnUnmatchWhen -> ((SeekInput, OsPath) -> CommandSeek) -> WorkTreeItems -> CommandSeek
+withFilesToBeCommitted ww a l = seekFiltered (const (pure True)) a $
+	seekHelper id ww (const LsFiles.stagedNotDeleted) l
 
 {- unlocked pointer files that are staged, and whose content has not been
  - modified-}
-withUnmodifiedUnlockedPointers :: WarnUnmatchWhen -> ((SeekInput, RawFilePath) -> CommandSeek) -> WorkTreeItems -> CommandSeek
+withUnmodifiedUnlockedPointers :: WarnUnmatchWhen -> ((SeekInput, OsPath) -> CommandSeek) -> WorkTreeItems -> CommandSeek
 withUnmodifiedUnlockedPointers ww a l =
 	seekFiltered (isUnmodifiedUnlocked . snd) a $
 		seekHelper id ww (const LsFiles.typeChangedStaged) l
 
-isUnmodifiedUnlocked :: RawFilePath -> Annex Bool
+isUnmodifiedUnlocked :: OsPath -> Annex Bool
 isUnmodifiedUnlocked f = catKeyFile f >>= \case
 	Nothing -> return False
 	Just k -> sameInodeCache f =<< Database.Keys.getInodeCaches k
 
 {- Finds files that may be modified. -}
-withFilesMaybeModified :: WarnUnmatchWhen -> ((SeekInput, RawFilePath) -> CommandSeek) -> WorkTreeItems -> CommandSeek
+withFilesMaybeModified :: WarnUnmatchWhen -> ((SeekInput, OsPath) -> CommandSeek) -> WorkTreeItems -> CommandSeek
 withFilesMaybeModified ww a params = seekFiltered (const (pure True)) a $
 	seekHelper id ww LsFiles.modified params
 
@@ -230,11 +238,11 @@ withKeyOptions'
 	-> (WorkTreeItems -> CommandSeek)
 	-> WorkTreeItems
 	-> CommandSeek
-withKeyOptions' ko auto mkkeyaction fallbackaction worktreeitems = do
+withKeyOptions' ko autoorwanted mkkeyaction fallbackaction worktreeitems = do
 	bare <- fromRepo Git.repoIsLocalBare
-	when (auto && bare) $
-		giveup "Cannot use --auto in a bare repository"
-	case (noworktreeitems, ko) of
+	when (autoorwanted && bare) $
+		giveup "Cannot use --auto or --wanted in a bare repository"
+	case (nospecifiedworktreeitems, ko) of
 		(True, Nothing)
 			| bare -> nofilename $ noauto runallkeys
 			| otherwise -> fallbackaction worktreeitems
@@ -245,12 +253,14 @@ withKeyOptions' ko auto mkkeyaction fallbackaction worktreeitems = do
 		(True, Just (WantSpecificKey k)) -> nofilename $ noauto $ runkeyaction (return [k])
 		(True, Just WantIncompleteKeys) -> nofilename $ noauto $ runkeyaction incompletekeys
 		(True, Just (WantBranchKeys bs)) -> noauto $ runbranchkeys bs
-		(False, Just _) -> giveup "Can only specify one of file names, --all, --branch, --unused, --failed, --key, or --incomplete"
+		(False, Just _) -> giveup $ "Can only specify one of file names, " ++ optionlist
   where
 	noauto a
-		| auto = giveup "Cannot use --auto with --all or --branch or --unused or --key or --incomplete"
+		| autoorwanted = giveup $ "Cannot use --auto or --wanted with " ++ optionlist
 		| otherwise = a
-			
+		
+	optionlist = "--all, --branch, --unused, --failed --key, or --incomplete"
+
 	nofilename a = ifM (Limit.introspect matchNeedsFileName)
 		( do
 			bare <- fromRepo Git.repoIsLocalBare
@@ -260,7 +270,7 @@ withKeyOptions' ko auto mkkeyaction fallbackaction worktreeitems = do
 		, a
 		)
 
-	noworktreeitems = case worktreeitems of
+	nospecifiedworktreeitems = case worktreeitems of
 		WorkTreeItems [] -> True
 		WorkTreeItems _ -> False
 		NoWorkTreeItems -> False
@@ -273,24 +283,17 @@ withKeyOptions' ko auto mkkeyaction fallbackaction worktreeitems = do
 	-- those. This significantly speeds up typical operations
 	-- that need to look at the location log for each key.
 	runallkeys = do
-		checktimelimit <- mkCheckTimeLimit
 		keyaction <- mkkeyaction
-		config <- Annex.getGitConfig
-		
-		let getk = locationLogFileKey config
+		checktimelimit <- mkCheckTimeLimit
 		let discard reader = reader >>= \case
 			Nothing -> noop
 			Just _ -> discard reader
-		let go reader = reader >>= \case
-			Just (k, f, content) -> checktimelimit (discard reader) $ do
-				maybe noop (Annex.Branch.precache f) content
-				unlessM (checkDead k) $
-					keyaction Nothing (SeekInput [], k, mkActionItem k)
-				go reader
-			Nothing -> return ()
-		Annex.Branch.overBranchFileContents getk go >>= \case
-			Just r -> return r
-			Nothing -> giveup "This repository is read-only, and there are unmerged git-annex branches, which prevents operating on all keys. (Set annex.merge-annex-branches to false to ignore the unmerged git-annex branches.)"
+		overLocationLogs' False False ()
+			(\reader cont -> checktimelimit (discard reader) cont) 
+			(\k _ () -> keyaction Nothing (SeekInput [], k, mkActionItem k))
+			>>= \case
+				Annex.Branch.NoUnmergedBranches ((), _) -> return ()
+				Annex.Branch.UnmergedBranches ((), _) -> giveup "This repository is read-only, and there are unmerged git-annex branches, which prevents operating on all keys. (Set annex.merge-annex-branches to false to ignore the unmerged git-annex branches.)"
 
 	runkeyaction getks = do
 		keyaction <- mkkeyaction
@@ -312,7 +315,7 @@ withKeyOptions' ko auto mkkeyaction fallbackaction worktreeitems = do
 					in keyaction lt (SeekInput [], k, bfp)
 				Nothing -> noop
 			unlessM (liftIO cleanup) $
-				error ("git ls-tree " ++ Git.fromRef b ++ " failed")
+				giveup ("git ls-tree " ++ Git.fromRef b ++ " failed")
 	
 	runfailedtransfers = do
 		keyaction <- mkkeyaction
@@ -321,7 +324,7 @@ withKeyOptions' ko auto mkkeyaction fallbackaction worktreeitems = do
 		forM_ ts $ \(t, i) ->
 			keyaction Nothing (SeekInput [], transferKey t, mkActionItem (t, i))
 
-seekFiltered :: ((SeekInput, RawFilePath) -> Annex Bool) -> ((SeekInput, RawFilePath) -> CommandSeek) -> Annex ([(SeekInput, RawFilePath)], IO Bool) -> Annex ()
+seekFiltered :: ((SeekInput, OsPath) -> Annex Bool) -> ((SeekInput, OsPath) -> CommandSeek) -> Annex ([(SeekInput, OsPath)], IO Bool) -> Annex ()
 seekFiltered prefilter a listfs = do
 	matcher <- Limit.getMatcher
 	checktimelimit <- mkCheckTimeLimit
@@ -352,7 +355,7 @@ checkMatcherWhen mi c i a
 -- because of the way data is streamed through git cat-file.
 --
 -- It can also precache location logs using the same efficient streaming.
-seekFilteredKeys :: AnnexedFileSeeker -> Annex ([(SeekInput, (RawFilePath, Git.Sha, FileMode))], IO Bool) -> Annex ()
+seekFilteredKeys :: AnnexedFileSeeker -> Annex ([(SeekInput, (OsPath, Git.Sha, FileMode))], IO Bool) -> Annex ()
 seekFilteredKeys seeker listfs = do
 	g <- Annex.gitRepo
 	mi <- MatcherInfo
@@ -382,9 +385,10 @@ seekFilteredKeys seeker listfs = do
 	propagateLsFilesError cleanup
   where
 	finisher mi oreader checktimelimit = liftIO oreader >>= \case
-		Just ((si, f), content) -> checktimelimit (liftIO discard) $ do
-			keyaction f mi content $ 
-				commandAction . startAction seeker si f
+		Just ((si, f, keysha), content) -> checktimelimit (liftIO discard) $ do
+			keyaction f mi content $ \k ->
+				commandActions
+					=<< startAction seeker keysha si f k
 			finisher mi oreader checktimelimit
 		Nothing -> return ()
 	  where
@@ -393,12 +397,12 @@ seekFilteredKeys seeker listfs = do
 			Just _ -> discard
 
 	precachefinisher mi lreader checktimelimit = liftIO lreader >>= \case
-		Just ((logf, (si, f), k), logcontent) -> checktimelimit (liftIO discard) $ do
+		Just ((logf, (si, f, keysha), k), logcontent) -> checktimelimit (liftIO discard) $ do
 			maybe noop (Annex.Branch.precache logf) logcontent
 			checkMatcherWhen mi
 				(matcherNeedsLocationLog mi && not (matcherNeedsFileName mi))
 				(MatchingFile $ FileInfo f f (Just k))
-				(commandAction $ startAction seeker si f k)
+				(commandActions =<< startAction seeker keysha si f k)
 			precachefinisher mi lreader checktimelimit
 		Nothing -> return ()
 	  where
@@ -407,11 +411,11 @@ seekFilteredKeys seeker listfs = do
 			Just _ -> discard
 	
 	precacher mi config oreader lfeeder lcloser = liftIO oreader >>= \case
-		Just ((si, f), content) -> do
+		Just ((si, f, keysha), content) -> do
 			keyaction f mi content $ \k -> 
 				let logf = locationLogFile config k
 				    ref = Git.Ref.branchFileRef Annex.Branch.fullname logf
-				in liftIO $ lfeeder ((logf, (si, f), k), ref)
+				in liftIO $ lfeeder ((logf, (si, f, keysha), k), ref)
 			precacher mi config oreader lfeeder lcloser
 		Nothing -> liftIO $ void lcloser
 	
@@ -422,7 +426,7 @@ seekFilteredKeys seeker listfs = do
 		(not ((matcherNeedsKey mi || matcherNeedsLocationLog mi) 
 			&& not (matcherNeedsFileName mi)))
 		(MatchingFile $ FileInfo f f Nothing)
-		(liftIO $ ofeeder ((si, f), sha))
+		(liftIO $ ofeeder ((si, f, Just (KeySha sha)), sha))
 
 	keyaction f mi content a = 
 		case parseLinkTargetOrPointerLazy =<< content of
@@ -466,7 +470,7 @@ seekFilteredKeys seeker listfs = do
 	
 	-- Check if files exist, because a deleted file will still be
 	-- listed by ls-tree, but should not be processed.
-	exists p = isJust <$> liftIO (catchMaybeIO $ R.getSymbolicLinkStatus p)
+	exists p = isJust <$> liftIO (catchMaybeIO $ R.getSymbolicLinkStatus (fromOsPath p))
 
 	mdprocess mi mdreader ofeeder ocloser = liftIO mdreader >>= \case
 		Just ((si, f), Just (sha, size, _type))
@@ -486,18 +490,18 @@ seekFilteredKeys seeker listfs = do
 			null <$> Annex.Branch.getUnmergedRefs
 		| otherwise = pure False
 
-seekHelper :: (a -> RawFilePath) -> WarnUnmatchWhen -> ([LsFiles.Options] -> [RawFilePath] -> Git.Repo -> IO ([a], IO Bool)) -> WorkTreeItems -> Annex ([(SeekInput, a)], IO Bool)
+seekHelper :: (a -> OsPath) -> WarnUnmatchWhen -> ([LsFiles.Options] -> [OsPath] -> Git.Repo -> IO ([a], IO Bool)) -> WorkTreeItems -> Annex ([(SeekInput, a)], IO Bool)
 seekHelper c ww a (WorkTreeItems l) = do
 	os <- seekOptions ww
 	v <- liftIO $ newIORef []
 	r <- inRepo $ \g -> concat . concat <$> forM (segmentXargsOrdered l)
-		(runSegmentPaths' mk c (\fs -> go v os fs g) . map toRawFilePath)
+		(runSegmentPaths' mk c (\fs -> go v os fs g) . map toOsPath)
 	return (r, cleanupall v)
   where
-	mk (Just i) f = (SeekInput [fromRawFilePath i], f) 
+	mk (Just i) f = (SeekInput [fromOsPath i], f) 
 	-- This is not accurate, but it only happens when there are a
 	-- great many input WorkTreeItems.
-	mk Nothing f = (SeekInput [fromRawFilePath (c f)], f)
+	mk Nothing f = (SeekInput [fromOsPath (c f)], f)
 
 	go v os fs g = do
 		(ls, cleanup) <- a os fs g
@@ -509,15 +513,15 @@ seekHelper c ww a (WorkTreeItems l) = do
 		and <$> sequence cleanups
 seekHelper _ _ _ NoWorkTreeItems = return ([], pure True)
 
-data WarnUnmatchWhen = WarnUnmatchLsFiles | WarnUnmatchWorkTreeItems
+data WarnUnmatchWhen = WarnUnmatchLsFiles String | WarnUnmatchWorkTreeItems String
 
 seekOptions :: WarnUnmatchWhen -> Annex [LsFiles.Options]
-seekOptions WarnUnmatchLsFiles =
+seekOptions (WarnUnmatchLsFiles _) =
 	ifM (annexSkipUnknown <$> Annex.getGitConfig)
 		( return [] 
 		, return [LsFiles.ErrorUnmatch]
 		)
-seekOptions WarnUnmatchWorkTreeItems = return []
+seekOptions (WarnUnmatchWorkTreeItems _) = return []
 
 -- Items in the work tree, which may be files or directories.
 data WorkTreeItems
@@ -551,22 +555,23 @@ workTreeItems = workTreeItems' (AllowHidden False)
 
 workTreeItems' :: AllowHidden -> WarnUnmatchWhen -> CmdParams -> Annex WorkTreeItems
 workTreeItems' (AllowHidden allowhidden) ww ps = case ww of
-	WarnUnmatchWorkTreeItems -> runcheck
-	WarnUnmatchLsFiles -> 
+	(WarnUnmatchWorkTreeItems action) -> runcheck action
+	(WarnUnmatchLsFiles action) -> 
 		ifM (annexSkipUnknown <$> Annex.getGitConfig)
-			( runcheck
+			( runcheck action
 			, return $ WorkTreeItems ps
 			)
   where
-	runcheck = do
+	runcheck action = do
 		currbranch <- getCurrentBranch
 		stopattop <- prepviasymlink
 		ps' <- flip filterM ps $ \p -> do
-			relf <- liftIO $ relPathCwdToFile $ toRawFilePath p
-			ifM (not <$> (exists p <||> hidden currbranch relf))
-				( prob (p ++ " not found")
+			let p' = toOsPath p
+			relf <- liftIO $ relPathCwdToFile p'
+			ifM (not <$> (exists p' <||> hidden currbranch relf))
+				( prob action FileNotFound p' "not found"
 				, ifM (viasymlink stopattop (upFrom relf))
-					( prob (p ++ " is beyond a symbolic link")
+					( prob action FileBeyondSymbolicLink p' "is beyond a symbolic link"
 					, return True
 					)
 				)
@@ -574,13 +579,13 @@ workTreeItems' (AllowHidden allowhidden) ww ps = case ww of
 			then return NoWorkTreeItems
 			else return (WorkTreeItems ps')
 	
-	exists p = isJust <$> liftIO (catchMaybeIO $ getSymbolicLinkStatus p)
+	exists p = isJust <$> liftIO (catchMaybeIO $ R.getSymbolicLinkStatus $ fromOsPath p)
 
 	prepviasymlink = do
 		repotopst <- inRepo $ 
 			maybe
 				(pure Nothing)
-				(catchMaybeIO . R.getSymbolicLinkStatus) 
+				(catchMaybeIO . R.getSymbolicLinkStatus . fromOsPath) 
 			. Git.repoWorkTree
 		return $ \st -> case repotopst of
 			Nothing -> False
@@ -589,7 +594,7 @@ workTreeItems' (AllowHidden allowhidden) ww ps = case ww of
 
 	viasymlink _ Nothing = return False
 	viasymlink stopattop (Just p) = do
-		st <- liftIO $ R.getSymbolicLinkStatus p
+		st <- liftIO $ R.getSymbolicLinkStatus $ fromOsPath p
 		if stopattop st
 			then return False
 			else if isSymbolicLink st
@@ -601,13 +606,13 @@ workTreeItems' (AllowHidden allowhidden) ww ps = case ww of
 			<$> catObjectMetaDataHidden f currbranch
 		| otherwise = return False
 
-	prob msg = do
-		toplevelWarning False msg
+	prob action errorid p msg = do
+		toplevelFileProblem False errorid msg action p Nothing (SeekInput [fromOsPath p])
 		Annex.incError
 		return False
 	
-notSymlink :: RawFilePath -> IO Bool
-notSymlink f = liftIO $ not . isSymbolicLink <$> R.getSymbolicLinkStatus f
+notSymlink :: OsPath -> IO Bool
+notSymlink f = liftIO $ not . isSymbolicLink <$> R.getSymbolicLinkStatus (fromOsPath f)
 
 {- Returns an action that, when there's a time limit, can be used
  - to check it before processing a file. The first action is run when
@@ -626,7 +631,7 @@ mkCheckTimeLimit = Annex.getState Annex.timelimit >>= \case
 						swapTVar warningshownv True
 					unless warningshown $ do
 						Annex.changeState $ \s -> s { Annex.reachedlimit = True }
-						warning $ "Time limit (" ++ fromDuration duration ++ ") reached! Shutting down..."
+						warning $ UnquotedString $ "Time limit (" ++ fromDuration duration ++ ") reached! Shutting down..."
 						cleanup
 				else a
 

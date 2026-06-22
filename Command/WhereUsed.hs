@@ -5,13 +5,14 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE OverloadedStrings #-}
+
 module Command.WhereUsed where
 
 import Command
 import Git
 import Git.Sha
 import Git.FilePath
-import qualified Git.Ref
 import qualified Git.Command
 import qualified Git.DiffTree as DiffTree
 import qualified Annex
@@ -21,6 +22,7 @@ import Database.Keys
 
 import Data.Char
 import qualified Data.ByteString as S
+import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy as L
 
 cmd :: Command
@@ -47,7 +49,7 @@ seek o = withKeyOptions (Just (keyOptions o)) False dummyfileseeker
 	(commandAction . start o) dummyfilecommandseek (WorkTreeItems [])
   where
 	dummyfileseeker = AnnexedFileSeeker
-		{ startAction = \_ _ _ -> return Nothing
+		{ startAction = startSingle $ \_ _ _ _ -> return Nothing
 		, checkContentPresent = Nothing
 		, usesLocationLog = False
 		}
@@ -55,10 +57,11 @@ seek o = withKeyOptions (Just (keyOptions o)) False dummyfileseeker
 
 start :: WhereUsedOptions -> (SeekInput, Key, ActionItem) -> CommandStart
 start o (_, key, _) = startingCustomOutput key $ do
-	fs <- filterM stillassociated 
+	fs <- filterM stillassociated
+		=<< mapM (liftIO . relPathCwdToFile)
 		=<< mapM (fromRepo . fromTopFilePath)
 		=<< getAssociatedFiles key
-	liftIO $ forM_ fs $ display key . fromRawFilePath
+	forM_ fs $ display key . QuotedPath
 
 	when (historicalOption o && null fs) $
 		findHistorical key
@@ -67,12 +70,15 @@ start o (_, key, _) = startingCustomOutput key $ do
   where
 	-- Some associated files that are in the keys database may no
 	-- longer correspond to files in the repository.
-	stillassociated f = catKeyFile f >>= \case
-		Just k | k == key -> return True
-		_ -> return False
+	stillassociated f = catKeyFile f >>= return . \case
+		Just k | k == key -> True
+		_ -> False
 
-display :: Key -> String -> IO ()
-display key loc = putStrLn (serializeKey key ++ " " ++ loc)
+display :: Key -> StringContainingQuotedPath -> Annex ()
+display key loc = do
+	qp <- coreQuotePath <$> Annex.getGitConfig
+	liftIO $ S8.putStrLn $ quote qp $
+		UnquotedByteString (serializeKey' key) <> " " <> loc
 
 findHistorical :: Key -> Annex ()
 findHistorical key = do
@@ -83,21 +89,21 @@ findHistorical key = do
 		[ Param ("--exclude=*/" ++ fromRef (Annex.Branch.name))
 		, Param "--glob=*"
 		-- Also search remote branches
-		, Param ("--exclude=" ++ fromRef (Annex.Branch.name))
+		, Param ("--exclude=*/" ++ fromRef (Annex.Branch.name))
 		, Param "--remotes=*"
 		-- And search tags.
 		, Param "--tags=*"
 		-- Output the commit hash
 		, Param "--pretty=%H"
-		] $ \h fs repo -> do
-			commitsha <- getSha "log" (pure h)
+		] $ \h fs -> do
+			commitsha <- liftIO $ getSha "log" (pure h)
 			commitdesc <- S.takeWhile (/= fromIntegral (ord '\n'))
-				<$> Git.Command.pipeReadStrict
+				<$> inRepo (Git.Command.pipeReadStrict
 					[ Param "describe"
 					, Param "--contains"
 					, Param "--all"
 					, Param (fromRef commitsha)
-					] repo
+					])
 			if S.null commitdesc
 				then return False
 				else process fs $
@@ -108,27 +114,28 @@ findHistorical key = do
 			[ Param "--walk-reflogs"
 			-- Output the reflog selector
 			, Param "--pretty=%gd"
-			] $ \h fs _ -> process fs $
+			] $ \h fs -> process fs $
 				displayreffile (Ref h)
   where
 	process fs a = or <$> forM fs a
 
 	displayreffile r f = do
-		let fref = Git.Ref.branchFileRef r f
-		display key (fromRef fref)
+		tf <- inRepo $ toTopFilePath f
+		display key (descBranchFilePath (BranchFilePath r tf))
 		return True
 
-searchLog :: Key -> [CommandParam] -> (S.ByteString -> [RawFilePath] -> Repo -> IO Bool) -> Annex Bool
-searchLog key ps a = Annex.inRepo $ \repo -> do
-	(output, cleanup) <- Git.Command.pipeNullSplit ps' repo
+searchLog :: Key -> [CommandParam] -> (S.ByteString -> [OsPath] -> Annex Bool) -> Annex Bool
+searchLog key ps a = do
+	(output, cleanup) <- Annex.inRepo $ Git.Command.pipeNullSplit ps'
 	found <- case output of
 		(h:rest) -> do
 			let diff = DiffTree.parseDiffRaw rest
+			repo <- Annex.gitRepo
 			let fs = map (flip fromTopFilePath repo . DiffTree.file) diff
-			rfs <- mapM relPathCwdToFile fs
-			a (L.toStrict h) rfs repo
+			rfs <- liftIO $ mapM relPathCwdToFile fs
+			a (L.toStrict h) rfs
 		_ -> return False
-	void cleanup
+	liftIO $ void cleanup
 	return found
   where
 	ps' = 
@@ -147,7 +154,7 @@ searchLog key ps a = Annex.inRepo $ \repo -> do
 		-- so a regexp is used. Since annex pointer files
 		-- may contain a newline followed by perhaps something
 		-- else, that is also matched.
-		, Param ("-G" ++ escapeRegexp (fromRawFilePath (keyFile key)) ++ "($|\n)")
+		, Param ("-G" ++ escapeRegexp (fromOsPath (keyFile key)) ++ "($|\n)")
 		-- Skip commits where the file was deleted,
 		-- only find those where it was added or modified.
 		, Param "--diff-filter=ACMRTUX"

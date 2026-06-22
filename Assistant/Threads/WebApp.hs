@@ -45,7 +45,7 @@ import Git
 import qualified Annex
 
 import Yesod
-import Network.Socket (SockAddr, HostName)
+import Network.Socket (SockAddr, HostName, PortNumber)
 import Data.Text (pack, unpack)
 import qualified Network.Wai.Handler.WarpTLS as TLS
 import Network.Wai.Middleware.RequestLogger
@@ -61,12 +61,16 @@ webAppThread
 	-> Maybe String
 	-> Maybe (IO Url)
 	-> Maybe HostName
-	-> Maybe (Url -> FilePath -> IO ())
+	-> Maybe PortNumber
+	-> Maybe (Url -> OsPath -> IO ())
 	-> NamedThread
-webAppThread assistantdata urlrenderer noannex cannotrun postfirstrun listenhost onstartup = thread $ liftIO $ do
+webAppThread assistantdata urlrenderer noannex cannotrun postfirstrun listenhost listenport onstartup = thread $ liftIO $ do
 	listenhost' <- if isJust listenhost
 		then pure listenhost
 		else getAnnex $ annexListen <$> Annex.getGitConfig
+	listenport' <- if isJust listenport
+		then pure listenport
+		else getAnnex $ annexPort <$> Annex.getGitConfig
 	tlssettings <- getAnnex getTlsSettings
 	webapp <- WebApp
 		<$> pure assistantdata
@@ -84,16 +88,14 @@ webAppThread assistantdata urlrenderer noannex cannotrun postfirstrun listenhost
 		( return $ logStdout app
 		, return app
 		)
-	runWebApp tlssettings listenhost' app' $ \addr -> if noannex
-		then withTmpFile "webapp.html" $ \tmpfile h -> do
+	runWebApp tlssettings listenhost' listenport' app' $ \addr -> if noannex
+		then withTmpFile (literalOsPath "webapp.html") $ \tmpfile h -> do
 			hClose h
 			go tlssettings addr webapp tmpfile Nothing
 		else do
 			htmlshim <- getAnnex' $ fromRepo gitAnnexHtmlShim
 			urlfile <- getAnnex' $ fromRepo gitAnnexUrlFile
-			go tlssettings addr webapp
-				(fromRawFilePath htmlshim)
-				(Just urlfile)
+			go tlssettings addr webapp htmlshim (Just urlfile)
   where
 	-- The webapp thread does not wait for the startupSanityCheckThread
 	-- to finish, so that the user interface remains responsive while
@@ -101,8 +103,8 @@ webAppThread assistantdata urlrenderer noannex cannotrun postfirstrun listenhost
 	thread = namedThreadUnchecked "WebApp"
 	getreldir
 		| noannex = return Nothing
-		| otherwise = Just <$>
-			(relHome . fromRawFilePath =<< absPath =<< getAnnex' (fromRepo repoPath))
+		| otherwise = Just . fromOsPath <$>
+			(relHome =<< absPath =<< getAnnex' (fromRepo repoPath))
 	go tlssettings addr webapp htmlshim urlfile = do
 		let url = myUrl tlssettings webapp addr
 		maybe noop (`writeFileProtected` url) urlfile
@@ -127,6 +129,8 @@ getTlsSettings = do
 	cert <- fromRepo gitAnnexWebCertificate
 	privkey <- fromRepo gitAnnexWebPrivKey
 	ifM (liftIO $ allM doesFileExist [cert, privkey])
-		( return $ Just $ TLS.tlsSettings cert privkey
+		( return $ Just $ TLS.tlsSettings
+			(fromOsPath cert)
+			(fromOsPath privkey)
 		, return Nothing
 		)

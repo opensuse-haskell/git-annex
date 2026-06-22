@@ -1,0 +1,228 @@
+# NAME
+
+git-annex-p2phttp - HTTP server for the git-annex API
+
+# SYNOPSIS
+
+git-annex p2phttp
+
+# DESCRIPTION
+
+This is a HTTP server for the git-annex API.
+It is the git-annex equivilant of git-http-backend(1), for serving
+a repository over HTTP with write access for authenticated users.
+
+This does not serve a git repository over HTTP, only the git-annex
+API. 
+
+By default, this serves the git-annex API for the git-annex repository
+in the current working directory. It can also serve more than one
+repository, see the `--directory` parameter.
+
+Typically a remote will have `remote.name.url` set to a http url
+as usual, and `remote.name.annexUrl` set to an annex+http url such as
+"annex+http://example.com/git-annex/". The annex+http url is
+served by this server, and uses port 9417 by default.
+
+Note that, when `remote.name.url` and `remote.name.annexUrl`
+contain the same hostname, they are assumed by git-annex to
+support the same users and passwords. So, git-annex will use
+the password for the `remote.name.url` to log into the 
+`remote.name.annexUrl`.
+
+As well as serving the git-annex HTTP API, this server provides a
+convenient way to download the content of any key, by using the path
+"/git-annex/$uuid/$key". For example:
+
+	$ curl http://example.com:9417/git-annex/f11773f0-11e1-45b2-9805-06db16768efe/key/SHA256E-s6--5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03
+	hello
+
+# OPTIONS
+
+* `--directory=path`
+
+  Serve each git-annex repository found in subdirectories of the directory.
+  For example, `--directory=/foo` will find git-annex repositories
+  in `/foo/bar`, `/foo/user/bar`, and so on. Note that a git-annex
+  repository located within another git-annex repository will not be found.
+
+  This option can be provided more than once to serve several directories
+  full of git-annex repositories.
+
+  New git-annex repositories can be added to the directory, and will be
+  noticed and served immediately. There is no need to restart the server.
+
+  When a git-annex repository is removed from the directory, the server
+  will stop serving it as well. This may not be immediate, as some files
+  in the deleted repository may still be open.
+
+* `--jobs=N` `-JN`
+
+  This or annex.jobs must be set to configure the number of worker
+  threads, per repository served, that serve connections to the webserver.
+
+  This must be set to 2 or more, since the webserver needs one thread
+  for itself. 
+
+  Each additional job lets the webserver serve one more concurrent request.
+  When there are too many requests to serve all at once, the webserver will
+  delay responding to some requests until others have completed.
+
+  A conservative starting place would be one worker per CPU core:
+  `--jobs=cpus`
+
+  However, to avoid delays, this can be set to much higher values.
+  Avoid setting it so high that the server runs out of file descriptors
+  or other resources.
+
+* `--cpus=N`
+
+  Limit how many CPU cores the web server can run on at the same time.
+
+  Setting `--jobs=100 --cpus=2` will make the web server only use 2 cpu
+  cores, but use threads to serve up to 100 concurrent requests.
+
+* `--proxyconnections=N`
+
+  When serving a repository that is configured to act as a proxy for some
+  of its remotes, this is the maximum number of idle connections to keep
+  open to proxied remotes.
+
+  The default is 1.
+
+* `--clusterjobs=N`
+
+  When serving a repository that is a gateway for a cluster,
+  this is the number of concurrent jobs to use to access nodes of the
+  cluster, per connection to the webserver.
+
+  The default is 1.
+
+  A good choice for this will be a balance between the number of nodes
+  in the cluster and the value of `--jobs`.
+
+  For example, if the cluster has 4 nodes, and `--jobs=4`, using
+  `--clusterjobs=4` will make all nodes in the cluster be accessed
+  concurrently, which is often optimal. But around 20 cores can be needed
+  when the webserver is busy.
+
+* `--lockedfiles=N`
+
+  This is the total number of content files that the server can keep
+  locked at the same time. Each lock needs one file descriptor.
+
+  The default is 100, which should be more than enough for most uses.
+
+* `--port=N`
+
+  Port to listen on. The default is port 9417, which is the default
+  port used for an annex+http or annex+https url.
+
+  It is not recommended to run this command as root in order to
+  use a low port like port 80. It will not drop permissions when run as
+  root.
+
+* `--bind=address`
+
+  What address to bind to. The default is to bind to all addresses.
+
+* `--socket=path`
+
+  Rather than binding to an address, create and listen to a unix domain
+  socket at the specified location. This can be useful when proxying
+  to `git-annex p2phttp`.
+
+* `--certfile=filename` 
+
+  TLS certificate file to use. Combining this with `--privatekeyfile`
+  makes the server use HTTPS.
+
+* `--privatekeyfile=filename`
+  
+  TLS private key file to use. Combining this with `--certfile`
+  makes the server use HTTPS.
+
+* `--chainfile=filename`
+
+  TLS chain file to use. This option can be repeated any number of times.
+
+* `--authenv`
+
+  Allows users to be authenticated with a username and password.
+  For security, this only allows authentication when the user connects over
+  HTTPS.
+
+  To configure the passwords, set environment variables
+  like `GIT_ANNEX_P2PHTTP_PASSWORD_alice=foo123`
+
+  The permissions of users can also be configured by setting
+  environment variables like 
+  `GIT_ANNEX_P2PHTTP_PERMISSIONS_alice=readonly`. The value
+  can be either "readonly" or "appendonly". When this is not set,
+  the default is to give the user full read+write+remove access.
+
+* `--authenv-http`
+
+  Like `--authenv`, but allows authentication when the user connects
+  over HTTP. This is not secure, since HTTP basic authentication is not
+  encrypted.
+
+* `--unauth-readonly`
+
+  Allows unauthenticated users to read the repository, but not make
+  modifications to it.
+
+  This can be combined with `--authenv` or `--authenv-http` to allow
+  anonymous readonly access, and authenticated write access.
+
+* `--unauth-appendonly`
+
+  Allows unauthenticated users to read the repository, and store data in
+  it, but not remove data from it.
+  
+  This can be combined with `--authenv` or `--authenv-http` to allow
+  anonymous appendonly access, and authenticated remove access.
+
+* `--unauth-nolocking`
+
+  By default, when `--unauth-readonly` or `--unauth-appendonly` is used,
+  unauthenticated users are allowed to lock content in the repository.
+  This option prevents that.
+
+  Locking content prevents it from being dropped from the repository
+  so it may be that an unauthenticated user abuses that, and this option
+  can be used in such a situation.
+
+  Note that enabling this option will prevent unauthenticated users from
+  dropping content from their other remotes in some cases.
+
+* `--wideopen`
+
+  Gives unauthenticated users full read+write+remove access to the
+  repository.
+
+  Please think carefully before enabling this option.
+
+# SEE ALSO
+
+[[git-annex]](1)
+
+git-http-backend(1)
+
+[[git-annex-shell]](1)
+
+[[git-annex-updateproxy]](1)
+
+[[git-annex-initcluster]](1)
+
+[[git-annex-updatecluster]](1)
+
+<https://git-annex.branchable.com/design/p2p_protocol_over_http/>
+
+# AUTHOR
+
+Joey Hess <id@joeyh.name>
+
+<http://git-annex.branchable.com/>
+
+Warning: Automatically converted into a man page by mdwn2man. Edit with care

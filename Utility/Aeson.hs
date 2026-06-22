@@ -2,12 +2,13 @@
  -
  - Import instead of Data.Aeson
  -
- - Copyright 2018-2019 Joey Hess <id@joeyh.name>
+ - Copyright 2018-2023 Joey Hess <id@joeyh.name>
  -
  - License: BSD-2-clause
  -}
 
-{-# LANGUAGE FlexibleInstances, TypeSynonymInstances, CPP #-}
+{-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
+{-# LANGUAGE CPP #-}
 
 module Utility.Aeson (
 	module X,
@@ -18,25 +19,22 @@ module Utility.Aeson (
 	textKey,
 ) where
 
-#if MIN_VERSION_aeson(2,0,0)
-import Data.Aeson as X hiding (ToJSON, toJSON, encode, Key)
-#else
-import Data.Aeson as X hiding (ToJSON, toJSON, encode)
-#endif
+import Data.Aeson as X (decode, eitherDecode, parseJSON, FromJSON, Object, object, Value(..), (.=), (.:), (.:?))
 import Data.Aeson hiding (encode)
 import qualified Data.Aeson
-#if MIN_VERSION_aeson(2,0,0)
 import qualified Data.Aeson.Key as AK
-#endif
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString as S
 import qualified Data.Set
+import qualified Data.Map
 import qualified Data.Vector
-import Prelude
 
 import Utility.FileSystemEncoding
+#ifdef WITH_OSPATH
+import Utility.OsPath
+#endif
 
 -- | Use this instead of Data.Aeson.encode to make sure that the
 -- below String instance is used.
@@ -65,6 +63,11 @@ instance ToJSON' String where
 instance ToJSON' S.ByteString where
 	toJSON' = toJSON . packByteString
 
+#ifdef WITH_OSPATH
+instance ToJSON' OsPath where
+	toJSON' p = toJSON' (fromOsPath p :: S.ByteString)
+#endif
+
 -- | Pack a String to Text, correctly handling the filesystem encoding.
 --
 -- Use this instead of Data.Text.pack.
@@ -76,13 +79,8 @@ packString s = case T.decodeUtf8' (encodeBS s) of
 	Right t -> t
 	Left _ -> T.pack s
 
-#if MIN_VERSION_aeson(2,0,0)
 textKey :: T.Text -> AK.Key
 textKey = AK.fromText
-#else
-textKey :: T.Text -> T.Text
-textKey = id
-#endif
 
 -- | The same as packString . decodeBS, but more efficient in the usual
 -- case.
@@ -99,6 +97,11 @@ instance ToJSON' s => ToJSON' (Data.Vector.Vector s) where
 -- Aeson generates the same JSON for a Set as for a list.
 instance ToJSON' s => ToJSON' (Data.Set.Set s) where
 	toJSON' = toJSON . map toJSON' . Data.Set.toList
+
+instance (ToJSON' v) => ToJSON' (Data.Map.Map T.Text v) where
+	toJSON' m = object $ map go (Data.Map.toList m)
+	  where
+		go (k, v) = (textKey k, toJSON' v)
 
 instance (ToJSON' a, ToJSON a) => ToJSON' (Maybe a) where
 	toJSON' (Just a) = toJSON (Just (toJSON' a))

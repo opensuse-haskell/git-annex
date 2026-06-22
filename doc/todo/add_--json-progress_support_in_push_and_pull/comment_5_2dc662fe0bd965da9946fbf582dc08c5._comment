@@ -1,0 +1,19 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 5"""
+ date="2026-05-05T14:37:42Z"
+ content="""
+`datalad push` currently does not use `git-annex push` and it would be good
+it it could in order to avoid some surprising behavior with its current
+implementation.
+
+But, it parses the `git push` output to display its own
+progress messages. Since `git-annex push` interleaves that with whatever
+else it outputs, adapting to parsing it would be difficult.
+
+In order for it to use `git-annex push`, it seems it
+would need --json-progress support, and either parsing of the `git push`
+in git-annex that feeds through to the --json-progress, or some form of
+machine readable delimiters in stdout and stderr around the `git push`
+output.
+"""]]

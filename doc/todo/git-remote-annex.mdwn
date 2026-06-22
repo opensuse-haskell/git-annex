@@ -1,0 +1,11 @@
+git-remote-annex will be a program that allows push/pull/clone of a git
+repository to many types of git-annex special remote.
+
+This is a redesign and reimplementation of git-remote-datalad-annex. 
+It will be a safer implementation, will support incremental pushes, and
+will be available to users who don't use datalad. 
+--[[Joey]]
+
+> [[done]]! --[[Joey]]
+
+See also: [[git-remote-annex_web_special_remote_support]]

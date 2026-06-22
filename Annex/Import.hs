@@ -1,11 +1,12 @@
 {- git-annex import from remotes
  -
- - Copyright 2019-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2019-2025 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE CPP #-}
 
 module Annex.Import (
 	ImportTreeConfig(..),
@@ -14,9 +15,13 @@ module Annex.Import (
 	buildImportTrees,
 	recordImportTree,
 	canImportKeys,
+	ImportResult(..),
+	Imported,
+	importChanges,
 	importKeys,
 	makeImportMatcher,
 	getImportableContents,
+	PostExportLogUpdate,
 ) where
 
 import Annex.Common
@@ -27,18 +32,21 @@ import Git.Tree
 import Git.Sha
 import Git.FilePath
 import Git.History
+import qualified Git.DiffTree
 import qualified Git.Ref
 import qualified Git.Branch
 import qualified Annex
 import Annex.Link
 import Annex.LockFile
 import Annex.Content
-import Annex.Export
 import Annex.RemoteTrackingBranch
 import Annex.HashObject
 import Annex.Transfer
 import Annex.CheckIgnore
+import Annex.CatFile
+import Annex.GitShaKey
 import Annex.VectorClock
+import Annex.SpecialRemote.Config
 import Command
 import Backend
 import Types.Key
@@ -46,6 +54,8 @@ import Types.KeySource
 import Messages.Progress
 import Utility.DataUnits
 import Utility.Metered
+import Utility.Hash (sha1s)
+import Logs.Import
 import Logs.Export
 import Logs.Location
 import Logs.PreferredContent
@@ -55,13 +65,16 @@ import qualified Utility.Matcher
 import qualified Database.Export as Export
 import qualified Database.ContentIdentifier as CIDDb
 import qualified Logs.ContentIdentifier as CIDLog
+import qualified Utility.OsString as OS
 import Backend.Utilities
 
 import Control.Concurrent.STM
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
-import qualified System.FilePath.Posix.ByteString as Posix
-import qualified System.FilePath.ByteString as P
+import qualified Data.ByteArray.Encoding as BA
+#ifdef mingw32_HOST_OS
+import qualified System.FilePath.Posix as Posix
+#endif
 
 {- Configures how to build an import tree. -}
 data ImportTreeConfig
@@ -78,7 +91,7 @@ data ImportCommitConfig = ImportCommitConfig
 	{ importCommitTracking :: Maybe Sha
 	-- ^ Current commit on the remote tracking branch.
 	, importCommitMode :: Git.Branch.CommitMode
-	, importCommitMessage :: String
+	, importCommitMessages :: [String]
 	}
 
 {- Buils a commit for an import from a special remote.
@@ -98,9 +111,11 @@ buildImportCommit
 	:: Remote
 	-> ImportTreeConfig
 	-> ImportCommitConfig
-	-> ImportableContentsChunkable Annex (Either Sha Key)
+	-> AddUnlockedMatcher
+	-> Imported
+	-> PostExportLogUpdate
 	-> Annex (Maybe Ref)
-buildImportCommit remote importtreeconfig importcommitconfig importable =
+buildImportCommit remote importtreeconfig importcommitconfig addunlockedmatcher imported postexportlogupdate =
 	case importCommitTracking importcommitconfig of
 		Nothing -> go Nothing
 		Just trackingcommit -> inRepo (Git.Ref.tree trackingcommit) >>= \case
@@ -108,12 +123,14 @@ buildImportCommit remote importtreeconfig importcommitconfig importable =
 			Just _ -> go (Just trackingcommit)
   where
 	go trackingcommit = do
-		(imported, updatestate) <- recordImportTree remote importtreeconfig importable
-		buildImportCommit' remote importcommitconfig trackingcommit imported >>= \case
+		(importedtree, updatestate) <- recordImportTree remote importtreeconfig (Just addunlockedmatcher) imported postexportlogupdate
+		buildImportCommit' remote importcommitconfig trackingcommit importedtree >>= \case
 			Just finalcommit -> do
 				updatestate
 				return (Just finalcommit)
-			Nothing -> return Nothing
+			Nothing -> do
+				postExportLogUpdate postexportlogupdate
+				return Nothing
 
 {- Builds a tree for an import from a special remote.
  -
@@ -123,11 +140,13 @@ buildImportCommit remote importtreeconfig importcommitconfig importable =
 recordImportTree
 	:: Remote
 	-> ImportTreeConfig
-	-> ImportableContentsChunkable Annex (Either Sha Key)
+	-> Maybe AddUnlockedMatcher
+	-> Imported
+	-> PostExportLogUpdate
 	-> Annex (History Sha, Annex ())
-recordImportTree remote importtreeconfig importable = do
-	imported@(History finaltree _) <- buildImportTrees basetree subdir importable
-	return (imported, updatestate finaltree)
+recordImportTree remote importtreeconfig addunlockedmatcher imported postexportlogupdate = do
+	importedtree@(History finaltree _) <- buildImportTrees basetree subdir addunlockedmatcher imported
+	return (importedtree, updatestate finaltree)
   where
 	basetree = case importtreeconfig of
 		ImportTree -> emptyTree
@@ -143,7 +162,7 @@ recordImportTree remote importtreeconfig importable = do
 				let subtreeref = Ref $
 					fromRef' finaltree
 						<> ":"
-						<> getTopFilePath dir
+						<> fromOsPath (getTopFilePath dir)
 				in fromMaybe emptyTree
 					<$> inRepo (Git.Ref.tree subtreeref)
 		updateexportdb importedtree
@@ -166,9 +185,10 @@ recordImportTree remote importtreeconfig importable = do
 			{ oldTreeish = exportedTreeishes oldexport
 			, newTreeish = importedtree
 			}
+		postExportLogUpdate postexportlogupdate
 		return oldexport
 
-	-- downloadImport takes care of updating the location log
+	-- importKeys takes care of updating the location log
 	-- for the local repo when keys are downloaded, and also updates
 	-- the location log for the remote for keys that are present in it.
 	-- That leaves updating the location log for the remote for keys
@@ -182,11 +202,11 @@ recordImportTree remote importtreeconfig importable = do
 		let updater db moldkey _newkey _ = case moldkey of
 			Just oldkey | not (isGitShaKey oldkey) ->
 				unlessM (stillpresent db oldkey) $
-					logChange oldkey (Remote.uuid remote) InfoMissing
+					logChange NoLiveUpdate oldkey (Remote.uuid remote) InfoMissing
 			_ -> noop
 		-- When the remote is versioned, it still contains keys
 		-- that are not present in the new tree.
-		unless (Remote.versionedExport (Remote.exportActions remote)) $ do
+		unless (isVersioning (Remote.config remote)) $ do
 			db <- Export.openDb (Remote.uuid remote)
 			forM_ (exportedTreeishes oldexport) $ \oldtree ->
 				Export.runExportDiffUpdater updater db oldtree finaltree
@@ -215,20 +235,27 @@ buildImportCommit' remote importcommitconfig mtrackingcommit imported@(History t
 		-- nothing new needs to be committed.
 		-- (This is unlikely to happen.)
 		| sametodepth h' = return Nothing
-		| otherwise = do
-			importedcommit <- case getRemoteTrackingBranchImportHistory h of
-				Nothing -> mkcommitsunconnected imported
-				Just oldimported@(History oldhc _)
-					| importeddepth == 1 ->
-						mkcommitconnected imported oldimported
-					| otherwise -> do
-						let oldimportedtrees = mapHistory historyCommitTree oldimported
-						mknewcommits oldhc oldimportedtrees imported
-			ti' <- addBackExportExcluded remote ti
-			Just <$> makeRemoteTrackingBranchMergeCommit'
-				trackingcommit importedcommit ti'
+		-- If the imported tree is unchanged,
+		-- nothing new needs to be committed.
+		| otherwise = getLastImportedTree remote >>= \case
+			Just (LastImportedTree lasttree)
+				| lasttree == ti -> return Nothing
+			_ -> gencommit trackingcommit h
 	  where
 		h'@(History t s) = mapHistory historyCommitTree h
+	
+	gencommit trackingcommit h = do
+		importedcommit <- case getRemoteTrackingBranchImportHistory h of
+			Nothing -> mkcommitsunconnected imported
+			Just oldimported@(History oldhc _)
+				| importeddepth == 1 ->
+					mkcommitconnected imported oldimported
+				| otherwise -> do
+					let oldimportedtrees = mapHistory historyCommitTree oldimported
+					mknewcommits oldhc oldimportedtrees imported
+		ti' <- addBackExportExcluded remote ti
+		Just <$> makeRemoteTrackingBranchMergeCommit'
+			trackingcommit importedcommit ti'
 
 	importeddepth = historyDepth imported
 
@@ -236,7 +263,7 @@ buildImportCommit' remote importcommitconfig mtrackingcommit imported@(History t
 
 	mkcommit parents tree = inRepo $ Git.Branch.commitTree
 		(importCommitMode importcommitconfig)
-		(importCommitMessage importcommitconfig)
+		(importCommitMessages importcommitconfig)
 		parents
 		tree
 
@@ -259,25 +286,146 @@ buildImportCommit' remote importcommitconfig mtrackingcommit imported@(History t
 			parents <- mapM (mknewcommits oldhc old) (S.toList hs)
 			mkcommit parents importedtree
 
-{- Builds a history of git trees reflecting the ImportableContents.
+{- Builds a history of git trees for an import.
  -
- - When a subdir is provided, imported tree is grafted into the basetree at
- - that location, replacing any object that was there.
+ - When a subdir is provided, the imported tree is grafted into 
+ - the basetree at that location, replacing any object that was there.
  -}
 buildImportTrees
 	:: Ref
 	-> Maybe TopFilePath
-	-> ImportableContentsChunkable Annex (Either Sha Key)
+	-> Maybe AddUnlockedMatcher
+	-> Imported
 	-> Annex (History Sha)
-buildImportTrees basetree msubdir (ImportableContentsComplete importable) = do
+buildImportTrees basetree msubdir addunlockedmatcher (ImportedFull imported) = 
+	buildImportTreesGeneric (convertImportTree addunlockedmatcher) basetree msubdir imported
+buildImportTrees basetree msubdir addunlockedmatcher (ImportedDiff (LastImportedTree oldtree) imported) = do
+	importtree <- if null (importableContents imported)
+		then pure oldtree
+		else applydiff
 	repo <- Annex.gitRepo
-	withMkTreeHandle repo $ buildImportTrees' basetree msubdir importable
-buildImportTrees basetree msubdir importable@(ImportableContentsChunked {}) = do
+	t <- withMkTreeHandle repo $
+		graftImportTree basetree msubdir importtree
+	-- Diffing is not currently implemented when the history is not empty.
+	return (History t mempty)
+  where
+	applydiff = do
+		let (removed, new) = partition isremoved
+			(importableContents imported)
+		newtreeitems <- catMaybes <$> mapM mktreeitem new
+		let removedfiles = map (mkloc . fst) removed
+		inRepo $ adjustTree
+			(pure . Just) 
+			-- ^ keep files that are not added/removed the same
+			newtreeitems
+			(\_oldti newti -> newti)
+			-- ^ prefer newly added version of file
+			removedfiles
+			oldtree
+	
+	mktreeitem (loc, DiffChanged v) = 
+		Just <$> mkImportTreeItem addunlockedmatcher msubdir loc v
+	mktreeitem (_, DiffRemoved) = 
+		pure Nothing
+
+	mkloc = asTopFilePath . fromImportLocation
+		
+	isremoved (_, v) = v == DiffRemoved
+
+convertImportTree :: Maybe AddUnlockedMatcher -> Maybe TopFilePath -> [(ImportLocation, Either Sha Key)] -> Annex Tree
+convertImportTree maddunlockedmatcher msubdir ls = 
+	treeItemsToTree <$> mapM (uncurry $ mkImportTreeItem maddunlockedmatcher msubdir) ls
+
+mkImportTreeItem :: Maybe AddUnlockedMatcher -> Maybe TopFilePath -> ImportLocation -> Either Sha Key -> Annex TreeItem
+mkImportTreeItem maddunlockedmatcher msubdir loc v = case v of
+	Right k -> case maddunlockedmatcher of
+		Nothing -> mklink k
+		Just addunlockedmatcher -> do
+			objfile <- calcRepo (gitAnnexLocation k)
+			let mi = MatchingFile FileInfo
+				{ contentFile = objfile
+				, matchFile = getTopFilePath topf
+				, matchKey = Just k
+				}
+			ifM (checkAddUnlockedMatcher NoLiveUpdate addunlockedmatcher mi)
+				( mkpointer k
+				, mklink k
+				)
+				
+	Left sha -> 
+		return $ TreeItem treepath (fromTreeItemType TreeFile) sha
+  where
+	lf = fromImportLocation loc
+	treepath = asTopFilePath lf
+	topf = asTopFilePath $
+		maybe lf (\sd -> getTopFilePath sd </> lf) msubdir
+	mklink k = do
+		relf <- fromRepo $ fromTopFilePath topf
+		symlink <- calcRepo $ gitAnnexLink relf k
+		linksha <- hashSymlink (fromOsPath symlink)
+		return $ TreeItem treepath (fromTreeItemType TreeSymlink) linksha
+	mkpointer k = TreeItem treepath (fromTreeItemType TreeFile)
+		<$> hashPointerFile k
+
+{- Builds a history of git trees using ContentIdentifiers.
+ -
+ - These are not the final trees that are generated by the import, which
+ - use Keys. The purpose of these trees is to allow quickly determining
+ - which files in the import have changed, and which are unchanged, to
+ - avoid needing to look up the Keys for unchanged ContentIdentifiers.
+ - When the import has a large number of files, that can be slow.
+ -}
+buildContentIdentifierTree
+	:: ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)
+	-> Annex (History Sha, M.Map Sha (ContentIdentifier, ByteSize))
+buildContentIdentifierTree importable = do
+	mv <- liftIO $ newTVarIO M.empty
+	r <- buildImportTreesGeneric (convertContentIdentifierTree mv) emptyTree Nothing importable
+	m <- liftIO $ atomically $ readTVar mv
+	return (r, m)
+
+{- For speed, and to avoid bloating the repository, the ContentIdentifiers
+ - are not actually checked into git, instead a sha1 hash is calculated
+ - internally.
+ -}
+convertContentIdentifierTree
+	:: TVar (M.Map Sha (ContentIdentifier, ByteSize))
+	-> Maybe TopFilePath
+	-> [(ImportLocation, (ContentIdentifier, ByteSize))]
+	-> Annex Tree
+convertContentIdentifierTree mv _ ls = do
+	let (tis, ml) = unzip (map mktreeitem ls)
+	liftIO $ atomically $ modifyTVar' mv $
+		M.union (M.fromList ml)
+	return (treeItemsToTree tis)
+  where
+	mktreeitem (loc, v@((ContentIdentifier cid), _sz)) =
+		(TreeItem p mode sha1, (sha1, v))
+	  where
+		p = asTopFilePath (fromImportLocation loc)
+		mode = fromTreeItemType TreeFile
+		-- Note that this hardcodes sha1, even if git has started
+		-- defaulting to some other checksum method. That should be
+		-- ok, hopefully. This checksum never needs to be verified
+		-- by git, which is why this does not bother to prefix the
+		-- cid with its length, like git would.
+		sha1 = Ref $ BA.convertToBase BA.Base16 $ sha1s cid
+
+buildImportTreesGeneric
+	:: (Maybe TopFilePath -> [(ImportLocation, v)] -> Annex Tree)
+	-> Ref
+	-> Maybe TopFilePath
+	-> ImportableContentsChunkable Annex v
+	-> Annex (History Sha)
+buildImportTreesGeneric converttree basetree msubdir (ImportableContentsComplete importable) = do
+	repo <- Annex.gitRepo
+	withMkTreeHandle repo $ buildImportTreesGeneric' converttree basetree msubdir importable
+buildImportTreesGeneric converttree basetree msubdir importable@(ImportableContentsChunked {}) = do
 	repo <- Annex.gitRepo
 	withMkTreeHandle repo $ \hdl ->
 		History
 			<$> go hdl
-			<*> buildImportTreesHistory basetree msubdir
+			<*> buildImportTreesHistory converttree basetree msubdir
 				(importableHistoryComplete importable) hdl
   where
 	go hdl = do
@@ -290,8 +438,13 @@ buildImportTrees basetree msubdir importable@(ImportableContentsChunked {}) = do
 		-- Full directory prefix where the sub tree is located.
 		let fullprefix = asTopFilePath $ case msubdir of
 			Nothing -> subdir
-			Just d -> getTopFilePath d Posix.</> subdir
-		Tree ts <- convertImportTree (Just fullprefix) $
+			Just d ->
+#ifdef mingw32_HOST_OS
+				toOsPath $ fromOsPath (getTopFilePath d) Posix.</> fromOsPath subdir
+#else
+				getTopFilePath d </> subdir
+#endif
+		Tree ts <- converttree (Just fullprefix) $
 			map (\(p, i) -> (mkImportLocation p, i))
 				(importableContentsSubTree c)
 		-- Record this subtree before getting next chunk, this
@@ -302,24 +455,26 @@ buildImportTrees basetree msubdir importable@(ImportableContentsChunked {}) = do
 			Nothing -> return (Tree (tc:l))
 			Just c' -> gochunks (tc:l) c' hdl
 
-buildImportTrees'
-	:: Ref
+buildImportTreesGeneric'
+	:: (Maybe TopFilePath -> [(ImportLocation, v)] -> Annex Tree)
+	-> Ref
 	-> Maybe TopFilePath
-	-> ImportableContents (Either Sha Key)
+	-> ImportableContents v
 	-> MkTreeHandle
 	-> Annex (History Sha)
-buildImportTrees' basetree msubdir importable hdl = History
-	<$> buildImportTree basetree msubdir (importableContents importable) hdl
-	<*> buildImportTreesHistory basetree msubdir (importableHistory importable) hdl
+buildImportTreesGeneric' converttree basetree msubdir importable hdl = History
+	<$> buildImportTree converttree basetree msubdir (importableContents importable) hdl
+	<*> buildImportTreesHistory converttree basetree msubdir (importableHistory importable) hdl
 
 buildImportTree
-	:: Ref
+	:: (Maybe TopFilePath -> [(ImportLocation, v)] -> Annex Tree)
+	-> Ref
 	-> Maybe TopFilePath
-	-> [(ImportLocation, Either Sha Key)]
+	-> [(ImportLocation, v)]
 	-> MkTreeHandle
 	-> Annex Sha
-buildImportTree basetree msubdir ls hdl = do
-	importtree <- liftIO . recordTree' hdl =<< convertImportTree msubdir ls
+buildImportTree converttree basetree msubdir ls hdl = do
+	importtree <- liftIO . recordTree' hdl =<< converttree msubdir ls
 	graftImportTree basetree msubdir importtree hdl
 
 graftImportTree
@@ -333,31 +488,15 @@ graftImportTree basetree msubdir tree hdl = case msubdir of
 	Just subdir -> inRepo $ \repo ->
 		graftTree' tree subdir basetree repo hdl
 
-convertImportTree :: Maybe TopFilePath -> [(ImportLocation, Either Sha Key)] -> Annex Tree
-convertImportTree msubdir ls = treeItemsToTree <$> mapM mktreeitem ls
-  where
-	mktreeitem (loc, v) = case v of
-		Right k -> do
-			relf <- fromRepo $ fromTopFilePath topf
-			symlink <- calcRepo $ gitAnnexLink relf k
-			linksha <- hashSymlink symlink
-			return $ TreeItem treepath (fromTreeItemType TreeSymlink) linksha
-		Left sha -> 
-			return $ TreeItem treepath (fromTreeItemType TreeFile) sha
-	  where
-		lf = fromImportLocation loc
-		treepath = asTopFilePath lf
-		topf = asTopFilePath $
-			maybe lf (\sd -> getTopFilePath sd P.</> lf) msubdir
-
 buildImportTreesHistory
-	:: Ref
+	:: (Maybe TopFilePath -> [(ImportLocation, v)] -> Annex Tree)
+	-> Ref
 	-> Maybe TopFilePath
-	-> [ImportableContents (Either Sha Key)]
+	-> [ImportableContents v]
 	-> MkTreeHandle
 	-> Annex (S.Set (History Sha))
-buildImportTreesHistory basetree msubdir history hdl = S.fromList
-	<$> mapM (\ic -> buildImportTrees' basetree msubdir ic hdl) history
+buildImportTreesHistory converttree basetree msubdir history hdl = S.fromList
+	<$> mapM (\ic -> buildImportTreesGeneric' converttree basetree msubdir ic hdl) history
 
 canImportKeys :: Remote -> Bool -> Bool
 canImportKeys remote importcontent =
@@ -365,17 +504,159 @@ canImportKeys remote importcontent =
   where
 	ia = Remote.importActions remote
 
+-- Result of an import. 
+data ImportResult t
+	= ImportFinished PostExportLogUpdate t
+	| ImportUnfinished
+	-- ^ ImportUnfinished indicates that some file failed to
+	-- be imported. Running again should resume where it left off.
+
+-- An action to run after the export log has been updated to reflect an
+-- import.
+newtype PostExportLogUpdate = PostExportLogUpdate (Annex ())
+
+instance Semigroup PostExportLogUpdate where
+	PostExportLogUpdate a <> PostExportLogUpdate b =
+		PostExportLogUpdate (a >> b)
+
+noPostExportLogUpdate :: PostExportLogUpdate
+noPostExportLogUpdate = PostExportLogUpdate (return ())
+
+postExportLogUpdate :: PostExportLogUpdate -> Annex ()
+postExportLogUpdate (PostExportLogUpdate a) = a
+
+data Diffed t
+	= DiffChanged t
+	| DiffRemoved
+	deriving (Eq)
+
+data Imported
+	= ImportedFull (ImportableContentsChunkable Annex (Either Sha Key))
+	| ImportedDiff LastImportedTree (ImportableContents (Diffed (Either Sha Key)))
+
+newtype LastImportedTree = LastImportedTree Sha
+
+{- Diffs between the previous and current ContentIdentifier trees, and 
+ - runs importKeys on only the changed files.
+ -
+ - This will download the same content as if importKeys were run on all
+ - files, but this speeds it up significantly when there are a lot of files
+ - and only a few have changed. importKeys has to look up each
+ - ContentIdentifier to see if a Key is known for it. This avoids doing
+ - that lookup on files that have not changed.
+ -
+ - Diffing is not currently implemented when there is a History.
+ -}
+importChanges
+	:: Remote
+	-> ImportTreeConfig
+	-> Bool
+	-> Bool
+	-> ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)
+	-> Annex (ImportResult Imported)
+importChanges remote importtreeconfig importcontent thirdpartypopulated importablecontents = do
+	((History currcidtree currhistory), cidtreemap) <- buildContentIdentifierTree importablecontents
+	-- diffimport below does not handle history, so when there is
+	-- history, do a full import.
+	if not (S.null currhistory)
+		then fullimport currcidtree
+		else do
+			getContentIdentifierTree (Remote.uuid remote) >>= \case
+				Nothing -> fullimport currcidtree
+				Just prevcidtree -> candiffimport prevcidtree >>= \case
+					Nothing -> fullimport currcidtree
+					Just lastimportedtree -> diffimport cidtreemap prevcidtree currcidtree lastimportedtree
+  where
+  	-- Record the content identifier tree after the export log is
+	-- updated for the import.
+	remember = PostExportLogUpdate .
+		recordContentIdentifierTree (Remote.uuid remote)
+
+	-- In order to use a diff, the previous ContentIdentifier tree must
+	-- not have been garbage collected. Which can happen since there
+	-- are no git refs to it.
+	--
+	-- Also, a tree must have been imported before, and that tree must
+	-- also have not been garbage collected (which is less likely to
+	-- happen due to the remote tracking branch).
+	candiffimport prevcidtree =
+		catObjectMetaData prevcidtree >>= \case
+			Nothing -> return Nothing
+			Just _ -> getLastImportedTree remote >>= \case
+				Nothing -> return Nothing
+				Just lastimported@(LastImportedTree t) -> 
+					ifM (isJust <$> catObjectMetaData t)
+						( return (Just lastimported)
+						, return Nothing
+						)
+
+	fullimport currcidtree = 
+		importKeys remote importtreeconfig importcontent thirdpartypopulated importablecontents >>= return . \case
+			ImportUnfinished -> ImportUnfinished
+			ImportFinished a r -> 
+				ImportFinished (a <> remember currcidtree) $
+					ImportedFull r
+		
+	diffimport cidtreemap prevcidtree currcidtree lastimportedtree = do
+		(diff, cleanup) <- inRepo $ Git.DiffTree.diffTreeRecursive
+			prevcidtree
+			currcidtree
+		let (removed, changed) = partition isremoval diff
+		let mkicchanged ti = do
+			v <- M.lookup (Git.DiffTree.dstsha ti) cidtreemap
+			return (mkloc ti, v)
+		let ic = ImportableContentsComplete $ ImportableContents
+			{ importableContents = mapMaybe mkicchanged changed
+			, importableHistory = []
+			}
+		importKeys remote importtreeconfig importcontent thirdpartypopulated ic >>= \case
+			ImportUnfinished -> do
+				void $ liftIO cleanup
+				return ImportUnfinished
+			ImportFinished a (ImportableContentsComplete ic') -> 
+				liftIO cleanup >>= return . \case
+					False -> ImportUnfinished
+					True -> ImportFinished (a <> remember currcidtree) $ 
+						ImportedDiff lastimportedtree
+							(mkdiff ic' removed)
+			-- importKeys is not passed ImportableContentsChunked
+			-- above, so it cannot return it
+			ImportFinished _ (ImportableContentsChunked {}) -> error "internal"
+		
+	isremoval ti = Git.DiffTree.dstsha ti `elem` nullShas
+	
+	mkloc = mkImportLocation . getTopFilePath . Git.DiffTree.file
+
+	mkdiff ic removed = ImportableContents
+		{ importableContents = diffremoved ++ diffchanged
+		, importableHistory = []
+		}
+	  where
+		diffchanged = map
+			(\(loc, v) -> (loc, DiffChanged v))
+			(importableContents ic)
+		diffremoved = map
+			(\ti -> (mkloc ti, DiffRemoved))
+			removed
+
+{- Gets the tree that was last imported from the remote
+ - (or exported to it if an export happened after the last import).
+ -}
+getLastImportedTree :: Remote -> Annex (Maybe LastImportedTree)
+getLastImportedTree remote = do
+	db <- Export.openDb (Remote.uuid remote)
+	mtree <- liftIO $ Export.getExportTreeCurrent db
+	Export.closeDb db
+	return (LastImportedTree <$> mtree)
+
 {- Downloads all new ContentIdentifiers, or when importcontent is False,
  - generates Keys without downloading.
  -
  - Generates either a Key or a git Sha, depending on annex.largefiles.
- - But when importcontent is False, it cannot match on annex.largefiles
- - (or generate a git Sha), so always generates Keys.
+ - But when importcontent is False, it cannot generate a git Sha, 
+ - so always generates Keys.
  -
  - Supports concurrency when enabled.
- -
- - If it fails on any file, the whole thing fails with Nothing, 
- - but it will resume where it left off.
  -
  - Note that, when a ContentIdentifier has been imported before,
  - generates the same thing that was imported before, so annex.largefiles
@@ -387,7 +668,7 @@ importKeys
 	-> Bool
 	-> Bool
 	-> ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)
-	-> Annex (Maybe (ImportableContentsChunkable Annex (Either Sha Key)))
+	-> Annex (ImportResult (ImportableContentsChunkable Annex (Either Sha Key)))
 importKeys remote importtreeconfig importcontent thirdpartypopulated importablecontents = do
 	unless (canImportKeys remote importcontent) $
 		giveup "This remote does not support importing without downloading content."
@@ -402,9 +683,9 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 	-- avoid two threads both importing the same content identifier.
 	importing <- liftIO $ newTVarIO S.empty
 	withciddb $ \db -> do
-		CIDDb.needsUpdateFromLog db
-			>>= maybe noop (CIDDb.updateFromLog db)
-		(prepclock (run cidmap importing db))
+		db' <- CIDDb.needsUpdateFromLog db
+			>>= maybe (pure db) (CIDDb.updateFromLog db)
+		(prepclock (run cidmap importing db'))
   where
 	-- When not importing content, reuse the same vector
 	-- clock for all state that's recorded. This can save
@@ -425,13 +706,13 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 		case importablecontents of
 			ImportableContentsComplete ic ->
 				go False largematcher cidmap importing db ic >>= return . \case
-					Nothing -> Nothing
-					Just v -> Just $ ImportableContentsComplete v
+					Nothing -> ImportUnfinished
+					Just v -> ImportFinished noPostExportLogUpdate $ ImportableContentsComplete v
 			ImportableContentsChunked {} -> do
 				c <- gochunked db (importableContentsChunk importablecontents)
 				gohistory largematcher cidmap importing db (importableHistoryComplete importablecontents) >>= return . \case
-					Nothing -> Nothing
-					Just h -> Just $ ImportableContentsChunked
+					Nothing -> ImportUnfinished
+					Just h -> ImportFinished noPostExportLogUpdate $ ImportableContentsChunked
 						{ importableContentsChunk = c
 						, importableHistoryComplete = h
 						}
@@ -458,10 +739,10 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 	gochunked db c
 		-- Downloading cannot be done when chunked, since only
 		-- the first chunk is processed before returning.
-		| importcontent = error "importKeys does not support downloading chunked import"
+		| importcontent = giveup "importKeys does not support downloading chunked import"
 		-- Chunked import is currently only used by thirdpartypopulated
 		-- remotes.
-		| not thirdpartypopulated = error "importKeys does not support chunked import when not thirdpartypopulated"
+		| not thirdpartypopulated = giveup "importKeys does not support chunked import when not thirdpartypopulated"
 		| otherwise = do
 			l <- forM (importableContentsSubTree c) $ \(loc, i) -> do
 				let loc' = importableContentsChunkFullLocation (importableContentsSubDir c) loc
@@ -492,7 +773,7 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 	startimport cidmap importing db i@(loc, (cid, _sz)) oldversion largematcher = getcidkey cidmap db cid >>= \case
 		(k:ks) ->
 			-- If the same content was imported before
-			-- yeilding multiple different keys, it's not clear
+			-- yielding multiple different keys, it's not clear
 			-- which is best to use this time, so pick the
 			-- first in the list. But, if any of them is a
 			-- git sha, use it, because the content must
@@ -503,21 +784,21 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 			in return $ Left $ Just (loc, v)
 		[] -> do
 			job <- liftIO $ newEmptyTMVarIO
-			let ai = ActionItemOther (Just (fromRawFilePath (fromImportLocation loc)))
+			let ai = ActionItemOther (Just (QuotedPath (fromImportLocation loc)))
 			let si = SeekInput []
 			let importaction = starting ("import " ++ Remote.name remote) ai si $ do
 				when oldversion $
 					showNote "old version"
-				tryNonAsync (importordownload cidmap db i largematcher) >>= \case
+				tryNonAsync (importordownload cidmap i largematcher) >>= \case
 					Left e -> next $ do
-						warning (show e)
+						warning (UnquotedString (show e))
 						liftIO $ atomically $
 							putTMVar job Nothing
 						return False
 					Right r -> next $ do
 						liftIO $ atomically $
 							putTMVar job r
-						return True
+						return (isJust r)
 			commandAction $ bracket_
 				(waitstart importing cid)
 				(signaldone importing cid)
@@ -530,15 +811,15 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 			Just importkey ->
 				tryNonAsync (importkey loc cid sz nullMeterUpdate) >>= \case
 					Right (Just k) -> do
-						recordcidkey' db cid k
-						logChange k (Remote.uuid remote) InfoPresent
+						recordcidkeyindb db cid k
+						logChange NoLiveUpdate k (Remote.uuid remote) InfoPresent
 						return $ Just (loc, Right k)
 					Right Nothing -> return Nothing
 					Left e -> do
-						warning (show e)
+						warning (UnquotedString (show e))
 						return Nothing
 	
-	importordownload cidmap db (loc, (cid, sz)) largematcher= do
+	importordownload cidmap (loc, (cid, sz)) largematcher = do
 		f <- locworktreefile loc
 		matcher <- largematcher f
 		-- When importing a key is supported, always use it rather
@@ -547,17 +828,17 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 		let act = if importcontent
 			then case Remote.importKey ia of
 				Nothing -> dodownload
-				Just _ -> if Utility.Matcher.introspect matchNeedsFileContent matcher
+				Just _ -> if Utility.Matcher.introspect matchNeedsFileContent (fst matcher)
 					then dodownload
 					else doimport
 			else doimport
-		act cidmap db (loc, (cid, sz)) f matcher
+		act cidmap (loc, (cid, sz)) f matcher
 
-	doimport cidmap db (loc, (cid, sz)) f matcher =
+	doimport cidmap (loc, (cid, sz)) f matcher =
 		case Remote.importKey ia of
 			Nothing -> error "internal" -- checked earlier
 			Just importkey -> do
-				when (Utility.Matcher.introspect matchNeedsFileContent matcher) $
+				when (Utility.Matcher.introspect matchNeedsFileContent (fst matcher)) $
 					giveup "annex.largefiles configuration examines file contents, so cannot import without content."
  				let mi = MatchingInfo ProvidedInfo
 					{ providedFilePath = Just f
@@ -567,18 +848,17 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 					, providedMimeEncoding = Nothing
 					, providedLinkType = Nothing
 					}
-				let bwlimit = remoteAnnexBwLimit (Remote.gitconfig remote)
-				islargefile <- checkMatcher' matcher mi mempty
+				islargefile <- checkMatcher' matcher mi NoLiveUpdate mempty
 				metered Nothing sz bwlimit $ const $ if islargefile
-					then doimportlarge importkey cidmap db loc cid sz f
-					else doimportsmall cidmap db loc cid sz
+					then doimportlarge importkey cidmap loc cid sz f
+					else doimportsmall cidmap loc cid sz
 	
-	doimportlarge importkey cidmap db loc cid sz f p =
+	doimportlarge importkey cidmap loc cid sz f p =
 		tryNonAsync importer >>= \case
 			Right (Just (k, True)) -> return $ Just (loc, Right k)
 			Right _ -> return Nothing
 			Left e -> do
-				warning (show e)
+				warning (UnquotedString (show e))
 				return Nothing
 	  where
 		importer = do
@@ -591,8 +871,8 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 				Nothing -> return Nothing
 				Just k -> checkSecureHashes k >>= \case
 					Nothing -> do
-						recordcidkey cidmap db cid k
-						logChange k (Remote.uuid remote) InfoPresent
+						recordcidkey cidmap cid k
+						logChange NoLiveUpdate k (Remote.uuid remote) InfoPresent
 						if importcontent
 							then getcontent k
 							else return (Just (k, True))
@@ -603,14 +883,14 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 			let af = AssociatedFile (Just f)
 			let downloader p' tmpfile = do
 				_ <- Remote.retrieveExportWithContentIdentifier
-					ia loc [cid] (fromRawFilePath tmpfile)
+					ia loc [cid] tmpfile
 					(Left k)
 					(combineMeterUpdate p' p)
-				ok <- moveAnnex k af tmpfile
+				ok <- moveAnnex k tmpfile
 				when ok $
-					logStatus k InfoPresent
+					logStatus NoLiveUpdate k InfoPresent
 				return (Just (k, ok))
-			checkDiskSpaceToGet k Nothing $
+			checkDiskSpaceToGet k Nothing Nothing $
 				notifyTransfer Download af $
 					download' (Remote.uuid remote) k af Nothing stdRetry $ \p' ->
 						withTmp k $ downloader p'
@@ -618,54 +898,53 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 	-- The file is small, so is added to git, so while importing
 	-- without content does not retrieve annexed files, it does
 	-- need to retrieve this file.
-	doimportsmall cidmap db loc cid sz p = do
+	doimportsmall cidmap loc cid sz p = do
 		let downloader tmpfile = do
 			(k, _) <- Remote.retrieveExportWithContentIdentifier
-				ia loc [cid] (fromRawFilePath tmpfile)
+				ia loc [cid] tmpfile
 				(Right (mkkey tmpfile))
 				p
 			case keyGitSha k of
 				Just sha -> do
-					recordcidkey cidmap db cid k
+					recordcidkey cidmap cid k
 					return sha
 				Nothing -> error "internal"
-		checkDiskSpaceToGet tmpkey Nothing $
+		checkDiskSpaceToGet tmpkey Nothing Nothing $
 			withTmp tmpkey $ \tmpfile ->
 				tryNonAsync (downloader tmpfile) >>= \case
 					Right sha -> return $ Just (loc, Left sha)
 					Left e -> do
-						warning (show e)
+						warning (UnquotedString (show e))
 						return Nothing
 	  where
 		tmpkey = importKey cid sz
 		mkkey tmpfile = gitShaKey <$> hashFile tmpfile
 	
-	dodownload cidmap db (loc, (cid, sz)) f matcher = do
+	dodownload cidmap (loc, (cid, sz)) f matcher = do
 		let af = AssociatedFile (Just f)
 		let downloader tmpfile p = do
 			(k, _) <- Remote.retrieveExportWithContentIdentifier
-				ia loc [cid] (fromRawFilePath tmpfile)
+				ia loc [cid] tmpfile
 				(Right (mkkey tmpfile))
 				p
 			case keyGitSha k of
 				Nothing -> do
-					ok <- moveAnnex k af tmpfile
+					ok <- moveAnnex k tmpfile
 					when ok $ do
-						recordcidkey cidmap db cid k
-						logStatus k InfoPresent
-						logChange k (Remote.uuid remote) InfoPresent
+						recordcidkey cidmap cid k
+						logStatus NoLiveUpdate k InfoPresent
+						logChange NoLiveUpdate k (Remote.uuid remote) InfoPresent
 					return (Right k, ok)
 				Just sha -> do
-					recordcidkey cidmap db cid k
+					recordcidkey cidmap cid k
 					return (Left sha, True)
 		let rundownload tmpfile p = tryNonAsync (downloader tmpfile p) >>= \case
 			Right (v, True) -> return $ Just (loc, v)
 			Right (_, False) -> return Nothing
 			Left e -> do
-				warning (show e)
+				warning (UnquotedString (show e))
 				return Nothing
-		let bwlimit = remoteAnnexBwLimit (Remote.gitconfig remote)
-		checkDiskSpaceToGet tmpkey Nothing $
+		checkDiskSpaceToGet tmpkey Nothing Nothing $
 			notifyTransfer Download af $
 				download' (Remote.uuid remote) tmpkey af Nothing stdRetry $ \p ->
 					withTmp tmpkey $ \tmpfile ->
@@ -680,7 +959,7 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 				, contentFile = tmpfile
 				, matchKey = Nothing
 				}
-			islargefile <- checkMatcher' matcher mi mempty
+			islargefile <- checkMatcher' matcher mi NoLiveUpdate mempty
 			if islargefile
 				then do
 					backend <- chooseBackend f
@@ -693,25 +972,49 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 				else gitShaKey <$> hashFile tmpfile
 	
 	ia = Remote.importActions remote
+				
+	bwlimit = remoteAnnexBwLimitDownload (Remote.gitconfig remote)
+			<|> remoteAnnexBwLimit (Remote.gitconfig remote)
 
 	locworktreefile loc = fromRepo $ fromTopFilePath $ asTopFilePath $
 		case importtreeconfig of
 			ImportTree -> fromImportLocation loc
 			ImportSubTree subdir _ ->
-				getTopFilePath subdir P.</> fromImportLocation loc
+				getTopFilePath subdir </> fromImportLocation loc
 
-	getcidkey cidmap db cid = liftIO $
-		CIDDb.getContentIdentifierKeys db rs cid >>= \case
-			[] -> atomically $
-				maybeToList . M.lookup cid <$> readTVar cidmap
-			l -> return l
+	getcidkey cidmap db cid = do
+		-- Avoiding querying the database when it's empty speeds up
+		-- the initial import.
+		l <- liftIO $ if CIDDb.databaseIsEmpty db
+			then getcidkeymap cidmap cid
+			else CIDDb.getContentIdentifierKeys db rs cid >>= \case
+				[] -> getcidkeymap cidmap cid
+				l -> return l
+		filterM validcidkey l
+	
+	-- Guard against a content identifier containing a git sha that is
+	-- not present in the repository. This can happen when a previous,
+	-- import failed and the tree was not recorded, and this import is
+	-- being run in another clone of the repository.
+	validcidkey k = case keyGitSha k of
+		Just sha -> isJust <$> catObjectMetaData sha
+		Nothing -> return True
 
-	recordcidkey cidmap db cid k = do
+	getcidkeymap cidmap cid =
+		atomically $ maybeToList . M.lookup cid <$> readTVar cidmap
+
+	recordcidkey cidmap cid k = do
 		liftIO $ atomically $ modifyTVar' cidmap $
 			M.insert cid k
-		recordcidkey' db cid k
-	recordcidkey' db cid k = do
+		-- Only record in log now; the database will be updated
+		-- later from the log, and the cidmap will be used for now.
+		recordcidkeyinlog cid k
+	
+	recordcidkeyindb db cid k = do
 		liftIO $ CIDDb.recordContentIdentifier db rs cid k
+		recordcidkeyinlog cid k
+	
+	recordcidkeyinlog cid k =
 		CIDLog.recordContentIdentifier rs cid k
 
 	rs = Remote.remoteStateHandle remote
@@ -754,18 +1057,21 @@ addBackExportExcluded remote importtree =
  -
  - Only keyless tokens are supported, because the keys are not known
  - until an imported file is downloaded, which is too late to bother
- - excluding it from an import.
+ - excluding it from an import. So prunes any tokens in the preferred
+ - content expression that need keys.
  -}
 makeImportMatcher :: Remote -> Annex (Either String (FileMatcher Annex))
-makeImportMatcher r = load preferredContentKeylessTokens >>= \case
-	Nothing -> return $ Right matchAll
-	Just (Right v) -> return $ Right v
-	Just (Left err) -> load preferredContentTokens >>= \case
-		Just (Left err') -> return $ Left err'
-		_ -> return $ Left $
-			"The preferred content expression contains terms that cannot be checked when importing: " ++ err
+makeImportMatcher r = load preferredContentTokens >>= \case
+	Nothing -> return $ Right (matchAll, matcherdesc)
+	Just (Right v) -> return $ Right (v, matcherdesc)
+	Just (Left err) -> return $ Left err
   where
-	load t = M.lookup (Remote.uuid r) . fst <$> preferredRequiredMapsLoad' t
+	load t = M.lookup (Remote.uuid r) . fst
+		<$> preferredRequiredMapsLoad' pruneImportMatcher t
+	matcherdesc = MatcherDesc "preferred content"
+
+pruneImportMatcher :: Utility.Matcher.Matcher (MatchFiles a) -> Utility.Matcher.Matcher (MatchFiles a)
+pruneImportMatcher = Utility.Matcher.pruneMatcher matchNeedsKey
 
 {- Gets the ImportableContents from the remote.
  -
@@ -773,6 +1079,10 @@ makeImportMatcher r = load preferredContentKeylessTokens >>= \case
  - not allow storing ".git" in a git repository. While it is possible to
  - write a git tree that contains that, git will complain and refuse to
  - check it out.
+ -
+ - Filters out any paths that contain an empty filename, because git cannot
+ - represent an empty filename in a tree, but some special remotes do
+ - support empty filenames.
  -
  - Filters out new things not matching the FileMatcher or that are
  - gitignored. However, files that are already in git get imported
@@ -813,19 +1123,42 @@ getImportableContents r importtreeconfig ci matcher = do
 				Just c' -> Just <$> filterunwantedchunk dbhandle c'
 			)
 
-	opendbhandle = Export.openDb (Remote.uuid r)
+	opendbhandle = do
+		h <- Export.openDb (Remote.uuid r)
+		void $ Export.updateExportTreeFromLog h
+		return h
 
 	wanted dbhandle (loc, (_cid, sz))
 		| ingitdir = pure False
+		| OS.null (fromImportLocation loc) = do
+			warning $ UnquotedString "Cannot import a file with an empty filename"
+			return False
+		| isdirectory = do
+			warning $ UnquotedString "Cannot import a file with a name that appears to be a directory: "
+				<> QuotedPath (fromImportLocation loc)
+			return False
 		| otherwise =
 			isknown <||> (matches <&&> notignored)
 	  where
 		-- Checks, from least to most expensive.
-		ingitdir = ".git" `elem` Posix.splitDirectories (fromImportLocation loc)
+#ifdef mingw32_HOST_OS
+		ingitdir = ".git" `elem` Posix.splitDirectories loc'
+#else
+		ingitdir = literalOsPath ".git" `elem` splitDirectories (fromImportLocation loc)
+#endif
+#ifdef mingw32_HOST_OS
+		isdirectory = Posix.dropFileName loc' == loc'
+#else
+		isdirectory = dropFileName (fromImportLocation loc) == fromImportLocation loc
+#endif
 		matches = matchesImportLocation matcher loc sz
 		isknown = isKnownImportLocation dbhandle loc
 		notignored = notIgnoredImportLocation importtreeconfig ci loc
-	
+
+#ifdef mingw32_HOST_OS
+		loc' = fromOsPath (fromImportLocation loc)
+#endif
+
 	wantedunder dbhandle root (loc, v) = 
 		wanted dbhandle (importableContentsChunkFullLocation root loc, v)
 
@@ -834,7 +1167,7 @@ isKnownImportLocation dbhandle loc = liftIO $
 	not . null <$> Export.getExportTreeKey dbhandle loc
 
 matchesImportLocation :: FileMatcher Annex -> ImportLocation -> Integer -> Annex Bool
-matchesImportLocation matcher loc sz = checkMatcher' matcher mi mempty
+matchesImportLocation matcher loc sz = checkMatcher' matcher mi NoLiveUpdate mempty
   where
 	mi = MatchingInfo $ ProvidedInfo
 		{ providedFilePath = Just (fromImportLocation loc)
@@ -850,6 +1183,6 @@ notIgnoredImportLocation importtreeconfig ci loc = not <$> checkIgnored ci f
   where
 	f = case importtreeconfig of
 		ImportSubTree dir _ ->
-			getTopFilePath dir P.</> fromImportLocation loc
+			getTopFilePath dir </> fromImportLocation loc
 		ImportTree ->
 			fromImportLocation loc

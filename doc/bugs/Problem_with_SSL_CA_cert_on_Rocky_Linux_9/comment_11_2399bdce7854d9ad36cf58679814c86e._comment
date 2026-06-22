@@ -1,0 +1,8 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 11"""
+ date="2026-05-13T14:05:37Z"
+ content="""
+Implemented both using the Fedora location (which also works on Rocky),
+and falling back to a bundled copy of the CA cert store.
+"""]]

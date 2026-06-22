@@ -42,6 +42,7 @@ import Types.StoreRetrieve
 import Types.Remote
 import Annex.Verify
 import Annex.UUID
+import Annex.Perms
 import Config
 import Config.Cost
 import Utility.Metered
@@ -52,6 +53,7 @@ import Messages.Progress
 import qualified Git
 import qualified Git.Construct
 import Git.Types
+import qualified Utility.FileIO as F
 
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Lazy as L
@@ -91,12 +93,11 @@ mkRetrievalVerifiableKeysSecure gc
 
 -- A Storer that expects to be provided with a file containing
 -- the content of the key to store.
-fileStorer :: (Key -> FilePath -> MeterUpdate -> Annex ()) -> Storer
+fileStorer :: (Key -> OsPath -> MeterUpdate -> Annex ()) -> Storer
 fileStorer a k (FileContent f) m = a k f m
 fileStorer a k (ByteContent b) m = withTmp k $ \f -> do
-	let f' = fromRawFilePath f
-	liftIO $ L.writeFile f' b
-	a k f' m
+	liftIO $ F.writeFile f b
+	a k f m
 
 -- A Storer that expects to be provided with a L.ByteString of
 -- the content to store.
@@ -106,40 +107,40 @@ byteStorer a k c m = withBytes c $ \b -> a k b m
 -- A Retriever that generates a lazy ByteString containing the Key's
 -- content, and passes it to a callback action which will fully consume it
 -- before returning.
-byteRetriever :: (Key -> (L.ByteString -> Annex a) -> Annex a) -> Key -> MeterUpdate -> Maybe IncrementalVerifier -> (ContentSource -> Annex a) -> Annex a
-byteRetriever a k _m _miv callback = a k (callback . ByteContent)
+byteRetriever :: (Key -> (L.ByteString -> Annex a) -> Annex a) -> Key -> MeterUpdate -> OsPath -> Maybe IncrementalVerifier -> (ContentSource -> Annex a) -> Annex a
+byteRetriever a k _m _dest _miv callback = a k (callback . ByteContent)
 
--- A Retriever that writes the content of a Key to a provided file.
+-- A Retriever that writes the content of a Key to a file.
 -- The action is responsible for updating the progress meter as it 
 -- retrieves data. The incremental verifier is updated in the background as
 -- the action writes to the file, but may not be updated with the entire
 -- content of the file.
-fileRetriever :: (RawFilePath -> Key -> MeterUpdate -> Annex ()) -> Retriever
+fileRetriever :: (OsPath -> Key -> MeterUpdate -> Annex ()) -> Retriever
 fileRetriever a = fileRetriever' $ \f k m miv -> 
 	let retrieve = a f k m
 	in tailVerify miv f retrieve
 
-{- A Retriever that writes the content of a Key to a provided file.
+{- A Retriever that writes the content of a Key to a file.
  - The action is responsible for updating the progress meter and the 
  - incremental verifier as it retrieves data.
  -}
-fileRetriever' :: (RawFilePath -> Key -> MeterUpdate -> Maybe IncrementalVerifier -> Annex ()) -> Retriever
-fileRetriever' a k m miv callback = do
-	f <- prepTmp k
-	a f k m miv
-	pruneTmpWorkDirBefore f (callback . FileContent . fromRawFilePath)
+fileRetriever' :: (OsPath -> Key -> MeterUpdate -> Maybe IncrementalVerifier -> Annex ()) -> Retriever
+fileRetriever' a k m dest miv callback = do
+	createAnnexDirectory (parentDir dest)
+	a dest k m miv
+	pruneTmpWorkDirBefore dest (callback . FileContent)
 
 {- The base Remote that is provided to specialRemote needs to have
  - storeKey, retrieveKeyFile, removeKey, and checkPresent methods,
  - but they are never actually used (since specialRemote replaces them).
  - Here are some dummy ones.
  -}
-storeKeyDummy :: Key -> AssociatedFile -> MeterUpdate -> Annex ()
-storeKeyDummy _ _ _ = error "missing storeKey implementation"
-retrieveKeyFileDummy :: Key -> AssociatedFile -> FilePath -> MeterUpdate -> VerifyConfig -> Annex Verification
+storeKeyDummy :: Key -> AssociatedFile -> Maybe OsPath -> MeterUpdate -> Annex ()
+storeKeyDummy _ _ _ _ = error "missing storeKey implementation"
+retrieveKeyFileDummy :: Key -> AssociatedFile -> OsPath -> MeterUpdate -> VerifyConfig -> Annex Verification
 retrieveKeyFileDummy _ _ _ _ _ = error "missing retrieveKeyFile implementation"
-removeKeyDummy :: Key -> Annex ()
-removeKeyDummy _ = error "missing removeKey implementation"
+removeKeyDummy :: Maybe SafeDropProof -> Key -> Annex ()
+removeKeyDummy _ _ = error "missing removeKey implementation"
 checkPresentDummy :: Key -> Annex Bool
 checkPresentDummy _ = error "missing checkPresent implementation"
 
@@ -181,7 +182,7 @@ specialRemote' :: SpecialRemoteCfg -> RemoteModifier
 specialRemote' cfg c storer retriever remover checkpresent baser = encr
   where
 	encr = baser
-		{ storeKey = \k _f p -> cip >>= storeKeyGen k p
+		{ storeKey = \k _af o p -> cip >>= storeKeyGen k o p
 		, retrieveKeyFile = \k _f d p vc -> cip >>= retrieveKeyFileGen k d p vc
 		, retrieveKeyFileCheap = case retrieveKeyFileCheap baser of
 			Nothing -> Nothing
@@ -197,7 +198,7 @@ specialRemote' cfg c storer retriever remover checkpresent baser = encr
 		, retrievalSecurityPolicy = if isencrypted
 			then mkRetrievalVerifiableKeysSecure (gitconfig baser)
 			else retrievalSecurityPolicy baser
-		, removeKey = \k -> cip >>= removeKeyGen k
+		, removeKey = \k proof -> cip >>= removeKeyGen k proof
 		, checkPresent = \k -> cip >>= checkPresentGen k
 		, cost = if isencrypted
 			then cost baser + encryptedRemoteCostAdj
@@ -212,9 +213,9 @@ specialRemote' cfg c storer retriever remover checkpresent baser = encr
 			then whereisKey baser
 			else Nothing
 		, exportActions = (exportActions baser)
-			{ storeExport = \f k l p -> displayprogress p k (Just f) $
+			{ storeExport = \f k l p -> displayprogress uploadbwlimit p k (Just f) $
 				storeExport (exportActions baser) f k l
-			, retrieveExport = \k l f p -> displayprogress p k Nothing $
+			, retrieveExport = \k l f p -> displayprogress downloadbwlimit p k Nothing $
 				retrieveExport (exportActions baser) k l f
 			}
 		}
@@ -222,24 +223,24 @@ specialRemote' cfg c storer retriever remover checkpresent baser = encr
 	isencrypted = isEncrypted c
 
 	-- chunk, then encrypt, then feed to the storer
-	storeKeyGen k p enc = sendAnnex k rollback $ \src ->
-		displayprogress p k (Just src) $ \p' ->
+	storeKeyGen k o p enc = sendAnnex k o rollback $ \src _sz ->
+		displayprogress uploadbwlimit p k (Just src) $ \p' ->
 			storeChunks (uuid baser) chunkconfig enck k src p'
 				enc encr storer checkpresent
 	  where
-		rollback = void $ removeKey encr k
+		rollback = void $ removeKey encr Nothing k
 		enck = maybe id snd enc
 
 	-- call retriever to get chunks; decrypt them; stream to dest file
 	retrieveKeyFileGen k dest p vc enc =
-		displayprogress p k Nothing $ \p' ->
+		displayprogress downloadbwlimit p k Nothing $ \p' ->
 			retrieveChunks retriever (uuid baser) vc
 				chunkconfig enck k dest p' enc encr
 	  where
 		enck = maybe id snd enc
 
-	removeKeyGen k enc = 
-		removeChunks remover (uuid baser) chunkconfig enck k
+	removeKeyGen proof k enc = 
+		removeChunks remover (uuid baser) chunkconfig enck proof k
 	  where
 		enck = maybe id snd enc
 
@@ -250,12 +251,16 @@ specialRemote' cfg c storer retriever remover checkpresent baser = encr
 
 	chunkconfig = chunkConfig cfg
 
-	displayprogress p k srcfile a
+	downloadbwlimit = remoteAnnexBwLimitDownload (gitconfig baser)
+		<|> remoteAnnexBwLimit (gitconfig baser)
+	uploadbwlimit = remoteAnnexBwLimitUpload (gitconfig baser)
+		<|> remoteAnnexBwLimit (gitconfig baser)
+
+	displayprogress bwlimit p k srcfile a
 		| displayProgress cfg = do
-			let bwlimit = remoteAnnexBwLimit (gitconfig baser)
-			metered (Just p) (KeySizer k (pure (fmap toRawFilePath srcfile))) bwlimit (const a)
+			metered (Just p) (KeySizer k (pure srcfile)) bwlimit (const a)
 		| otherwise = a p
 
 withBytes :: ContentSource -> (L.ByteString -> Annex a) -> Annex a
 withBytes (ByteContent b) a = a b
-withBytes (FileContent f) a = a =<< liftIO (L.readFile f)
+withBytes (FileContent f) a = a =<< liftIO (F.readFile f)

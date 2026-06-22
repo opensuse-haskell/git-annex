@@ -23,6 +23,7 @@ import Utility.InodeCache
 import qualified Messages.JSON as JSON
 import Messages.Concurrent
 import Messages.Internal
+import Utility.SafeOutput
 
 import qualified System.Console.Regions as Regions
 import qualified System.Console.Concurrent as Console
@@ -54,7 +55,7 @@ instance MeterSize KeySource where
  - This allows uploads of keys without size to still have progress
  - displayed.
  -}
-data KeySizer = KeySizer Key (Annex (Maybe RawFilePath))
+data KeySizer = KeySizer Key (Annex (Maybe OsPath))
 
 instance MeterSize KeySizer where
 	getMeterSize (KeySizer k getsrcfile) = case fromKey keySize k of
@@ -170,14 +171,14 @@ metered' st setclear othermeterupdate msize bwlimit showoutput a = go st
 	minratelimit = min consoleratelimit jsonratelimit
 		
 {- Poll file size to display meter. -}
-meteredFile :: FilePath -> Maybe MeterUpdate -> Key -> Annex a -> Annex a
+meteredFile :: OsPath -> Maybe MeterUpdate -> Key -> (MeterUpdate -> Annex a) -> Annex a
 meteredFile file combinemeterupdate key a = 
 	metered combinemeterupdate key Nothing $ \_ p ->
 		watchFileSize file p a
 
 {- Progress dots. -}
 showProgressDots :: Annex ()
-showProgressDots = outputMessage JSON.none "."
+showProgressDots = outputMessage JSON.none id "."
 
 {- Runs a command, that may output progress to either stdout or
  - stderr, as well as other messages.
@@ -220,5 +221,5 @@ mkStderrEmitter :: Annex (String -> IO ())
 mkStderrEmitter = withMessageState go
   where
 	go s
-		| concurrentOutputEnabled s = return Console.errorConcurrent
-		| otherwise = return (hPutStrLn stderr)
+		| concurrentOutputEnabled s = return (Console.errorConcurrent . safeOutput)
+		| otherwise = return (hPutStrLn stderr . safeOutput)

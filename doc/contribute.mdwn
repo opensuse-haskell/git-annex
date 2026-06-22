@@ -2,7 +2,7 @@ Help make git-annex better!
 
 ## user support
 
-Hang out in git-annex [[support]] areas and answer user's questions.
+Hang out in git-annex support areas and answer users' questions.
 Don't be afraid to get an answer not 100% right, but avoid wild guesses.
 If you understand the basics of how git-annex works and know how to use it,
 you are ahead of many users, and can help them out tremendously.
@@ -60,6 +60,9 @@ or work on porting libraries needed by the Windows port.
 
 To send patches, either include the patch in a [[bug|bugs]] report (small
 patch) or put up a branch in a git repository containing your changes.
+
+[Policy on AI generated content](https://joeyh.name/blog/entry/policy_on_adding_AI_generated_content_to_my_software_projects/)
+(Summary: It's welcome! But see the page for important details.)
 
 ## learning some Haskell
 

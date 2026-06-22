@@ -1,11 +1,11 @@
 {- git-annex command-line option parsing
  -
- - Copyright 2010-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
-{-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
+{-# LANGUAGE TypeSynonymInstances, FlexibleInstances, OverloadedStrings #-}
 
 module CmdLine.GitAnnex.Options where
 
@@ -40,6 +40,7 @@ import qualified Types.Backend as Backend
 import Utility.HumanTime
 import Utility.DataUnits
 import Annex.Concurrent
+import Remote.List
 
 -- Options that are accepted by all git-annex sub-commands,
 -- although not always used.
@@ -53,6 +54,11 @@ gitAnnexCommonOptions = commonOptions ++
 	, annexOption setmincopies $ option auto
 		( long "mincopies" <> short 'N' <> metavar paramNumber
 		<> help "override minimum number of copies"
+		<> hidden
+		)
+	, annexFlag (setrebalance True)
+		( long "rebalance" 
+		<> help "move content as needed to improve balance"
 		<> hidden
 		)
 	, annexOption (setAnnexState . Remote.forceTrust Trusted) $ strOption
@@ -102,15 +108,19 @@ gitAnnexCommonOptions = commonOptions ++
   where
 	setnumcopies n = setAnnexRead $ \rd -> rd { Annex.forcenumcopies = Just $ configuredNumCopies n }
 	setmincopies n = setAnnexRead $ \rd -> rd { Annex.forcemincopies = Just $ configuredMinCopies n }
+	setrebalance v = setAnnexRead $ \rd -> rd { Annex.rebalance = v }
 	setuseragent v = setAnnexRead $ \rd -> rd { Annex.useragent = Just v }
 	setdesktopnotify v = setAnnexRead $ \rd -> rd { Annex.desktopnotify = Annex.desktopnotify rd <> v }
 	setgitconfig v = Annex.addGitConfigOverride v
 
 {- Parser that accepts all non-option params. -}
 cmdParams :: CmdParamsDesc -> Parser CmdParams
-cmdParams paramdesc = many $ argument str
+cmdParams paramdesc = cmdParamsWithCompleter paramdesc completeFiles
+
+cmdParamsWithCompleter :: String -> Mod ArgumentFields String -> Parser CmdParams
+cmdParamsWithCompleter paramdesc completers = many $ argument str
 	( metavar paramdesc
-	<> action "file"
+	<> completers
 	)
 
 parseAutoOption :: Parser Bool
@@ -119,8 +129,14 @@ parseAutoOption = switch
 	<> help "automatic mode"
 	)
 
-parseRemoteOption :: RemoteName -> DeferredParse Remote
-parseRemoteOption = DeferredParse 
+parseWantedOption :: Parser Bool
+parseWantedOption = switch
+	( long "wanted" <> short 'w'
+	<> help "operate on preferred content"
+	)
+
+mkParseRemoteOption :: RemoteName -> DeferredParse Remote
+mkParseRemoteOption = DeferredParse 
 	. (fromJust <$$> Remote.byNameWithUUID)
 	. Just
 
@@ -134,7 +150,7 @@ parseDryRunOption = DryRun <$> switch
 	<> help "don't make changes, but show what would be done"
 	)
 
--- | From or To a remote.
+-- | From or To a remote but not both.
 data FromToOptions
 	= FromRemote (DeferredParse Remote)
 	| ToRemote (DeferredParse Remote)
@@ -145,8 +161,8 @@ instance DeferredParseClass FromToOptions where
 
 parseFromToOptions :: Parser FromToOptions
 parseFromToOptions = 
-	(FromRemote . parseRemoteOption <$> parseFromOption) 
-	<|> (ToRemote . parseRemoteOption <$> parseToOption)
+	(FromRemote . mkParseRemoteOption <$> parseFromOption) 
+	<|> (ToRemote . mkParseRemoteOption <$> parseToOption)
 
 parseFromOption :: Parser RemoteName
 parseFromOption = strOption
@@ -162,23 +178,55 @@ parseToOption = strOption
 	<> completeRemotes
 	)
 
--- | Like FromToOptions, but with a special --to=here
-type FromToHereOptions = Either ToHere FromToOptions
+parseFromAnywhereOption :: Parser Bool
+parseFromAnywhereOption = switch
+	( long "from-anywhere"
+	<> help "from any remote"
+	)
 
-data ToHere = ToHere
+parseRemoteOption :: Parser RemoteName
+parseRemoteOption = strOption
+	( long "remote" <> metavar paramRemote
+	<> completeRemotes
+	)
 
-parseFromToHereOptions :: Parser FromToHereOptions
-parseFromToHereOptions = parsefrom <|> parseto
+-- | --from or --to a remote, or both, or a special --to=here,
+-- or --from-anywhere --to remote.
+data FromToHereOptions 
+	= FromOrToRemote FromToOptions
+	| ToHere
+	| FromRemoteToRemote (DeferredParse Remote) (DeferredParse Remote)
+	| FromAnywhereToRemote (DeferredParse Remote)
+
+parseFromToHereOptions :: Parser (Maybe FromToHereOptions)
+parseFromToHereOptions = go
+	<$> optional parseFromOption
+	<*> optional parseToOption
+	<*> parseFromAnywhereOption
   where
-	parsefrom = Right . FromRemote . parseRemoteOption <$> parseFromOption
-	parseto = herespecialcase <$> parseToOption
-	  where
-		herespecialcase "here" = Left ToHere
-		herespecialcase "." = Left ToHere
-		herespecialcase n = Right $ ToRemote $ parseRemoteOption n
+	go _ (Just to) True = Just $ FromAnywhereToRemote
+		(mkParseRemoteOption to)
+	go (Just from) (Just to) _ = Just $ FromRemoteToRemote
+		(mkParseRemoteOption from)
+		(mkParseRemoteOption to)
+	go (Just from) Nothing _ = Just $ FromOrToRemote
+		(FromRemote $ mkParseRemoteOption from)
+	go Nothing (Just to) _ = Just $ case to of
+		"here" -> ToHere
+		"." -> ToHere
+		_ -> FromOrToRemote $ ToRemote $ mkParseRemoteOption to
+	go Nothing Nothing _ = Nothing
 
 instance DeferredParseClass FromToHereOptions where
-	finishParse = either (pure . Left) (Right <$$> finishParse)
+	finishParse (FromOrToRemote v) = 
+		FromOrToRemote <$> finishParse v
+	finishParse ToHere = pure ToHere
+	finishParse (FromRemoteToRemote v1 v2) = 
+		FromRemoteToRemote
+			<$> finishParse v1
+			<*> finishParse v2
+	finishParse (FromAnywhereToRemote v) = 
+		FromAnywhereToRemote <$> finishParse v
 
 -- Options for acting on keys, rather than work tree files.
 data KeyOptions
@@ -239,34 +287,43 @@ annexedMatchingOptions :: [AnnexOption]
 annexedMatchingOptions = concat
 	[ keyMatchingOptions'
 	, fileMatchingOptions' Limit.LimitAnnexFiles
+	, anythingNothingOptions
 	, combiningOptions
 	, timeLimitOption
 	, sizeLimitOption
 	]
 
--- Matching options that can operate on keys as well as files.
+-- Options to match properties of keys.
 keyMatchingOptions :: [AnnexOption]
-keyMatchingOptions = keyMatchingOptions' ++ combiningOptions ++ timeLimitOption ++ sizeLimitOption
+keyMatchingOptions = concat
+	[ keyMatchingOptions'
+	, sizeMatchingOptions Limit.LimitAnnexFiles
+	, anythingNothingOptions
+	, combiningOptions 
+	, timeLimitOption 
+	, sizeLimitOption
+	]
 
+-- Matching options that can operate on keys as well as files.
 keyMatchingOptions' :: [AnnexOption]
 keyMatchingOptions' = 
 	[ annexOption (setAnnexState . Limit.addIn) $ strOption
 		( long "in" <> short 'i' <> metavar paramRemote
-		<> help "match files present in a remote"
+		<> help "match files present in a repository"
 		<> hidden
 		<> completeRemotes
 		)
 	, annexOption (setAnnexState . Limit.addCopies) $ strOption
-		( long "copies" <> short 'C' <> metavar paramRemote
+		( long "copies" <> short 'C' <> metavar paramNumber
 		<> help "skip files with fewer copies"
 		<> hidden
 		)
-	, annexOption (setAnnexState . Limit.addLackingCopies False) $ strOption
+	, annexOption (setAnnexState . Limit.addLackingCopies "lackingcopies" False) $ strOption
 		( long "lackingcopies" <> metavar paramNumber
 		<> help "match files that need more copies"
 		<> hidden
 		)
-	, annexOption (setAnnexState . Limit.addLackingCopies True) $ strOption
+	, annexOption (setAnnexState . Limit.addLackingCopies "approxlackingcopies" True) $ strOption
 		( long "approxlackingcopies" <> metavar paramNumber
 		<> help "match files that need more copies (faster)"
 		<> hidden
@@ -284,12 +341,22 @@ keyMatchingOptions' =
 		)
 	, annexOption (setAnnexState . Limit.addInAllGroup) $ strOption
 		( long "inallgroup" <> metavar paramGroup
-		<> help "match files present in all remotes in a group"
+		<> help "match files present in all repositories in a group"
+		<> hidden
+		)
+	, annexOption (setAnnexState . Limit.addOnlyInGroup) $ strOption
+		( long "onlyingroup" <> metavar paramGroup
+		<> help "match files that are only present in repositories in the group"
 		<> hidden
 		)
 	, annexOption (setAnnexState . Limit.addMetaData) $ strOption
 		( long "metadata" <> metavar "FIELD=VALUE"
 		<> help "match files with attached metadata"
+		<> hidden
+		)
+	, annexOption (setAnnexState . Limit.addUrl) $ strOption
+		( long "url" <> metavar paramGlob
+		<> help "match files by url"
 		<> hidden
 		)
 	, annexFlag (setAnnexState Limit.Wanted.addWantGet)
@@ -320,6 +387,21 @@ keyMatchingOptions' =
 			<> help "match files accessed within a time interval"
 			<> hidden
 			)
+	, annexOption (setAnnexState . Limit.addPresentSince) $ strOption
+		( long "presentsince" <> metavar paramValue
+		<> help "matches files present in a repository throughout a time interval"
+		<> hidden
+		)
+	, annexOption (setAnnexState . Limit.addLackingSince) $ strOption
+		( long "lackingsince" <> metavar paramValue
+		<> help "matches files not present in a repository throughout a time interval"
+		<> hidden
+		)
+	, annexOption (setAnnexState . Limit.addChangedSince) $ strOption
+		( long "changedsince" <> metavar paramValue
+		<> help "matches files whose presence changed during a time interval"
+		<> hidden
+		)
 	, annexOption (setAnnexState . Limit.addMimeType) $ strOption
 		( long "mimetype" <> metavar paramGlob
 		<> help "match files by mime type"
@@ -338,6 +420,11 @@ keyMatchingOptions' =
 	, annexFlag (setAnnexState Limit.addLocked)
 		( long "locked"
 		<> help "match files that are locked"
+		<> hidden
+		)
+	, annexFlag (setAnnexState Limit.addExpectedPresent)
+		( long "expected-present"
+		<> help "match files expected to be present"
 		<> hidden
 		)
 	]
@@ -368,7 +455,11 @@ fileMatchingOptions' lb =
 		<> help "limit to files whose content is the same as another file matching the glob pattern"
 		<> hidden
 		)
-	, annexOption (setAnnexState . Limit.addLargerThan lb) $ strOption
+	] ++ sizeMatchingOptions lb
+
+sizeMatchingOptions :: Limit.LimitBy -> [AnnexOption]
+sizeMatchingOptions lb =
+	[ annexOption (setAnnexState . Limit.addLargerThan lb) $ strOption
 		( long "largerthan" <> metavar paramSize
 		<> help "match files larger than a size"
 		<> hidden
@@ -376,6 +467,20 @@ fileMatchingOptions' lb =
 	, annexOption (setAnnexState . Limit.addSmallerThan lb) $ strOption
 		( long "smallerthan" <> metavar paramSize
 		<> help "match files smaller than a size"
+		<> hidden
+		)
+	]
+
+anythingNothingOptions :: [AnnexOption]
+anythingNothingOptions =
+	[ annexFlag (setAnnexState Limit.addAnything)
+		( long "anything"
+		<> help "match all files"
+		<> hidden
+		)
+	, annexFlag (setAnnexState Limit.addNothing)
+		( long "nothing"
+		<> help "don't match any files"
 		<> hidden
 		)
 	]
@@ -432,14 +537,33 @@ jsonProgressOption =
 -- action in `allowConcurrentOutput`.
 jobsOption :: [AnnexOption]
 jobsOption = 
-	[ annexOption (setAnnexState . setConcurrency . ConcurrencyCmdLine) $ 
-		option (maybeReader parseConcurrency)
-			( long "jobs" <> short 'J' 
-			<> metavar (paramNumber `paramOr` "cpus")
-			<> help "enable concurrent jobs"
-			<> hidden
-			)
+	[ annexOption (setAnnexState . setConcurrency . ConcurrencyCmdLine)
+		jobsOptionParser
 	]
+
+jobsOptionParser :: Parser Concurrency
+jobsOptionParser = 
+	option (maybeReader parseConcurrency)
+		( long "jobs" <> short 'J' 
+		<> metavar (paramNumber `paramOr` "cpus")
+		<> help "enable concurrent jobs"
+		<> hidden
+		)
+
+cpusOption :: [AnnexOption]
+cpusOption = 
+	[ annexOption (setAnnexState . setCpus)
+		cpusOptionParser
+	]
+
+cpusOptionParser :: Parser Cpus
+cpusOptionParser = 
+	option (maybeReader parseCpus)
+		( long "cpus" 
+		<> metavar paramNumber
+		<> help "how many cpus to run jobs on"
+		<> hidden
+		)
 
 timeLimitOption :: [AnnexOption]
 timeLimitOption = 
@@ -500,14 +624,34 @@ parseDaemonOptions canstop
 		)
 
 completeRemotes :: HasCompleter f => Mod f a
-completeRemotes = completer $ mkCompleter $ \input -> do
-	r <- maybe (pure Nothing) (Just <$$> Git.Config.read)
-		=<< Git.Construct.fromCwd
-	return $ filter (input `isPrefixOf`) $
-		mapMaybe remoteKeyToRemoteName $
-			filter isRemoteUrlKey $
-				maybe [] (M.keys . config) r
-		
+completeRemotes = completer $ mkCompleter $ \input ->
+	Git.Construct.fromCwd >>= \case
+		Nothing -> return []
+		Just g -> completeRemotes' g input
+
+completeRemotes' :: Repo -> [Char] -> IO [[Char]]
+completeRemotes' g input = do
+	g' <- Git.Config.read g
+	state <- Annex.new g'
+	Annex.eval state $ do
+		Annex.setOutput QuietOutput
+		gc <- Annex.getGitConfig
+		if isinitialized gc
+			then do
+				rs <- remoteList
+				matches $ map Remote.name rs
+			else matches $
+				mapMaybe remoteKeyToRemoteName $
+					filter isRemoteUrlKey $ 
+						M.keys $ config g
+  where
+	isinitialized gc = annexUUID gc /= NoUUID && isJust (annexVersion gc)
+	matches = return . filter (input `isPrefixOf`)
+
 completeBackends :: HasCompleter f => Mod f a
 completeBackends = completeWith $
 	map (decodeBS . formatKeyVariety . Backend.backendVariety) Backend.builtinList
+
+completeFiles :: HasCompleter f => Mod f a
+completeFiles = action "file"
+

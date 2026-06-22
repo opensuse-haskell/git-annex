@@ -1,6 +1,6 @@
 {- git-annex command
  -
- - Copyright 2010, 2013 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2023 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -13,17 +13,19 @@ import Annex.Transfer
 import Annex.NumCopies
 import Annex.Wanted
 import qualified Command.Move
+import Logs.Location
 
 cmd :: Command
 cmd = withAnnexOptions [jobsOption, jsonOptions, jsonProgressOption, annexedMatchingOptions] $ 
 	command "get" SectionCommon 
-		"make content of annexed files available"
+		"get content of annexed files"
 		paramPaths (seek <$$> optParser)
 
 data GetOptions = GetOptions
 	{ getFiles :: CmdParams
 	, getFrom :: Maybe (DeferredParse Remote)
 	, autoMode :: Bool
+	, wantedMode :: Bool
 	, keyOptions :: Maybe KeyOptions
 	, batchOption :: BatchMode
 	}
@@ -31,68 +33,73 @@ data GetOptions = GetOptions
 optParser :: CmdParamsDesc -> Parser GetOptions
 optParser desc = GetOptions
 	<$> cmdParams desc
-	<*> optional (parseRemoteOption <$> parseFromOption)
+	<*> optional (mkParseRemoteOption <$> parseFromOption)
 	<*> parseAutoOption
+	<*> parseWantedOption
 	<*> optional (parseIncompleteOption <|> parseKeyOptions <|> parseFailedTransfersOption)
 	<*> parseBatchOption True
 
 seek :: GetOptions -> CommandSeek
-seek o = startConcurrency downloadStages $ do
+seek o = startConcurrency transferStages $ do
 	from <- maybe (pure Nothing) (Just <$$> getParsed) (getFrom o)
 	let seeker = AnnexedFileSeeker
-		{ startAction = start o from
+		{ startAction = startSingle $ const $ start o from
 		, checkContentPresent = Just False
 		, usesLocationLog = True
 		}
 	case batchOption o of
-		NoBatch -> withKeyOptions (keyOptions o) (autoMode o) seeker
+		NoBatch -> withKeyOptions (keyOptions o) (autoMode o || wantedMode o) seeker
 			(commandAction . startKeys from)
 			(withFilesInGitAnnex ww seeker)
 			=<< workTreeItems ww (getFiles o)
 		Batch fmt -> batchOnly (keyOptions o) (getFiles o) $
 			batchAnnexed fmt seeker (startKeys from)
   where
-	ww = WarnUnmatchLsFiles
+	ww = WarnUnmatchLsFiles "get"
 
-start :: GetOptions -> Maybe Remote -> SeekInput -> RawFilePath -> Key -> CommandStart
-start o from si file key = start' expensivecheck from key afile ai si
+start :: GetOptions -> Maybe Remote -> SeekInput -> OsPath -> Key -> CommandStart
+start o from si file key = do
+	lu <- prepareLiveUpdate Nothing key AddingKey
+	start' lu (expensivecheck lu) from key afile ai si
   where
 	afile = AssociatedFile (Just file)
 	ai = mkActionItem (key, afile)
-	expensivecheck
-		| autoMode o = numCopiesCheck file key (<)
-			<||> wantGet False (Just key) afile
+	expensivecheck lu
+		| autoMode o = numCopiesCheck file key (<) <||> wantget lu
+		| wantedMode o = wantget lu
 		| otherwise = return True
+	wantget lu = wantGet lu False (Just key) afile
 
 startKeys :: Maybe Remote -> (SeekInput, Key, ActionItem) -> CommandStart
 startKeys from (si, key, ai) = checkFailedTransferDirection ai Download $
-	start' (return True) from key (AssociatedFile Nothing) ai si
+	start' NoLiveUpdate (return True) from key (AssociatedFile Nothing) ai si
 
-start' :: Annex Bool -> Maybe Remote -> Key -> AssociatedFile -> ActionItem -> SeekInput -> CommandStart
-start' expensivecheck from key afile ai si =
+start' :: LiveUpdate -> Annex Bool -> Maybe Remote -> Key -> AssociatedFile -> ActionItem -> SeekInput -> CommandStart
+start' lu expensivecheck from key afile ai si =
 	stopUnless expensivecheck $
 		case from of
-			Nothing -> go $ perform key afile
+			Nothing -> go $ perform lu key afile
 			Just src ->
 				stopUnless (Command.Move.fromOk src key) $
-					go $ Command.Move.fromPerform src Command.Move.RemoveNever key afile
+					go $ Command.Move.fromPerform lu src Command.Move.Get key afile
   where
 	go = starting "get" (OnlyActionOn key ai) si
 
-perform :: Key -> AssociatedFile -> CommandPerform
-perform key afile = stopUnless (getKey key afile) $
+perform :: LiveUpdate -> Key -> AssociatedFile -> CommandPerform
+perform lu key afile = stopUnless (getKey lu key afile) $
 	next $ return True -- no cleanup needed
 
 {- Try to find a copy of the file in one of the remotes,
  - and copy it to here. -}
-getKey :: Key -> AssociatedFile -> Annex Bool
-getKey key afile = getKey' key afile =<< Remote.keyPossibilities key
+getKey :: LiveUpdate -> Key -> AssociatedFile -> Annex Bool
+getKey lu key afile = getKey' lu key afile
+	=<< Remote.keyPossibilities (Remote.IncludeIgnored False) key
 
-getKey' :: Key -> AssociatedFile -> [Remote] -> Annex Bool
-getKey' key afile = dispatch
+getKey' :: LiveUpdate -> Key -> AssociatedFile -> [Remote] -> Annex Bool
+getKey' lu key afile = dispatch
   where
 	dispatch [] = do
-		showNote "not available"
+		showNote (UnquotedString "not available")
 		showlocs []
 		return False
 	dispatch remotes = notifyTransfer Download afile $ \witness -> do
@@ -106,7 +113,8 @@ getKey' key afile = dispatch
 				Remote.showTriedRemotes remotes
 				showlocs (map Remote.uuid remotes)
 				return False
-	showlocs exclude = Remote.showLocations False key exclude
+	showlocs exclude = Remote.showLocations False key
+		(\u -> pure (u `elem` exclude))
 		"No other repository is known to contain the file."
 	-- This check is to avoid an ugly message if a remote is a
 	-- drive that is not mounted.
@@ -115,5 +123,6 @@ getKey' key afile = dispatch
 			either (const False) id <$> Remote.hasKey r key
 		| otherwise = return True
 	docopy r witness = do
-		showAction $ "from " ++ Remote.name r
-		download r key afile stdRetry witness
+		showAction $ UnquotedString $ "from " ++ Remote.name r
+		logStatusAfter lu key $
+			download r key afile stdRetry witness

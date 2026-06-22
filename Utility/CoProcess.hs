@@ -1,7 +1,7 @@
 {- Interface for running a shell command as a coprocess,
  - sending it queries and getting back results.
  -
- - Copyright 2012-2013 Joey Hess <id@joeyh.name>
+ - Copyright 2012-2023 Joey Hess <id@joeyh.name>
  -
  - License: BSD-2-clause
  -}
@@ -14,11 +14,14 @@ module Utility.CoProcess (
 	start,
 	stop,
 	query,
+	send,
+	receive,
 ) where
 
 import Common
 
 import Control.Concurrent.MVar
+import Control.Monad.IO.Class (MonadIO)
 
 type CoProcessHandle = MVar CoProcessState
 
@@ -65,12 +68,12 @@ stop ch = do
 {- To handle a restartable process, any IO exception thrown by the send and
  - receive actions are assumed to mean communication with the process
  - failed, and the failed action is re-run with a new process. -}
-query :: CoProcessHandle -> (Handle -> IO a) -> (Handle -> IO b) -> IO b
-query ch send receive = do
-	s <- readMVar ch
-	restartable s (send $ coProcessTo s) $ const $
-		restartable s (hFlush $ coProcessTo s) $ const $
-			restartable s (receive $ coProcessFrom s)
+query :: (MonadIO m, MonadCatch m) => CoProcessHandle -> (Handle -> m a) -> (Handle -> m b) -> m b
+query ch sender receiver = do
+	s <- liftIO $ readMVar ch
+	restartable s (sender $ coProcessTo s) $ const $
+		restartable s (liftIO $ hFlush $ coProcessTo s) $ const $
+			restartable s (receiver $ coProcessFrom s)
 				return
   where
 	restartable s a cont
@@ -78,12 +81,23 @@ query ch send receive = do
 			maybe restart cont =<< catchMaybeIO a
 		| otherwise = cont =<< a
 	restart = do
-		s <- takeMVar ch
-		void $ catchMaybeIO $ do
+		s <- liftIO $ takeMVar ch
+		void $ liftIO $ catchMaybeIO $ do
 			hClose $ coProcessTo s
 			hClose $ coProcessFrom s
-		void $ waitForProcess $ coProcessPid s
-		s' <- start' $ (coProcessSpec s)
+		void $ liftIO $ waitForProcess $ coProcessPid s
+		s' <- liftIO $ start' $ (coProcessSpec s)
 			{ coProcessNumRestarts = coProcessNumRestarts (coProcessSpec s) - 1 }
-		putMVar ch s'
-		query ch send receive
+		liftIO $ putMVar ch s'
+		query ch sender receiver
+
+send :: MonadIO m => CoProcessHandle -> (Handle -> m a) -> m a
+send ch a = do
+	s <- liftIO $ readMVar ch
+	a (coProcessTo s)
+
+receive :: MonadIO m => CoProcessHandle -> (Handle -> m a) -> m a
+receive ch a = do
+	s <- liftIO $ readMVar ch
+	liftIO $ hFlush $ coProcessTo s
+	a (coProcessFrom s)

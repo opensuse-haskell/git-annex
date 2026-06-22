@@ -15,10 +15,13 @@ module Remote.Directory (
 	removeDirGeneric,
 ) where
 
-import qualified Data.ByteString.Lazy as L
 import qualified Data.Map as M
-import qualified System.FilePath.ByteString as P
+import qualified Data.List.NonEmpty as NE
 import Data.Default
+import System.PosixCompat.Files (isRegularFile, deviceID)
+#ifndef mingw32_HOST_OS
+import System.PosixCompat.Files (getFdStatus)
+#endif
 
 import Annex.Common
 import Types.Remote
@@ -30,6 +33,7 @@ import Config
 import Annex.SpecialRemote.Config
 import Remote.Helper.Special
 import Remote.Helper.ExportImport
+import Remote.Helper.Path
 import Types.Import
 import qualified Remote.Directory.LegacyChunked as Legacy
 import Annex.CopyFile
@@ -46,6 +50,10 @@ import Utility.InodeCache
 import Utility.FileMode
 import Utility.Directory.Create
 import qualified Utility.RawFilePath as R
+import qualified Utility.FileIO as F
+#ifndef mingw32_HOST_OS
+import Utility.OpenFd
+#endif
 
 remote :: RemoteType
 remote = specialRemoteType $ RemoteType
@@ -73,14 +81,15 @@ ignoreinodesField = Accepted "ignoreinodes"
 gen :: Git.Repo -> UUID -> RemoteConfig -> RemoteGitConfig -> RemoteStateHandle -> Annex (Maybe Remote)
 gen r u rc gc rs = do
 	c <- parsedRemoteConfig remote rc
-	cst <- remoteCost gc cheapRemoteCost
+	cst <- remoteCost gc c cheapRemoteCost
 	let chunkconfig = getChunkConfig c
 	cow <- liftIO newCopyCoWTried
+	fastcopy <- getFastCopy gc
 	let ii = IgnoreInodes $ fromMaybe True $
 		getRemoteConfigValue ignoreinodesField c
 	return $ Just $ specialRemote c
-		(storeKeyM dir chunkconfig cow)
-		(retrieveKeyFileM dir chunkconfig cow)
+		(storeKeyM dir chunkconfig cow fastcopy)
+		(retrieveKeyFileM dir chunkconfig cow fastcopy)
 		(removeKeyM dir)
 		(checkPresentM dir chunkconfig)
 		Remote
@@ -89,6 +98,7 @@ gen r u rc gc rs = do
 			, name = Git.repoDescribe r
 			, storeKey = storeKeyDummy
 			, retrieveKeyFile = retrieveKeyFileDummy
+			, retrieveKeyFileInOrder = pure True
 			, retrieveKeyFileCheap = retrieveKeyFileCheapM dir chunkconfig
 			, retrievalSecurityPolicy = RetrievalAllKeysSecure
 			, removeKey = removeKeyDummy
@@ -96,21 +106,20 @@ gen r u rc gc rs = do
 			, checkPresent = checkPresentDummy
 			, checkPresentCheap = True
 			, exportActions = ExportActions
-				{ storeExport = storeExportM dir cow
-				, retrieveExport = retrieveExportM dir cow
+				{ storeExport = storeExportM dir cow fastcopy
+				, retrieveExport = retrieveExportM dir cow fastcopy
 				, removeExport = removeExportM dir
-				, versionedExport = False
 				, checkPresentExport = checkPresentExportM dir
 				-- Not needed because removeExportLocation
 				-- auto-removes empty directories.
 				, removeExportDirectory = Nothing
-				, renameExport = renameExportM dir
+				, renameExport = Just $ renameExportM dir
 				}
 			, importActions = ImportActions
 				{ listImportableContents = listImportableContentsM ii dir
 				, importKey = Just (importKeyM ii dir)
 				, retrieveExportWithContentIdentifier = retrieveExportWithContentIdentifierM ii dir cow
-				, storeExportWithContentIdentifier = storeExportWithContentIdentifierM ii dir cow
+				, storeExportWithContentIdentifier = storeExportWithContentIdentifierM ii dir cow fastcopy
 				, removeExportWithContentIdentifier = removeExportWithContentIdentifierM ii dir
 				-- Not needed because removeExportWithContentIdentifier
 				-- auto-removes empty directories.
@@ -119,15 +128,16 @@ gen r u rc gc rs = do
 				}
 			, whereisKey = Nothing
 			, remoteFsck = Nothing
+			, repairKey = Nothing
 			, repairRepo = Nothing
 			, config = c
 			, getRepo = return r
 			, gitconfig = gc
-			, localpath = Just dir'
+			, localpath = Just dir
 			, readonly = False
 			, appendonly = False
 			, untrustworthy = False
-			, availability = LocallyAvailable
+			, availability = checkPathAvailability True dir
 			, remotetype = remote
 			, mkUnavailable = gen r u rc
 				(gc { remoteAnnexDirectory = Just "/dev/null" }) rs
@@ -137,49 +147,52 @@ gen r u rc gc rs = do
 			, remoteStateHandle = rs
 			}
   where
-	dir = toRawFilePath dir'
-	dir' = fromMaybe (giveup "missing directory") (remoteAnnexDirectory gc)
+	dir = toOsPath dir'
+	dir' = fromMaybe (giveup "missing directory")
+		(remoteAnnexDirectory gc)
 
-directorySetup :: SetupStage -> Maybe UUID -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
-directorySetup _ mu _ c gc = do
+directorySetup :: SetupStage -> Maybe UUID -> RemoteName -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
+directorySetup ss mu _ _ c gc = do
 	u <- maybe (liftIO genUUID) return mu
 	-- verify configuration is sane
 	let dir = maybe (giveup "Specify directory=") fromProposedAccepted $
 		M.lookup directoryField c
-	absdir <- liftIO $ fromRawFilePath <$> absPath (toRawFilePath dir)
+	absdir <- liftIO $ absPath (toOsPath dir)
 	liftIO $ unlessM (doesDirectoryExist absdir) $
-		giveup $ "Directory does not exist: " ++ absdir
-	(c', _encsetup) <- encryptionSetup c gc
+		giveup $ "Directory does not exist: " ++ fromOsPath absdir
+	(c', _encsetup) <- encryptionSetup ss c gc
 
 	-- The directory is stored in git config, not in this remote's
-	-- persistant state, so it can vary between hosts.
-	gitConfigSpecialRemote u c' [("directory", absdir)]
+	-- persistent state, so it can vary between hosts.
+	gitConfigSpecialRemote u c' [("directory", fromOsPath absdir)]
 	return (M.delete directoryField c', u)
 
 {- Locations to try to access a given Key in the directory.
  - We try more than one since we used to write to different hash
  - directories. -}
-locations :: RawFilePath -> Key -> [RawFilePath]
-locations d k = map (d P.</>) (keyPaths k)
+locations :: OsPath -> Key -> NE.NonEmpty OsPath
+locations d k = NE.map (d </>) (keyPaths k)
 
-{- Returns the location off a Key in the directory. If the key is
+locations' :: OsPath -> Key -> [OsPath]
+locations' d k = NE.toList (locations d k)
+
+{- Returns the location of a Key in the directory. If the key is
  - present, returns the location that is actually used, otherwise
  - returns the first, default location. -}
-getLocation :: RawFilePath -> Key -> IO RawFilePath
+getLocation :: OsPath -> Key -> IO OsPath
 getLocation d k = do
 	let locs = locations d k
-	fromMaybe (Prelude.head locs)
-		<$> firstM (doesFileExist . fromRawFilePath) locs
+	fromMaybe (NE.head locs) <$> firstM doesFileExist (NE.toList locs)
 
 {- Directory where the file(s) for a key are stored. -}
-storeDir :: RawFilePath -> Key -> RawFilePath
-storeDir d k = P.addTrailingPathSeparator $
-	d P.</> hashDirLower def k P.</> keyFile k
+storeDir :: OsPath -> Key -> OsPath
+storeDir d k = addTrailingPathSeparator $
+	d </> hashDirLower def k </> keyFile k
 
 {- Check if there is enough free disk space in the remote's directory to
  - store the key. Note that the unencrypted key size is checked. -}
-storeKeyM :: RawFilePath -> ChunkConfig -> CopyCoWTried -> Storer
-storeKeyM d chunkconfig cow k c m = 
+storeKeyM :: OsPath -> ChunkConfig -> CopyCoWTried -> FastCopy -> Storer
+storeKeyM d chunkconfig cow fastcopy k c m = 
 	ifM (checkDiskSpaceDirectory d k)
 		( do
 			void $ liftIO $ tryIO $ createDirectoryUnder [d] tmpdir
@@ -190,16 +203,16 @@ storeKeyM d chunkconfig cow k c m =
 	store = case chunkconfig of
 		LegacyChunks chunksize -> 
 			let go _k b p = liftIO $ Legacy.store
-				(fromRawFilePath d)
+				(fromOsPath d)
 				chunksize
 				(finalizeStoreGeneric d)
 				k b p
-				(fromRawFilePath tmpdir)
-				(fromRawFilePath destdir)
+				(fromOsPath tmpdir)
+				(fromOsPath destdir)
 			in byteStorer go k c m
 		NoChunks ->
 			let go _k src p = liftIO $ do
-				void $ fileCopier cow src tmpf p Nothing
+				void $ fileCopier cow fastcopy src tmpf p Nothing
 				finalizeStoreGeneric d tmpdir destdir
 			in fileStorer go k c m
 		_ -> 
@@ -208,63 +221,59 @@ storeKeyM d chunkconfig cow k c m =
 				finalizeStoreGeneric d tmpdir destdir
 			in byteStorer go k c m
 	
-	tmpdir = P.addTrailingPathSeparator $ d P.</> "tmp" P.</> kf
-	tmpf = fromRawFilePath tmpdir </> fromRawFilePath kf
+	tmpdir = addTrailingPathSeparator $ d </> literalOsPath "tmp" </> kf
+	tmpf = tmpdir </> kf
 	kf = keyFile k
 	destdir = storeDir d k
 
-checkDiskSpaceDirectory :: RawFilePath -> Key -> Annex Bool
+checkDiskSpaceDirectory :: OsPath -> Key -> Annex Bool
 checkDiskSpaceDirectory d k = do
 	annexdir <- fromRepo gitAnnexObjectDir
 	samefilesystem <- liftIO $ catchDefaultIO False $ 
 		(\a b -> deviceID a == deviceID b)
-			<$> R.getSymbolicLinkStatus d
-			<*> R.getSymbolicLinkStatus annexdir
-	checkDiskSpace (Just d) k 0 samefilesystem
+			<$> R.getSymbolicLinkStatus (fromOsPath d)
+			<*> R.getSymbolicLinkStatus (fromOsPath annexdir)
+	checkDiskSpace Nothing (Just d) k 0 samefilesystem
 
 {- Passed a temp directory that contains the files that should be placed
  - in the dest directory, moves it into place. Anything already existing
  - in the dest directory will be deleted. File permissions will be locked
  - down. -}
-finalizeStoreGeneric :: RawFilePath -> RawFilePath -> RawFilePath -> IO ()
+finalizeStoreGeneric :: OsPath -> OsPath -> OsPath -> IO ()
 finalizeStoreGeneric d tmp dest = do
-	removeDirGeneric (fromRawFilePath d) dest'
+	removeDirGeneric False d dest
 	createDirectoryUnder [d] (parentDir dest)
-	renameDirectory (fromRawFilePath tmp) dest'
+	renameDirectory tmp dest
 	-- may fail on some filesystems
 	void $ tryIO $ do
-		mapM_ (preventWrite . toRawFilePath) =<< dirContents dest'
+		mapM_ preventWrite =<< dirContents dest
 		preventWrite dest
-  where
-	dest' = fromRawFilePath dest
 
-retrieveKeyFileM :: RawFilePath -> ChunkConfig -> CopyCoWTried -> Retriever
-retrieveKeyFileM d (LegacyChunks _) _ = Legacy.retrieve locations d
-retrieveKeyFileM d NoChunks cow = fileRetriever' $ \dest k p iv -> do
-	src <- liftIO $ fromRawFilePath <$> getLocation d k
-	void $ liftIO $ fileCopier cow src (fromRawFilePath dest) p iv
-retrieveKeyFileM d _ _ = byteRetriever $ \k sink ->
-	sink =<< liftIO (L.readFile . fromRawFilePath =<< getLocation d k)
+retrieveKeyFileM :: OsPath -> ChunkConfig -> CopyCoWTried -> FastCopy -> Retriever
+retrieveKeyFileM d (LegacyChunks _) _ _ = Legacy.retrieve locations' d
+retrieveKeyFileM d NoChunks cow fastcopy = fileRetriever' $ \dest k p iv -> do
+	src <- liftIO $ getLocation d k
+	void $ liftIO $ fileCopier cow fastcopy src dest p iv
+retrieveKeyFileM d _ _ _ = byteRetriever $ \k sink ->
+	sink =<< liftIO (F.readFile =<< getLocation d k)
 
-retrieveKeyFileCheapM :: RawFilePath -> ChunkConfig -> Maybe (Key -> AssociatedFile -> FilePath -> Annex ())
+retrieveKeyFileCheapM :: OsPath -> ChunkConfig -> Maybe (Key -> AssociatedFile -> OsPath -> Annex ())
 -- no cheap retrieval possible for chunks
 retrieveKeyFileCheapM _ (UnpaddedChunks _) = Nothing
 retrieveKeyFileCheapM _ (LegacyChunks _) = Nothing
 #ifndef mingw32_HOST_OS
 retrieveKeyFileCheapM d NoChunks = Just $ \k _af f -> liftIO $ do
-	file <- fromRawFilePath <$> (absPath =<< getLocation d k)
+	file <- absPath =<< getLocation d k
 	ifM (doesFileExist file)
-		( createSymbolicLink file f
+		( R.createSymbolicLink (fromOsPath file) (fromOsPath f)
 		, giveup "content file not present in remote"
 		)
 #else
 retrieveKeyFileCheapM _ _ = Nothing
 #endif
 
-removeKeyM :: RawFilePath -> Remover
-removeKeyM d k = liftIO $ removeDirGeneric
-	(fromRawFilePath d)
-	(fromRawFilePath (storeDir d k))
+removeKeyM :: OsPath -> Remover
+removeKeyM d _proof k = liftIO $ removeDirGeneric True d (storeDir d k)
 
 {- Removes the directory, which must be located under the topdir.
  -
@@ -275,101 +284,113 @@ removeKeyM d k = liftIO $ removeDirGeneric
  - exist. If the topdir does not exist, fails, because in this case the
  - remote is not currently accessible and probably still has the content
  - we were supposed to remove from it.
+ -
+ - Empty parent directories (up to but not including the topdir)
+ - can also be removed. Failure to remove such a directory is not treated
+ - as an error.
  -}
-removeDirGeneric :: FilePath -> FilePath -> IO ()
-removeDirGeneric topdir dir = do
-	void $ tryIO $ allowWrite (toRawFilePath dir)
+removeDirGeneric :: Bool -> OsPath -> OsPath -> IO ()
+removeDirGeneric removeemptyparents topdir dir = do
+	void $ tryIO $ allowWrite dir
 #ifdef mingw32_HOST_OS
 	{- Windows needs the files inside the directory to be writable
 	 - before it can delete them. -}
-	void $ tryIO $ mapM_ (allowWrite . toRawFilePath) =<< dirContents dir
+	void $ tryIO $ mapM_ allowWrite =<< dirContents dir
 #endif
 	tryNonAsync (removeDirectoryRecursive dir) >>= \case
 		Right () -> return ()
 		Left e ->
 			unlessM (doesDirectoryExist topdir <&&> (not <$> doesDirectoryExist dir)) $
 				throwM e
+	when removeemptyparents $ do
+		subdir <- relPathDirToFile topdir (takeDirectory dir)
+		goparents (Just (takeDirectory subdir)) (Right ())
+  where
+	goparents _ (Left _e) = return ()
+	goparents Nothing _ = return ()
+	goparents (Just subdir) _ = do
+		let d = topdir </> subdir
+		goparents (upFrom subdir) =<< tryIO (removeDirectory d)
 
-checkPresentM :: RawFilePath -> ChunkConfig -> CheckPresent
-checkPresentM d (LegacyChunks _) k = Legacy.checkKey d locations k
-checkPresentM d _ k = checkPresentGeneric d (locations d k)
+checkPresentM :: OsPath -> ChunkConfig -> CheckPresent
+checkPresentM d (LegacyChunks _) k = Legacy.checkKey d locations' k
+checkPresentM d _ k = checkPresentGeneric d (locations' d k)
 
-checkPresentGeneric :: RawFilePath -> [RawFilePath] -> Annex Bool
+checkPresentGeneric :: OsPath -> [OsPath] -> Annex Bool
 checkPresentGeneric d ps = checkPresentGeneric' d $
-	liftIO $ anyM (doesFileExist . fromRawFilePath) ps
+	liftIO $ anyM doesFileExist ps
 
-checkPresentGeneric' :: RawFilePath -> Annex Bool -> Annex Bool
+checkPresentGeneric' :: OsPath -> Annex Bool -> Annex Bool
 checkPresentGeneric' d check = ifM check
 	( return True
-	, ifM (liftIO $ doesDirectoryExist (fromRawFilePath d))
+	, ifM (liftIO $ doesDirectoryExist d)
 		( return False
-		, giveup $ "directory " ++ fromRawFilePath d ++ " is not accessible"
+		, giveup $ "directory " ++ fromOsPath d ++ " is not accessible"
 		)
 	)
 
-storeExportM :: RawFilePath -> CopyCoWTried -> FilePath -> Key -> ExportLocation -> MeterUpdate -> Annex ()
-storeExportM d cow src _k loc p = do
-	liftIO $ createDirectoryUnder [d] (P.takeDirectory dest)
+storeExportM :: OsPath -> CopyCoWTried -> FastCopy -> OsPath -> Key -> ExportLocation -> MeterUpdate -> Annex ()
+storeExportM d cow fastcopy src _k loc p = do
+	liftIO $ createDirectoryUnder [d] (takeDirectory dest)
 	-- Write via temp file so that checkPresentGeneric will not
 	-- see it until it's fully stored.
-	viaTmp go (fromRawFilePath dest) ()
+	viaTmp go dest ()
   where
 	dest = exportPath d loc
-	go tmp () = void $ liftIO $ fileCopier cow src tmp p Nothing
+	go tmp () = void $ liftIO $
+		fileCopier cow fastcopy src tmp p Nothing
 
-retrieveExportM :: RawFilePath -> CopyCoWTried -> Key -> ExportLocation -> FilePath -> MeterUpdate -> Annex Verification
-retrieveExportM d cow k loc dest p = 
+retrieveExportM :: OsPath -> CopyCoWTried -> FastCopy -> Key -> ExportLocation -> OsPath -> MeterUpdate -> Annex Verification
+retrieveExportM d cow fastcopy k loc dest p = 
 	verifyKeyContentIncrementally AlwaysVerify k $ \iv -> 
-		void $ liftIO $ fileCopier cow src dest p iv
+		void $ liftIO $ fileCopier cow fastcopy src dest p iv
   where
-	src = fromRawFilePath $ exportPath d loc
+	src = exportPath d loc
 
-removeExportM :: RawFilePath -> Key -> ExportLocation -> Annex ()
+removeExportM :: OsPath -> Key -> ExportLocation -> Annex ()
 removeExportM d _k loc = liftIO $ do
-	removeWhenExistsWith R.removeLink src
+	removeWhenExistsWith removeFile src
 	removeExportLocation d loc
   where
 	src = exportPath d loc
 
-checkPresentExportM :: RawFilePath -> Key -> ExportLocation -> Annex Bool
+checkPresentExportM :: OsPath -> Key -> ExportLocation -> Annex Bool
 checkPresentExportM d _k loc =
 	checkPresentGeneric d [exportPath d loc]
 
-renameExportM :: RawFilePath -> Key -> ExportLocation -> ExportLocation -> Annex (Maybe ())
+renameExportM :: OsPath -> Key -> ExportLocation -> ExportLocation -> Annex (Maybe ())
 renameExportM d _k oldloc newloc = liftIO $ do
-	createDirectoryUnder [d] (P.takeDirectory dest)
-	renameFile (fromRawFilePath src) (fromRawFilePath dest)
+	createDirectoryUnder [d] (takeDirectory dest)
+	renameFile src dest
 	removeExportLocation d oldloc
 	return (Just ())
   where
 	src = exportPath d oldloc
 	dest = exportPath d newloc
 
-exportPath :: RawFilePath -> ExportLocation -> RawFilePath
-exportPath d loc = d P.</> fromExportLocation loc
+exportPath :: OsPath -> ExportLocation -> OsPath
+exportPath d loc = d </> fromExportLocation loc
 
 {- Removes the ExportLocation's parent directory and its parents, so long as
  - they're empty, up to but not including the topdir. -}
-removeExportLocation :: RawFilePath -> ExportLocation -> IO ()
+removeExportLocation :: OsPath -> ExportLocation -> IO ()
 removeExportLocation topdir loc = 
-	go (Just $ P.takeDirectory $ fromExportLocation loc) (Right ())
+	go (Just $ takeDirectory $ fromExportLocation loc) (Right ())
   where
 	go _ (Left _e) = return ()
 	go Nothing _ = return ()
 	go (Just loc') _ = 
-		let p = fromRawFilePath $ exportPath topdir $
-			mkExportLocation loc'
+		let p = exportPath topdir $ mkExportLocation loc'
 		in go (upFrom loc') =<< tryIO (removeDirectory p)
 
-listImportableContentsM :: IgnoreInodes -> RawFilePath -> Annex (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)))
+listImportableContentsM :: IgnoreInodes -> OsPath -> Annex (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)))
 listImportableContentsM ii dir = liftIO $ do
-	l <- dirContentsRecursiveSkipping (const False) False (fromRawFilePath dir)
-	l' <- mapM (go . toRawFilePath) l
+	l' <- mapM go =<< dirContentsRecursiveSkipping (const False) False dir
 	return $ Just $ ImportableContentsComplete $
 		ImportableContents (catMaybes l') []
   where
 	go f = do
-		st <- R.getSymbolicLinkStatus f
+		st <- R.getSymbolicLinkStatus (fromOsPath f)
 		mkContentIdentifier ii f st >>= \case
 			Nothing -> return Nothing
 			Just cid -> do
@@ -383,7 +404,7 @@ newtype IgnoreInodes = IgnoreInodes Bool
 -- and also normally the inode, unless ignoreinodes=yes.
 --
 -- If the file is not a regular file, this will return Nothing.
-mkContentIdentifier :: IgnoreInodes -> RawFilePath -> FileStatus -> IO (Maybe ContentIdentifier)
+mkContentIdentifier :: IgnoreInodes -> OsPath -> FileStatus -> IO (Maybe ContentIdentifier)
 mkContentIdentifier (IgnoreInodes ii) f st =
 	liftIO $ fmap (ContentIdentifier . encodeBS . showInodeCache)
 		<$> if ii
@@ -392,7 +413,7 @@ mkContentIdentifier (IgnoreInodes ii) f st =
 
 -- Since ignoreinodes can be changed by enableremote, and since previous
 -- versions of git-annex ignored inodes by default, treat two content
--- idenfiers as the same if they differ only by one having the inode
+-- identifiers as the same if they differ only by one having the inode
 -- ignored.
 guardSameContentIdentifiers :: a -> [ContentIdentifier] -> Maybe ContentIdentifier -> a
 guardSameContentIdentifiers _ _ Nothing = giveup "file not found"
@@ -409,25 +430,23 @@ guardSameContentIdentifiers cont olds (Just new)
 				let ic' = replaceInode 0 ic
 				in ContentIdentifier (encodeBS (showInodeCache ic'))
 
-importKeyM :: IgnoreInodes -> RawFilePath -> ExportLocation -> ContentIdentifier -> ByteSize -> MeterUpdate -> Annex (Maybe Key)
-importKeyM ii dir loc cid sz p = do
+importKeyM :: IgnoreInodes -> OsPath -> ExportLocation -> ContentIdentifier -> ByteSize -> MeterUpdate -> Annex (Maybe Key)
+importKeyM ii dir loc cid _sz p = do
 	backend <- chooseBackend f
-	unsizedk <- fst <$> genKey ks p backend
-	let k = alterKey unsizedk $ \kd -> kd
-		{ keySize = keySize kd <|> Just sz }
+	k <- fst <$> genKey ks p backend
 	currcid <- liftIO $ mkContentIdentifier ii absf
-		=<< R.getSymbolicLinkStatus absf
+		=<< R.getSymbolicLinkStatus (fromOsPath absf)
 	guardSameContentIdentifiers (return (Just k)) [cid] currcid
   where
 	f = fromExportLocation loc
-	absf = dir P.</> f
+	absf = dir </> f
 	ks  = KeySource
 		{ keyFilename = f
 		, contentLocation = absf
 		, inodeCache = Nothing
 		}
 
-retrieveExportWithContentIdentifierM :: IgnoreInodes -> RawFilePath -> CopyCoWTried -> ExportLocation -> [ContentIdentifier] -> FilePath -> Either Key (Annex Key) -> MeterUpdate -> Annex (Key, Verification)
+retrieveExportWithContentIdentifierM :: IgnoreInodes -> OsPath -> CopyCoWTried -> ExportLocation -> [ContentIdentifier] -> OsPath -> Either Key (Annex Key) -> MeterUpdate -> Annex (Key, Verification)
 retrieveExportWithContentIdentifierM ii dir cow loc cids dest gk p =
 	case gk of
 		Right mkkey -> do
@@ -439,21 +458,23 @@ retrieveExportWithContentIdentifierM ii dir cow loc cids dest gk p =
 			return (k, v)
   where
 	f = exportPath dir loc
-	f' = fromRawFilePath f
-	
+	f' = fromOsPath f
+
 	go iv = precheck (docopy iv)
 
-	docopy iv = ifM (liftIO $ tryCopyCoW cow f' dest p)
+	docopy iv = ifM (liftIO $ tryCopyCoW cow f dest p)
 		( postcheckcow (liftIO $ maybe noop unableIncrementalVerifier iv)
 		, docopynoncow iv
 		)
 
 	docopynoncow iv = do
 #ifndef mingw32_HOST_OS
-		let open = do
+		let open = noCreateProcessWhile $ do
+			fd <- openFdWithMode f' ReadOnly Nothing
+				defaultFileFlags (CloseOnExecFlag True)
 			-- Need a duplicate fd for the post check.
-			fd <- openFd f' ReadOnly Nothing defaultFileFlags
 			dupfd <- dup fd
+			setFdOption dupfd CloseOnExec True
 			h <- fdToHandle fd
 			return (h, dupfd)
 		let close (h, dupfd) = do
@@ -461,7 +482,7 @@ retrieveExportWithContentIdentifierM ii dir cow loc cids dest gk p =
 			closeFd dupfd
 		bracketIO open close $ \(h, dupfd) -> do
 #else
-		let open = openBinaryFile f' ReadMode
+		let open = F.openBinaryFile f ReadMode
 		let close = hClose
 		bracketIO open close $ \h -> do
 #endif
@@ -476,7 +497,7 @@ retrieveExportWithContentIdentifierM ii dir cow loc cids dest gk p =
 	-- content.
 	precheck cont = guardSameContentIdentifiers cont cids
 		=<< liftIO . mkContentIdentifier ii f
-		=<< liftIO (R.getSymbolicLinkStatus f)
+		=<< liftIO (R.getSymbolicLinkStatus f')
 
 	-- Check after copy, in case the file was changed while it was
 	-- being copied.
@@ -500,7 +521,7 @@ retrieveExportWithContentIdentifierM ii dir cow loc cids dest gk p =
 #ifndef mingw32_HOST_OS
 			=<< getFdStatus fd
 #else
-			=<< R.getSymbolicLinkStatus f
+			=<< R.getSymbolicLinkStatus f'
 #endif
 		guardSameContentIdentifiers cont cids currcid
 
@@ -511,37 +532,37 @@ retrieveExportWithContentIdentifierM ii dir cow loc cids dest gk p =
 	-- restored to the original content before this check.
 	postcheckcow cont = do
 		currcid <- liftIO $ mkContentIdentifier ii f
-			=<< R.getSymbolicLinkStatus f
+			=<< R.getSymbolicLinkStatus f'
 		guardSameContentIdentifiers cont cids currcid
 
-storeExportWithContentIdentifierM :: IgnoreInodes -> RawFilePath -> CopyCoWTried -> FilePath -> Key -> ExportLocation -> [ContentIdentifier] -> MeterUpdate -> Annex ContentIdentifier
-storeExportWithContentIdentifierM ii dir cow src _k loc overwritablecids p = do
-	liftIO $ createDirectoryUnder [dir] (toRawFilePath destdir)
+storeExportWithContentIdentifierM :: IgnoreInodes -> OsPath -> CopyCoWTried -> FastCopy -> OsPath -> Key -> ExportLocation -> [ContentIdentifier] -> MeterUpdate -> Annex ContentIdentifier
+storeExportWithContentIdentifierM ii dir cow fastcopy src _k loc overwritablecids p = do
+	liftIO $ createDirectoryUnder [dir] destdir
 	withTmpFileIn destdir template $ \tmpf tmph -> do
+		let tmpf' = fromOsPath tmpf
 		liftIO $ hClose tmph
-		void $ liftIO $ fileCopier cow src tmpf p Nothing
-		let tmpf' = toRawFilePath tmpf
-		resetAnnexFilePerm tmpf'
-		liftIO (getSymbolicLinkStatus tmpf) >>= liftIO . mkContentIdentifier ii tmpf' >>= \case
+		void $ liftIO $ fileCopier cow fastcopy src tmpf p Nothing
+		resetAnnexFilePerm tmpf
+		liftIO (R.getSymbolicLinkStatus tmpf') >>= liftIO . mkContentIdentifier ii tmpf >>= \case
 			Nothing -> giveup "unable to generate content identifier"
 			Just newcid -> do
 				checkExportContent ii dir loc
 					overwritablecids
 					(giveup "unsafe to overwrite file")
-					(const $ liftIO $ R.rename tmpf' dest)
+					(const $ liftIO $ R.rename tmpf' (fromOsPath dest))
 				return newcid
   where
 	dest = exportPath dir loc
-	(destdir, base) = splitFileName (fromRawFilePath dest)
-	template = relatedTemplate (base ++ ".tmp")
+	(destdir, base) = splitFileName dest
+	template = relatedTemplate (fromOsPath base <> ".tmp")
 
-removeExportWithContentIdentifierM :: IgnoreInodes -> RawFilePath -> Key -> ExportLocation -> [ContentIdentifier] -> Annex ()
+removeExportWithContentIdentifierM :: IgnoreInodes -> OsPath -> Key -> ExportLocation -> [ContentIdentifier] -> Annex ()
 removeExportWithContentIdentifierM ii dir k loc removeablecids =
 	checkExportContent ii dir loc removeablecids (giveup "unsafe to remove modified file") $ \case
 		DoesNotExist -> return ()
 		KnownContentIdentifier -> removeExportM dir k loc
 
-checkPresentExportWithContentIdentifierM :: IgnoreInodes -> RawFilePath -> Key -> ExportLocation -> [ContentIdentifier] -> Annex Bool
+checkPresentExportWithContentIdentifierM :: IgnoreInodes -> OsPath -> Key -> ExportLocation -> [ContentIdentifier] -> Annex Bool
 checkPresentExportWithContentIdentifierM ii dir _k loc knowncids =
 	checkPresentGeneric' dir $
 		checkExportContent ii dir loc knowncids (return False) $ \case
@@ -565,9 +586,9 @@ data CheckResult = DoesNotExist | KnownContentIdentifier
 --
 -- So, it suffices to check if the destination file's current
 -- content is known, and immediately run the callback.
-checkExportContent :: IgnoreInodes -> RawFilePath -> ExportLocation -> [ContentIdentifier] -> Annex a -> (CheckResult -> Annex a) -> Annex a
+checkExportContent :: IgnoreInodes -> OsPath -> ExportLocation -> [ContentIdentifier] -> Annex a -> (CheckResult -> Annex a) -> Annex a
 checkExportContent ii dir loc knowncids unsafe callback = 
-	tryWhenExists (liftIO $ R.getSymbolicLinkStatus dest) >>= \case
+	tryWhenExists (liftIO $ R.getSymbolicLinkStatus (fromOsPath dest)) >>= \case
 		Just destst
 			| not (isRegularFile destst) -> unsafe
 			| otherwise -> catchDefaultIO Nothing (liftIO $ mkContentIdentifier ii dest destst) >>= \case

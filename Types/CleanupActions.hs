@@ -10,7 +10,7 @@ module Types.CleanupActions where
 import Types.UUID
 import Utility.Url
 
-import System.Process (Pid)
+import Utility.Process (Pid)
 
 data CleanupAction
 	= RemoteCleanup UUID
@@ -20,6 +20,7 @@ data CleanupAction
 	| AdjustedBranchUpdate
 	| TorrentCleanup URLString
 	| OtherTmpCleanup
+	| RestagePointerFiles
 	deriving (Eq, Ord)
 
 data SignalAction

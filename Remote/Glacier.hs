@@ -28,7 +28,7 @@ import Utility.Metered
 import Annex.UUID
 import Utility.Env
 import Types.ProposedAccepted
-import Utility.Hash (IncrementalVerifier)
+import Utility.Hash.Incremental
 
 type Vault = String
 type Archive = FilePath
@@ -63,9 +63,10 @@ fileprefixField :: RemoteConfigField
 fileprefixField = Accepted "fileprefix"
 
 gen :: Git.Repo -> UUID -> RemoteConfig -> RemoteGitConfig -> RemoteStateHandle -> Annex (Maybe Remote)
-gen r u rc gc rs = new 
-	<$> parsedRemoteConfig remote rc
-	<*> remoteCost gc veryExpensiveRemoteCost
+gen r u rc gc rs = do
+	c <- parsedRemoteConfig remote rc
+	cst <- remoteCost gc c veryExpensiveRemoteCost
+	return (new c cst)
   where
 	new c cst = Just $ specialRemote' specialcfg c
 		(store this)
@@ -80,6 +81,7 @@ gen r u rc gc rs = new
 			, name = Git.repoDescribe r
 			, storeKey = storeKeyDummy
 			, retrieveKeyFile = retrieveKeyFileDummy
+			, retrieveKeyFileInOrder = pure True
 			, retrieveKeyFileCheap = Nothing
 			-- glacier-cli does not follow redirects and does
 			-- not support file://, as far as we know, but
@@ -94,6 +96,7 @@ gen r u rc gc rs = new
 			, importActions = importUnsupported
 			, whereisKey = Nothing
 			, remoteFsck = Nothing
+			, repairKey = Nothing
 			, repairRepo = Nothing
 			, config = c
 			, getRepo = return r
@@ -102,7 +105,7 @@ gen r u rc gc rs = new
 			, readonly = False
 			, appendonly = False
 			, untrustworthy = False
-			, availability = GloballyAvailable
+			, availability = pure GloballyAvailable
 			, remotetype = remote
 			, mkUnavailable = return Nothing
 			, getInfo = includeCredsInfo c (AWS.creds u) $
@@ -116,13 +119,13 @@ gen r u rc gc rs = new
 			{ chunkConfig = NoChunks
 			}
 
-glacierSetup :: SetupStage -> Maybe UUID -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
-glacierSetup ss mu mcreds c gc = do
+glacierSetup :: SetupStage -> Maybe UUID -> RemoteName -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
+glacierSetup ss mu _ mcreds c gc = do
 	u <- maybe (liftIO genUUID) return mu
 	glacierSetup' ss u mcreds c gc
 glacierSetup' :: SetupStage -> UUID -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
 glacierSetup' ss u mcreds c gc = do
-	(c', encsetup) <- encryptionSetup (c `M.union` defaults) gc
+	(c', encsetup) <- encryptionSetup ss (c `M.union` defaults) gc
 	pc <- either giveup return . parseRemoteConfig c'
 		=<< configParser remote c'
 	c'' <- setRemoteCredPair ss encsetup pc gc (AWS.creds u) mcreds
@@ -176,7 +179,7 @@ store' r k b p = go =<< glacierEnv c gc u
 		forceSuccessProcess cmd pid
 	go' _ _ _ _ _ = error "internal"
 
-retrieve :: forall a. Remote -> Key -> MeterUpdate -> Maybe IncrementalVerifier -> (ContentSource -> Annex a) -> Annex a
+retrieve :: forall a. Remote -> Key -> MeterUpdate -> OsPath -> Maybe IncrementalVerifier -> (ContentSource -> Annex a) -> Annex a
 retrieve = byteRetriever . retrieve'
 
 retrieve' :: forall a. Remote -> Key -> (L.ByteString -> Annex a) -> Annex a
@@ -213,7 +216,7 @@ retrieve' r k sink = go =<< glacierEnv c gc u
 	go' _ _ = error "internal"
 
 remove :: Remote -> Remover
-remove r k = unlessM go $
+remove r _proof k = unlessM go $
 	giveup "removal from glacier failed"
   where
 	go = glacierAction r

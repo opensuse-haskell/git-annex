@@ -1,0 +1,88 @@
+### Please describe the problem.
+
+I need to "quickly" ensure that remote has all the files it should have gotten. For that I use invocation like
+
+```
+time git annex copy --fast --from web --to dandi-dandisets-dropbox
+```
+
+or
+
+```
+time git annex copy --auto --from web --to dandi-dandisets-dropbox
+```
+
+but then in the cases where all files are already there according to
+
+```
+dandi@drogon:/mnt/backup/dandi/dandisets/000003$ time git annex find  --not --in dandi-dandisets-dropbox
+
+real    0m0.562s
+user    0m0.051s
+sys     0m0.019s
+```
+
+the `copy` still goes and checks every chunk of every file
+
+```
+dandi@drogon:/mnt/backup/dandi/dandisets/000003$ time git annex copy --fast --from web --to dandi-dandisets-dropbox
+copy sub-YutaMouse20/sub-YutaMouse20_ses-YutaMouse20-140321_behavior+ecephys.nwb Total objects: 1 Total size: 953.674 MBytes (1000000000 Bytes)
+Total objects: 1 Total size: 953.674 MBytes (1000000000 Bytes)
+Total objects: 1 Total size: 953.674 MBytes (1000000000 Bytes)
+Total objects: 1 Total size: 953.674 MBytes (1000000000 Bytes)
+Total objects: 1 Total size: 953.674 MBytes (1000000000 Bytes)
+Total objects: 1 Total size: 953.674 MBytes (1000000000 Bytes)
+^C
+
+real    0m3.886s
+user    0m0.037s
+sys     0m0.032s
+
+```
+
+so to achieve what I need, I thought to explicitly specify the query:
+
+```
+dandi@drogon:/mnt/backup/dandi/dandisets/000003$ time git annex copy --fast --not --in dandi-dandisets-dropbox --from web --to dandi-dandisets-dropbox
+
+real    0m0.221s
+user    0m0.056s
+sys     0m0.018s
+```
+
+but it  doesn't works out correctly whenever there are some files to actually copy:
+
+```
+dandi@drogon:/mnt/backup/dandi/dandisets/000037$ git annex find --in web --not --in dandi-dandisets-dropbox | nl | tail -n 2
+    40  sub-440889/sub-440889_ses-837360280_obj-raw_behavior+image+ophys.nwb
+    41  sub-440889/sub-440889_ses-838633305_obj-raw_behavior+image+ophys.nwb
+dandi@drogon:/mnt/backup/dandi/dandisets/000037$ git annex copy --fast --from web --to dandi-dandisets-dropbox --not --in dandi-dandisets-dropbox
+dandi@drogon:/mnt/backup/dandi/dandisets/000037$ git annex copy --fast --from web --to dandi-dandisets-dropbox --in web --not --in dandi-dandisets-dropbox
+dandi@drogon:/mnt/backup/dandi/dandisets/000037$ git annex copy --from web --to dandi-dandisets-dropbox --in web --not --in dandi-dandisets-dropbox
+```
+
+so the only way now would be to pipe `find` output into `copy`?
+
+note on edit: filed a dedicated [https://git-annex.branchable.com/bugs/copy_--from_--to_does_not_copy_if_present_locally/](https://git-annex.branchable.com/bugs/copy_--from_--to_does_not_copy_if_present_locally/) 
+
+NB `git annex find` has `-z` for input but not for output...
+
+
+refs to related reports/issues which were said to be addressed for `--fast` mode:
+
+- [https://git-annex.branchable.com/forum/copy_--auto_copies_already_synced_files/](https://git-annex.branchable.com/forum/copy_--auto_copies_already_synced_files/)
+- [https://git-annex.branchable.com/forum/batch_check_on_remote_when_using_copy/](https://git-annex.branchable.com/forum/batch_check_on_remote_when_using_copy/)
+
+### What version of git-annex are you using? On what operating system?
+
+
+```
+10.20230321-1~ndall+1
+```
+
+and then in conda with `10.20230626-g801c4b7` 
+
+[[!meta author=yoh]]
+[[!tag projects/dandi]]
+
+> [[fixed|done]] --[[Joey]]

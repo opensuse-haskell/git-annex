@@ -1,6 +1,6 @@
 {- git branch stuff
  -
- - Copyright 2011-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -40,15 +40,19 @@ current r = do
 
 {- The current branch, which may not really exist yet. -}
 currentUnsafe :: Repo -> IO (Maybe Branch)
-currentUnsafe r = parse . firstLine' <$> pipeReadStrict
-	[ Param "symbolic-ref"
-	, Param "-q"
-	, Param $ fromRef Git.Ref.headRef
-	] r
+currentUnsafe r = withNullHandle $ \nullh ->
+	parse . firstLine' <$> pipeReadStrict'
+		(\p -> p { std_err = UseHandle nullh })
+		ps r
   where
 	parse b
 		| B.null b = Nothing
 		| otherwise = Just $ Git.Ref b
+	ps =
+		[ Param "symbolic-ref"
+		, Param "-q"
+		, Param $ fromRef Git.Ref.headRef
+		]
 
 {- Checks if the second branch has any commits not present on the first
  - branch. -}
@@ -174,13 +178,19 @@ commitCommand' runner commitmode commitquiet ps =
  - in any way, or output a summary.
  -}
 commit :: CommitMode -> Bool -> String -> Branch -> [Ref] -> Repo -> IO (Maybe Sha)
-commit commitmode allowempty message branch parentrefs repo = do
-	tree <- writeTree repo
-	ifM (cancommit tree)
-		( do
-			sha <- commitTree commitmode message parentrefs tree repo
+commit commitmode allowempty message branch parentrefs repo =
+	commitSha commitmode allowempty message parentrefs repo >>= \case
+		Just sha -> do
 			update' branch sha repo
 			return $ Just sha
+		Nothing -> return Nothing
+
+{- Same as commit but without updating any branch. -}
+commitSha :: CommitMode -> Bool -> String -> [Ref] -> Repo -> IO (Maybe Sha)
+commitSha commitmode allowempty message parentrefs repo = do
+	tree <- writeTree repo
+	ifM (cancommit tree)
+		( Just <$> commitTree commitmode [message] parentrefs tree repo
 		, return Nothing
 		)
   where
@@ -193,6 +203,10 @@ commit commitmode allowempty message branch parentrefs repo = do
 commitAlways :: CommitMode -> String -> Branch -> [Ref] -> Repo -> IO Sha
 commitAlways commitmode message branch parentrefs repo = fromJust
 	<$> commit commitmode True message branch parentrefs repo
+
+commitShaAlways :: CommitMode -> String -> [Ref] -> Repo -> IO Sha
+commitShaAlways commitmode message parentrefs repo = fromJust
+	<$> commitSha commitmode True message parentrefs repo
 
 -- Throws exception if the index is locked, with an error message output by
 -- git on stderr.
@@ -207,8 +221,21 @@ writeTreeQuiet repo = extractSha <$> withNullHandle go
 	go nullh = pipeReadStrict' (\p -> p { std_err = UseHandle nullh }) 
 		[Param "write-tree"] repo
 
-commitTree :: CommitMode -> String -> [Ref] -> Ref -> Repo -> IO Sha
-commitTree commitmode message parentrefs tree repo =
+commitTree :: CommitMode -> [String] -> [Ref] -> Ref -> Repo -> IO Sha
+commitTree commitmode messages parentrefs tree repo =
+	getSha "commit-tree" $ pipeReadStrict ps repo
+  where
+	ps = [Param "commit-tree", Param (fromRef tree)]
+		++ applyCommitModeForCommitTree commitmode baseparams repo
+	baseparams = map Param $
+		concatMap (\r -> ["-p", fromRef r]) parentrefs
+			++ concatMap (\msg -> ["-m", msg]) messages
+
+-- commitTree passes the commit message to git with -m, which can cause it
+-- to get modified slightly (eg adding trailing newline). This variant uses
+-- the exact commit message that is provided.
+commitTreeExactMessage :: CommitMode -> String -> [Ref] -> Ref -> Repo -> IO Sha
+commitTreeExactMessage commitmode message parentrefs tree repo =
 	getSha "commit-tree" $
 		pipeWriteRead ([Param "commit-tree", Param (fromRef tree)] ++ ps)
 			sendmsg repo

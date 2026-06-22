@@ -1,6 +1,6 @@
 {- git-annex command
  -
- - Copyright 2010-2016 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -34,15 +34,18 @@ import Logs.View (is_branchView)
 import Annex.BloomFilter
 import qualified Database.Keys
 import Annex.InodeSentinal
+import Backend.GitRemoteAnnex (isGitRemoteAnnexKey)
 
 import qualified Data.Map as M
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Char8 as S8
+import qualified Data.Text as T
 import Data.Char
 
 cmd :: Command
-cmd = command "unused" SectionMaintenance "look for unused file content"
-	paramNothing (seek <$$> optParser)
+cmd = withAnnexOptions [jsonOptions] $
+	command "unused" SectionMaintenance "look for unused file content"
+		paramNothing (seek <$$> optParser)
 
 data UnusedOptions = UnusedOptions
 	{ fromRemote :: Maybe RemoteName
@@ -53,6 +56,7 @@ optParser :: CmdParamsDesc -> Parser UnusedOptions
 optParser _ = UnusedOptions
 	<$> optional (strOption
 		( long "from" <> short 'f' <> metavar paramRemote
+		<> completeRemotes
 		<> help "remote to check for unused content"
 		))
 	<*> optional (option (eitherReader parseRefSpec)
@@ -73,7 +77,7 @@ start o = do
 		Just "." -> (".", checkUnused refspec)
 		Just "here" -> (".", checkUnused refspec)
 		Just n -> (n, checkRemoteUnused n refspec)
-	starting "unused" (ActionItemOther (Just name)) (SeekInput []) perform
+	starting "unused" (ActionItemOther (Just (UnquotedString name))) (SeekInput []) perform
 
 checkUnused :: RefSpec -> CommandPerform
 checkUnused refspec = chain 0
@@ -102,15 +106,20 @@ checkRemoteUnused remotename refspec = go =<< Remote.nameToUUID remotename
 		_ <- check "" (remoteUnusedMsg r remotename) (remoteunused u) 0
 		next $ return True
 	remoteunused u = loggedKeysFor u >>= \case
-		Just ks -> excludeReferenced refspec ks
+		Just ks -> filter (not . isGitRemoteAnnexKey u)
+			<$> excludeReferenced refspec ks
 		Nothing -> giveup "This repository is read-only."
 
-check :: FilePath -> ([(Int, Key)] -> String) -> Annex [Key] -> Int -> Annex Int
-check file msg a c = do
+check :: String -> ([(Int, Key)] -> String) -> Annex [Key] -> Int -> Annex Int
+check fileprefix msg a c = do
 	l <- a
 	let unusedlist = number c l
-	unless (null l) $ showLongNote $ msg unusedlist
-	updateUnusedLog (toRawFilePath file) (M.fromList unusedlist)
+	unless (null l) $
+		showLongNote $ UnquotedString $ msg unusedlist
+	maybeAddJSONField
+		((if null fileprefix then "unused" else fileprefix) ++ "-list")
+		(M.fromList $ map (\(n,  k) -> (T.pack (show n), serializeKey k)) unusedlist)
+	updateUnusedLog (toOsPath fileprefix) (M.fromList unusedlist)
 	return $ c + length l
 
 number :: Int -> [a] -> [(Int, a)]
@@ -141,7 +150,7 @@ unusedMsg' :: [(Int, Key)] -> [String] -> [String] -> String
 unusedMsg' u mheader mtrailer = unlines $
 	mheader ++
 	table u ++
-	["(To see where this data was previously used, run: git annex whereused --historical --unused"] ++
+	["(To see where this data was previously used, run: git annex whereused --historical --unused)"] ++
 	mtrailer
 
 remoteUnusedMsg :: Maybe Remote -> RemoteName -> [(Int, Key)] -> String
@@ -185,7 +194,7 @@ excludeReferenced refspec ks = runbloomfilter withKeysReferencedM ks
 
 {- Given an initial value, accumulates the value over each key
  - referenced by files in the working tree. -}
-withKeysReferenced :: v -> (Key -> RawFilePath -> v -> Annex v) -> Annex v
+withKeysReferenced :: v -> (Key -> OsPath -> v -> Annex v) -> Annex v
 withKeysReferenced initial = withKeysReferenced' Nothing initial
 
 {- Runs an action on each referenced key in the working tree. -}
@@ -195,10 +204,10 @@ withKeysReferencedM a = withKeysReferenced' Nothing () calla
 	calla k _ _ = a k
 
 {- Folds an action over keys and files referenced in a particular directory. -}
-withKeysFilesReferencedIn :: FilePath -> v -> (Key -> RawFilePath -> v -> Annex v) -> Annex v
+withKeysFilesReferencedIn :: OsPath -> v -> (Key -> OsPath -> v -> Annex v) -> Annex v
 withKeysFilesReferencedIn = withKeysReferenced' . Just
 
-withKeysReferenced' :: Maybe FilePath -> v -> (Key -> RawFilePath -> v -> Annex v) -> Annex v
+withKeysReferenced' :: Maybe OsPath -> v -> (Key -> OsPath -> v -> Annex v) -> Annex v
 withKeysReferenced' mdir initial a = do
 	(files, clean) <- getfiles
 	r <- go initial files
@@ -212,7 +221,7 @@ withKeysReferenced' mdir initial a = do
 				top <- fromRepo Git.repoPath
 				inRepo $ LsFiles.allFiles [] [top]
 			)
-		Just dir -> inRepo $ LsFiles.inRepo [] [toRawFilePath dir]
+		Just dir -> inRepo $ LsFiles.inRepo [] [dir]
 	go v [] = return v
 	go v (f:fs) = do
 		mk <- lookupKey f
@@ -249,7 +258,7 @@ withKeysReferencedDiffGitRefs refspec a = do
  - differ from those referenced in the index. -}
 withKeysReferencedDiffGitRef :: (Key -> Annex ()) -> Git.Ref -> Annex ()
 withKeysReferencedDiffGitRef a ref = do
-	showAction $ "checking " ++ Git.Ref.describe ref
+	showAction $ UnquotedString $ "checking " ++ Git.Ref.describe ref
 	withKeysReferencedDiff a
 		(inRepo $ DiffTree.diffIndex ref)
 		DiffTree.srcsha
@@ -299,9 +308,9 @@ data UnusedMaps = UnusedMaps
 
 withUnusedMaps :: (UnusedMaps -> Int -> CommandStart) -> CmdParams -> CommandSeek
 withUnusedMaps a params = do
-	unused <- readUnusedMap ""
-	unusedbad <- readUnusedMap "bad"
-	unusedtmp <- readUnusedMap "tmp"
+	unused <- readUnusedMap (literalOsPath "")
+	unusedbad <- readUnusedMap (literalOsPath "bad")
+	unusedtmp <- readUnusedMap (literalOsPath "tmp")
 	let m = unused `M.union` unusedbad `M.union` unusedtmp
 	let unusedmaps = UnusedMaps unused unusedbad unusedtmp
 	commandActions $ map (a unusedmaps) $ concatMap (unusedSpec m) params
@@ -321,12 +330,12 @@ unusedSpec m spec
 
 {- Seek action for unused content. Finds the number in the maps, and
  - calls one of 3 actions, depending on the type of unused file. -}
-startUnused :: String
-	-> (Key -> CommandPerform)
-	-> (Key -> CommandPerform) 
-	-> (Key -> CommandPerform)
+startUnused
+	:: (Int -> Key -> CommandStart)
+	-> (Int -> Key -> CommandStart) 
+	-> (Int -> Key -> CommandStart)
 	-> UnusedMaps -> Int -> CommandStart
-startUnused message unused badunused tmpunused maps n = search
+startUnused unused badunused tmpunused maps n = search
 	[ (unusedMap maps, unused)
 	, (unusedBadMap maps, badunused)
 	, (unusedTmpMap maps, tmpunused)
@@ -336,7 +345,4 @@ startUnused message unused badunused tmpunused maps n = search
 	search ((m, a):rest) =
 		case M.lookup n m of
 			Nothing -> search rest
-			Just key -> starting message
-				(ActionItemOther $ Just $ show n)
-				(SeekInput [])
-				(a key)
+			Just key -> a n key

@@ -5,6 +5,8 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE OverloadedStrings #-}
+
 module Command.Forget where
 
 import Command
@@ -42,13 +44,13 @@ start o = starting "forget" ai si $ do
 		else basets
 	perform ts =<< Annex.getRead Annex.force
   where
-	ai = ActionItemOther (Just (fromRef Branch.name))
+	ai = ActionItemOther (Just (UnquotedString (fromRef Branch.name)))
 	si = SeekInput []
 
 perform :: Transitions -> Bool -> CommandPerform
 perform ts True = do
 	recordTransitions (Branch.change (Branch.RegardingUUID [])) ts
-	-- get branch committed before contining with the transition
+	-- get branch committed before continuing with the transition
 	_ <- Branch.update
 	void $ Branch.performTransitions ts True []
 	next $ return True

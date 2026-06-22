@@ -1,0 +1,18 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 8"""
+ date="2026-06-22T14:05:49Z"
+ content="""
+blake3 does outperform botan's sha256. I benchmarked it at
+8.30s vs 0:14.36s adding a 4 gb file. That's with blake3-0.2. 
+Newer versions of the blake3 library may be faster yet.
+
+Since the above patches no longer cleanly apply, I have committed
+my update of them to the `blake3` branch. My above review items are not
+addressed yet in that branch. I did add Blake3 to BuildFlags.hs though,
+which was a problem I missed in my earlier review.
+
+Also, the haskell blake3 library has gotten a 0.3 release, which
+the code needs to be updated to build with. (I see no need to retain
+support for 0.2.)
+"""]]

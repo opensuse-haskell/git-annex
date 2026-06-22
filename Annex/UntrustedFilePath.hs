@@ -10,6 +10,8 @@ module Annex.UntrustedFilePath where
 import Data.Char
 import System.FilePath
 
+import Utility.SafeOutput
+
 {- Given a string that we'd like to use as the basis for FilePath, but that
  - was provided by a third party and is not to be trusted, returns the closest
  - sane FilePath.
@@ -52,8 +54,10 @@ sanitizeLeadingFilePathCharacter ('-':s) = '_':s
 sanitizeLeadingFilePathCharacter ('/':s) = '_':s
 sanitizeLeadingFilePathCharacter s = s
 
-escapeSequenceInFilePath :: FilePath -> Bool
-escapeSequenceInFilePath f = '\ESC' `elem` f
+controlCharacterInFilePath :: FilePath -> Bool
+controlCharacterInFilePath = any (not . safechar)
+  where
+	safechar c = safeOutputChar c && c /= '\n'
 
 {- ../ is a path traversal, no matter where it appears.
  -

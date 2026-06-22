@@ -26,8 +26,6 @@ import Utility.Batch
 
 import qualified Data.Set as S
 import Control.Concurrent.Async
-import qualified Data.Semigroup as Sem
-import Prelude
 
 data FsckResults 
 	= FsckFoundMissing
@@ -56,7 +54,7 @@ appendFsckOutput AllDuplicateEntriesWarning AllDuplicateEntriesWarning = AllDupl
 appendFsckOutput AllDuplicateEntriesWarning NoFsckOutput = AllDuplicateEntriesWarning
 appendFsckOutput NoFsckOutput AllDuplicateEntriesWarning = AllDuplicateEntriesWarning
 
-instance Sem.Semigroup FsckOutput where
+instance Semigroup FsckOutput where
 	(<>) = appendFsckOutput
 
 instance Monoid FsckOutput where
@@ -125,7 +123,7 @@ knownMissing :: FsckResults -> MissingObjects
 knownMissing FsckFailed = S.empty
 knownMissing (FsckFoundMissing s _) = s
 
-{- Finds objects that are missing from the git repsitory, or are corrupt.
+{- Finds objects that are missing from the git repository, or are corrupt.
  -
  - This does not use git cat-file --batch, because catting a corrupt
  - object can cause it to crash, or to report incorrect size information.

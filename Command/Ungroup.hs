@@ -16,7 +16,8 @@ import qualified Data.Set as S
 
 cmd :: Command
 cmd = command "ungroup" SectionSetup "remove a repository from a group"
-	(paramPair paramRemote paramDesc) (withParams seek)
+	(paramPair paramRemote paramDesc)
+		(withParams' seek completeRemotes)
 
 seek :: CmdParams -> CommandSeek
 seek = withWords (commandAction . start)
@@ -24,8 +25,9 @@ seek = withWords (commandAction . start)
 start :: [String] -> CommandStart
 start (name:g:[]) = do
 	u <- Remote.nameToUUID name
-	starting "ungroup" (ActionItemOther (Just name)) (SeekInput [name, g]) $
-		perform u (toGroup g)
+	starting "ungroup" (ActionItemOther (Just (UnquotedString name))) 
+		(SeekInput [name, g]) $
+			perform u (toGroup g)
 start _ = giveup "Specify a repository and a group."
 
 perform :: UUID -> Group -> CommandPerform

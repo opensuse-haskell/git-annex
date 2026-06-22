@@ -1,11 +1,12 @@
 {- Persistent sqlite database handles.
  -
- - Copyright 2015-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2015-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
-{-# LANGUAGE TypeFamilies, FlexibleContexts, OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies, TypeOperators #-}
+{-# LANGUAGE FlexibleContexts, OverloadedStrings, CPP #-}
 
 module Database.Handle (
 	DbHandle,
@@ -22,6 +23,8 @@ import Utility.FileSystemEncoding
 import Utility.Debug
 import Utility.DebugLocks
 import Utility.InodeCache
+import Utility.OsPath
+import Utility.SafeOutput
 
 import Database.Persist.Sqlite
 import qualified Database.Sqlite as Sqlite
@@ -38,28 +41,30 @@ import Control.Monad.Logger (runNoLoggingT)
 import System.IO
 
 {- A DbHandle is a reference to a worker thread that communicates with
- - the database. It has a MVar which Jobs are submitted to. -}
-data DbHandle = DbHandle RawFilePath (Async ()) (MVar Job)
+ - the database. It has a MVar which Jobs are submitted to. 
+ - There is also an MVar which it will fill when there is a fatal error-}
+data DbHandle = DbHandle OsPath (Async ()) (MVar Job) (MVar String)
 
 {- Name of a table that should exist once the database is initialized. -}
 type TableName = String
 
 {- Opens the database, but does not perform any migrations. Only use
  - once the database is known to exist and have the right tables. -}
-openDb :: RawFilePath -> TableName -> IO DbHandle
+openDb :: OsPath -> TableName -> IO DbHandle
 openDb db tablename = do
 	jobs <- newEmptyMVar
-	worker <- async (workerThread db tablename jobs)
+	errvar <- newEmptyMVar
+	worker <- async (workerThread db tablename jobs errvar)
 	
 	-- work around https://github.com/yesodweb/persistent/issues/474
 	liftIO $ fileEncoding stderr
 
-	return $ DbHandle db worker jobs
+	return $ DbHandle db worker jobs errvar
 
 {- This is optional; when the DbHandle gets garbage collected it will
  - auto-close. -}
 closeDb :: DbHandle -> IO ()
-closeDb (DbHandle _db worker jobs) = do
+closeDb (DbHandle _db worker jobs _) = do
 	debugLocks $ putMVar jobs CloseJob
 	wait worker
 
@@ -67,19 +72,22 @@ closeDb (DbHandle _db worker jobs) = do
  - changes to the database!
  -
  - Note that the action is not run by the calling thread, but by a
- - worker thread. Exceptions are propigated to the calling thread.
+ - worker thread. Exceptions are propagated to the calling thread.
  -
  - Only one action can be run at a time against a given DbHandle.
  - If called concurrently in the same process, this will block until
  - it is able to run.
  -}
 queryDb :: DbHandle -> SqlPersistM a -> IO a
-queryDb (DbHandle _db _ jobs) a = do
+queryDb (DbHandle db _ jobs errvar) a = do
 	res <- newEmptyMVar
 	putMVar jobs $ QueryJob $
 		debugLocks $ liftIO . putMVar res =<< tryNonAsync a
-	debugLocks $ (either throwIO return =<< takeMVar res)
-		`catchNonAsync` (\e -> error $ "sqlite query crashed: " ++ show e)
+	debugLocks $ takeMVarSafe res >>= \case
+		Right r -> either throwIO return r
+		Left BlockedIndefinitelyOnMVar -> do
+			err <- takeMVar errvar
+			giveup $ "sqlite worker thread for " ++ fromOsPath (safeOutput db) ++ " crashed: " ++ err
 
 {- Writes a change to the database.
  -
@@ -91,32 +99,36 @@ queryDb (DbHandle _db _ jobs) a = do
  - process at least once each 30 seconds.
  -}
 commitDb :: DbHandle -> SqlPersistM () -> IO ()
-commitDb h@(DbHandle db _ _) wa = 
+commitDb h@(DbHandle db _ _ errvar) wa = 
 	robustly (commitDb' h wa) maxretries emptyDatabaseInodeCache
   where
 	robustly a retries ic = do
 		r <- a
 		case r of
-			Right _ -> return ()
-			Left err -> do
+			Right (Right _) -> return ()
+			Right (Left err) -> do
 				threadDelay briefdelay
 				retryHelper "write to" err maxretries db retries ic $ 
 					robustly a
+			Left BlockedIndefinitelyOnMVar -> do
+				err <- takeMVar errvar
+				giveup $ "sqlite worker thread for " ++ fromOsPath (safeOutput db) ++ " crashed: " ++ err
 	
 	briefdelay = 100000 -- 1/10th second
 
 	maxretries = 300 :: Int -- 30 seconds of briefdelay
 
-commitDb' :: DbHandle -> SqlPersistM () -> IO (Either SomeException ())
-commitDb' (DbHandle _ _ jobs) a = do
+commitDb' :: DbHandle -> SqlPersistM () -> IO (Either BlockedIndefinitelyOnMVar (Either SomeException ()))
+commitDb' (DbHandle _ _ jobs _) a = do
 	debug "Database.Handle" "commitDb start"
 	res <- newEmptyMVar
 	putMVar jobs $ ChangeJob $
 		debugLocks $ liftIO . putMVar res =<< tryNonAsync a
-	r <- debugLocks $ takeMVar res
+	r <- debugLocks $ takeMVarSafe res
 	case r of
-		Right () -> debug "Database.Handle" "commitDb done"
-		Left e -> debug "Database.Handle" ("commitDb failed: " ++ show e)
+		Right (Right ()) -> debug "Database.Handle" "commitDb done"
+		Right (Left e) -> debug "Database.Handle" ("commitDb failed: " ++ show e)
+		Left BlockedIndefinitelyOnMVar -> debug "Database.Handle" "commitDb BlockedIndefinitelyOnMVar"
 
 	return r
 
@@ -125,18 +137,17 @@ data Job
 	| ChangeJob (SqlPersistM ())
 	| CloseJob
 
-workerThread :: RawFilePath -> TableName -> MVar Job -> IO ()
-workerThread db tablename jobs = newconn
+workerThread :: OsPath -> TableName -> MVar Job -> MVar String -> IO ()
+workerThread db tablename jobs errvar = newconn
   where
 	newconn = do
 		v <- tryNonAsync (runSqliteRobustly tablename db loop)
 		case v of
-			Left e -> giveup $
-				"sqlite worker thread crashed: " ++ show e
+			Left e -> putMVar errvar (show e)
 			Right cont -> cont
 	
 	loop = do
-		job <- liftIO getjob
+		job <- liftIO (takeMVarSafe jobs)
 		case job of
 			-- Exception is thrown when the MVar is garbage
 			-- collected, which means the whole DbHandle
@@ -149,9 +160,6 @@ workerThread db tablename jobs = newconn
 				-- Exit the sqlite connection so the
 				-- database gets updated on disk.
 				return newconn
-	
-	getjob :: IO (Either BlockedIndefinitelyOnMVar Job)
-	getjob = try $ takeMVar jobs
 
 {- Like runSqlite, but more robust.
  -
@@ -168,7 +176,7 @@ workerThread db tablename jobs = newconn
  - retrying only if the database shows signs of being modified by another
  - process at least once each 30 seconds.
  -}
-runSqliteRobustly :: TableName -> RawFilePath -> (SqlPersistM a) -> IO a
+runSqliteRobustly :: TableName -> OsPath -> (SqlPersistM a) -> IO a
 runSqliteRobustly tablename db a = do
 	conn <- opensettle maxretries emptyDatabaseInodeCache
 	go conn maxretries emptyDatabaseInodeCache
@@ -184,13 +192,11 @@ runSqliteRobustly tablename db a = do
 					briefdelay
 					retryHelper "access" ex maxretries db retries ic $
 						go conn
-				| otherwise -> rethrow $ errmsg "after successful open" ex
+				| otherwise -> rethrow $ errmsg ("after successful sqlite database " ++ fromOsPath (safeOutput db) ++ " open") ex
 	
 	opensettle retries ic = do
-		conn <- Sqlite.open tdb
+		conn <- Sqlite.open' (fromOsPath db)
 		settle conn retries ic
-
-	tdb = T.pack (fromRawFilePath db)
 
 	settle conn retries ic = do
 		r <- try $ do
@@ -208,7 +214,7 @@ runSqliteRobustly tablename db a = do
 						if e == Sqlite.ErrorIO
 							then opensettle
 							else settle conn
-				| otherwise -> rethrow $ errmsg "while opening database connection" ex
+				| otherwise -> rethrow $ errmsg ("while opening sqlite database " ++ fromOsPath (safeOutput db) ++ " connection") ex
 	
 	-- This should succeed for any table.
 	nullselect = T.pack $ "SELECT null from " ++ tablename ++ " limit 1"
@@ -229,7 +235,7 @@ withSqlConnRobustly
 		, BaseBackend backend ~ SqlBackend
 		, BackendCompatible SqlBackend backend
 	    )
-	=> RawFilePath
+	=> OsPath
 	-> (LogFunc -> IO backend)
 	-> (backend -> m a)
 	-> m a
@@ -252,7 +258,7 @@ closeRobustly
 		, BaseBackend backend ~ SqlBackend
 		, BackendCompatible SqlBackend backend
 	   )
-	=> RawFilePath
+	=> OsPath
 	-> backend
 	-> IO ()
 closeRobustly db conn = go maxretries emptyDatabaseInodeCache
@@ -265,7 +271,7 @@ closeRobustly db conn = go maxretries emptyDatabaseInodeCache
 				| e == Sqlite.ErrorBusy -> do
 					threadDelay briefdelay
 					retryHelper "close" ex maxretries db retries ic go
-				| otherwise -> rethrow $ errmsg "while closing database connection" ex
+				| otherwise -> rethrow $ errmsg ("while closing sqlite database " ++ fromOsPath (safeOutput db) ++ " connection") ex
 	
 	briefdelay = 1000 -- 1/1000th second
 	
@@ -286,7 +292,7 @@ retryHelper
 	=> String
 	-> err
 	-> Int
-	-> RawFilePath
+	-> OsPath
 	-> Int
 	-> DatabaseInodeCache
 	-> (Int -> DatabaseInodeCache -> IO a)
@@ -301,9 +307,9 @@ retryHelper action err maxretries db retries ic a = do
 				else giveup (databaseAccessStalledMsg action db err)
 		else a retries' ic
 
-databaseAccessStalledMsg :: Show err => String -> RawFilePath -> err -> String
+databaseAccessStalledMsg :: Show err => String -> OsPath -> err -> String
 databaseAccessStalledMsg action db err =
-	"Repeatedly unable to " ++ action ++ " sqlite database " ++ fromRawFilePath db 
+	"Repeatedly unable to " ++ action ++ " sqlite database " ++ fromOsPath (safeOutput db)
 		++ ": " ++ show err ++ ". "
 		++ "Perhaps another git-annex process is suspended and is "
 		++ "keeping this database locked?"
@@ -313,10 +319,10 @@ data DatabaseInodeCache = DatabaseInodeCache (Maybe InodeCache) (Maybe InodeCach
 emptyDatabaseInodeCache :: DatabaseInodeCache
 emptyDatabaseInodeCache = DatabaseInodeCache Nothing Nothing
 
-getDatabaseInodeCache :: RawFilePath -> IO DatabaseInodeCache
+getDatabaseInodeCache :: OsPath -> IO DatabaseInodeCache
 getDatabaseInodeCache db = DatabaseInodeCache
 	<$> genInodeCache db noTSDelta
-	<*> genInodeCache (db <> "-wal") noTSDelta
+	<*> genInodeCache (db <> literalOsPath "-wal") noTSDelta
 
 isDatabaseModified :: DatabaseInodeCache -> DatabaseInodeCache -> Bool
 isDatabaseModified (DatabaseInodeCache a1 b1) (DatabaseInodeCache a2 b2) = 
@@ -325,3 +331,6 @@ isDatabaseModified (DatabaseInodeCache a1 b1) (DatabaseInodeCache a2 b2) =
 	ismodified (Just a) (Just b) = not (compareStrong a b)
 	ismodified Nothing Nothing = False
 	ismodified _ _ = True
+
+takeMVarSafe :: MVar a -> IO (Either BlockedIndefinitelyOnMVar a)
+takeMVarSafe = try . takeMVar

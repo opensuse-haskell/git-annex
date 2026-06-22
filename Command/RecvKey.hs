@@ -28,9 +28,9 @@ start :: (SeekInput, Key) -> CommandStart
 start (_, key) = fieldTransfer Download key $ \_p -> do
 	-- This matches the retrievalSecurityPolicy of Remote.Git
 	let rsp = RetrievalAllKeysSecure
-	ifM (getViaTmp rsp DefaultVerify key (AssociatedFile Nothing) go)
+	ifM (getViaTmp rsp DefaultVerify key Nothing go)
 		( do
-			logStatus key InfoPresent
+			logStatus NoLiveUpdate key InfoPresent
 			_ <- quiesce True
 			return True
 		, return False
@@ -39,4 +39,4 @@ start (_, key) = fieldTransfer Download key $ \_p -> do
 	go tmp = unVerified $ do
 		opts <- filterRsyncSafeOptions . maybe [] words
 			<$> getField "RsyncOptions"
-		liftIO $ rsyncServerReceive (map Param opts) (fromRawFilePath tmp)
+		liftIO $ rsyncServerReceive (map Param opts) (fromOsPath tmp)

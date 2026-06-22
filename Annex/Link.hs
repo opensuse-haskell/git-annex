@@ -7,7 +7,7 @@
  -
  - Pointer files are used instead of symlinks for unlocked files.
  -
- - Copyright 2013-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2013-2025 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -32,22 +32,28 @@ import Git.Config
 import Annex.HashObject
 import Annex.InodeSentinal
 import Annex.PidLock
+import Types.CleanupActions
 import Utility.FileMode
 import Utility.InodeCache
 import Utility.Tmp.Dir
 import Utility.CopyFile
 import qualified Database.Keys.Handle
 import qualified Utility.RawFilePath as R
+import qualified Utility.FileIO as F
+import qualified Utility.OsString as OS
 
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy as L
-import qualified System.FilePath.ByteString as P
+
+#ifndef mingw32_HOST_OS
+import Utility.OpenFd
+#endif
 
 type LinkTarget = S.ByteString
 
 {- Checks if a file is a link to a key. -}
-isAnnexLink :: RawFilePath -> Annex (Maybe Key)
+isAnnexLink :: OsPath -> Annex (Maybe Key)
 isAnnexLink file = maybe Nothing parseLinkTargetOrPointer <$> getAnnexLinkTarget file
 
 {- Gets the link target of a symlink.
@@ -58,13 +64,13 @@ isAnnexLink file = maybe Nothing parseLinkTargetOrPointer <$> getAnnexLinkTarget
  - Returns Nothing if the file is not a symlink, or not a link to annex
  - content.
  -}
-getAnnexLinkTarget :: RawFilePath -> Annex (Maybe LinkTarget)
+getAnnexLinkTarget :: OsPath -> Annex (Maybe LinkTarget)
 getAnnexLinkTarget f = getAnnexLinkTarget' f
 	=<< (coreSymlinks <$> Annex.getGitConfig)
 
 {- Pass False to force looking inside file, for when git checks out
  - symlinks as plain files. -}
-getAnnexLinkTarget' :: RawFilePath -> Bool -> Annex (Maybe S.ByteString)
+getAnnexLinkTarget' :: OsPath -> Bool -> Annex (Maybe LinkTarget)
 getAnnexLinkTarget' file coresymlinks = if coresymlinks
 	then check probesymlink $
 		return Nothing
@@ -79,9 +85,9 @@ getAnnexLinkTarget' file coresymlinks = if coresymlinks
 				| otherwise -> return Nothing
 			Nothing -> fallback
 
-	probesymlink = R.readSymbolicLink file
+	probesymlink = R.readSymbolicLink (fromOsPath file)
 
-	probefilecontent = withFile (fromRawFilePath file) ReadMode $ \h -> do
+	probefilecontent = F.withFile file ReadMode $ \h -> do
 		s <- S.hGet h maxSymlinkSz
 		-- If we got the full amount, the file is too large
 		-- to be a symlink target.
@@ -96,7 +102,7 @@ getAnnexLinkTarget' file coresymlinks = if coresymlinks
 					then mempty
 					else s
 
-makeAnnexLink :: LinkTarget -> RawFilePath -> Annex ()
+makeAnnexLink :: LinkTarget -> OsPath -> Annex ()
 makeAnnexLink = makeGitLink
 
 {- Creates a link on disk.
@@ -106,26 +112,29 @@ makeAnnexLink = makeGitLink
  - it's staged as such, so use addAnnexLink when adding a new file or
  - modified link to git.
  -}
-makeGitLink :: LinkTarget -> RawFilePath -> Annex ()
+makeGitLink :: LinkTarget -> OsPath -> Annex ()
 makeGitLink linktarget file = ifM (coreSymlinks <$> Annex.getGitConfig)
 	( liftIO $ do
-		void $ tryIO $ R.removeLink file
-		R.createSymbolicLink linktarget file
-	, liftIO $ S.writeFile (fromRawFilePath file) linktarget
+		void $ tryIO $ removeFile file
+		R.createSymbolicLink linktarget (fromOsPath file)
+	, liftIO $ F.writeFile' file linktarget
 	)
 
 {- Creates a link on disk, and additionally stages it in git. -}
-addAnnexLink :: LinkTarget -> RawFilePath -> Annex ()
+addAnnexLink :: LinkTarget -> OsPath -> Annex ()
 addAnnexLink linktarget file = do
 	makeAnnexLink linktarget file
 	stageSymlink file =<< hashSymlink linktarget
 
 {- Injects a symlink target into git, returning its Sha. -}
 hashSymlink :: LinkTarget -> Annex Sha
-hashSymlink = hashBlob . toInternalGitPath
+hashSymlink = go . fromOsPath . toInternalGitPath . toOsPath
+  where
+	go :: LinkTarget -> Annex Sha
+	go = hashBlob
 
 {- Stages a symlink to an annexed object, using a Sha of its target. -}
-stageSymlink :: RawFilePath -> Sha -> Annex ()
+stageSymlink :: OsPath -> Sha -> Annex ()
 stageSymlink file sha =
 	Annex.Queue.addUpdateIndex =<<
 		inRepo (Git.UpdateIndex.stageSymlink file sha)
@@ -135,21 +144,24 @@ hashPointerFile :: Key -> Annex Sha
 hashPointerFile key = hashBlob $ formatPointer key
 
 {- Stages a pointer file, using a Sha of its content -}
-stagePointerFile :: RawFilePath -> Maybe FileMode -> Sha -> Annex ()
+stagePointerFile :: OsPath -> Maybe FileMode -> Sha -> Annex ()
 stagePointerFile file mode sha =
 	Annex.Queue.addUpdateIndex =<<
-		inRepo (Git.UpdateIndex.stageFile sha treeitemtype $ fromRawFilePath file)
+		inRepo (Git.UpdateIndex.stageFile sha treeitemtype file)
   where
 	treeitemtype
 		| maybe False isExecutable mode = TreeExecutable
 		| otherwise = TreeFile
 
-writePointerFile :: RawFilePath -> Key -> Maybe FileMode -> IO ()
+writePointerFile :: OsPath -> Key -> Maybe FileMode -> IO ()
 writePointerFile file k mode = do
-	S.writeFile (fromRawFilePath file) (formatPointer k)
-	maybe noop (R.setFileMode file) mode
+	F.writeFile' file (formatPointer k)
+	maybe noop (R.setFileMode (fromOsPath file)) mode
 
-newtype Restage = Restage Bool
+data Restage
+	= NoRestage
+	| QueueRestage
+	| LaterRestage
 
 {- Restage pointer file. This is used after updating a worktree file
  - when content is added/removed, to prevent git status from showing
@@ -173,26 +185,27 @@ newtype Restage = Restage Bool
  - and will store it in the restage log. Displays a message to help the
  - user understand why the file will appear to be modified.
  -
- - This uses the git queue, so the update is not performed immediately,
- - and this can be run multiple times cheaply. Using the git queue also
- - prevents building up too large a number of updates when many files
- - are being processed. It's also recorded in the restage log so that,
- - if the process is interrupted before the git queue is fulushed, the
- - restage will be taken care of later.
+ - The update is not performed immediately, so and this can be run multiple
+ - times cheaply. It's also recorded in the restage log so that, if the
+ - process is interrupted before the git queue is fulushed, the restage
+ - will be taken care of later.
  -}
-restagePointerFile :: Restage -> RawFilePath -> InodeCache -> Annex ()
-restagePointerFile (Restage False) f orig = do
+restagePointerFile :: Restage -> OsPath -> InodeCache -> Annex ()
+restagePointerFile NoRestage f orig = do
 	flip writeRestageLog orig =<< inRepo (toTopFilePath f)
-	toplevelWarning True $ unableToRestage $ Just $ fromRawFilePath f
-restagePointerFile (Restage True) f orig = do
+	toplevelWarning True $ unableToRestage $ Just f
+{- Using the git queue prevents building up too large a number of updates
+ - when many files are being processed.  -}
+restagePointerFile QueueRestage f orig = do
 	flip writeRestageLog orig =<< inRepo (toTopFilePath f)
-	-- Avoid refreshing the index if run by the
-	-- smudge clean filter, because git uses that when
-	-- it's already refreshing the index, probably because
-	-- this very action is running. Running it again would likely
-	-- deadlock.
 	unlessM (Annex.getState Annex.insmudgecleanfilter) $
 		Annex.Queue.addFlushAction restagePointerFileRunner [f]
+{- Defer the restage until the end. -}
+restagePointerFile LaterRestage f orig = do
+	flip writeRestageLog orig =<< inRepo (toTopFilePath f)
+	unlessM (Annex.getState Annex.insmudgecleanfilter) $
+		Annex.addCleanupAction RestagePointerFiles $ 
+			restagePointerFiles =<< Annex.gitRepo
 
 restagePointerFileRunner :: Git.Queue.FlushActionRunner Annex
 restagePointerFileRunner = 
@@ -208,7 +221,7 @@ restagePointerFileRunner =
 -- to bypass the lock. Then replace the old index file with the new
 -- updated index file.
 restagePointerFiles :: Git.Repo -> Annex ()
-restagePointerFiles r = unlessM (Annex.getState Annex.insmudgecleanfilter) $ do
+restagePointerFiles r = checkcanrun $ do
 	-- Flush any queued changes to the keys database, so they
 	-- are visible to child processes.
 	-- The database is closed because that may improve behavior
@@ -218,17 +231,18 @@ restagePointerFiles r = unlessM (Annex.getState Annex.insmudgecleanfilter) $ do
 		=<< Annex.getRead Annex.keysdbhandle
 	realindex <- liftIO $ Git.Index.currentIndexFile r
 	numsz@(numfiles, _) <- calcnumsz
-	let lock = fromRawFilePath (Git.Index.indexFileLock realindex)
+	let lock = Git.Index.indexFileLock realindex
 	    lockindex = liftIO $ catchMaybeIO $ Git.LockFile.openLock' lock
 	    unlockindex = liftIO . maybe noop Git.LockFile.closeLock
 	    showwarning = warning $ unableToRestage Nothing
 	    go Nothing = showwarning
 	    go (Just _) = withtmpdir $ \tmpdir -> do
 		tsd <- getTSDelta 
-		let tmpindex = toRawFilePath (tmpdir </> "index")
+		let tmpindex = tmpdir </> literalOsPath "index"
 		let replaceindex = liftIO $ moveFile tmpindex realindex
 		let updatetmpindex = do
 			r' <- liftIO $ Git.Env.addGitEnv r Git.Index.indexEnv
+				. fromOsPath
 				=<< Git.Index.indexEnvVal tmpindex
 			configfilterprocess numsz $
 				runupdateindex tsd r' replaceindex
@@ -239,7 +253,9 @@ restagePointerFiles r = unlessM (Annex.getState Annex.insmudgecleanfilter) $ do
 	when (numfiles > 0) $
 		bracket lockindex unlockindex go
   where
-	withtmpdir = withTmpDirIn (fromRawFilePath $ Git.localGitDir r) "annexindex"
+	withtmpdir = withTmpDirIn
+		(Git.localGitDir r)
+		(literalOsPath "annexindex")
 
 	isunmodified tsd f orig = 
 		genInodeCache f tsd >>= return . \case
@@ -316,16 +332,18 @@ restagePointerFiles r = unlessM (Annex.getState Annex.insmudgecleanfilter) $ do
 		ck = ConfigKey "filter.annex.process"
 		ckd = ConfigKey "filter.annex.process-temp-disabled"
 
-unableToRestage :: Maybe FilePath -> String
-unableToRestage mf = unwords
-	[ "git status will show " ++ fromMaybe "some files" mf
-	, "to be modified, since content availability has changed"
-	, "and git-annex was unable to update the index."
-	, "This is only a cosmetic problem affecting git status; git add,"
-	, "git commit, etc won't be affected."
-	, "To fix the git status display, you can run:"
-	, "git-annex restage"
-	]
+	checkcanrun a = unlessM (Annex.getState Annex.insmudgecleanfilter) $
+		unlessM (Annex.getState Annex.inreconcilestaged) $ a
+
+unableToRestage :: Maybe OsPath -> StringContainingQuotedPath
+unableToRestage mf =
+	"git status will show " <> maybe "some files" QuotedPath mf
+	<> " to be modified, since content availability has changed"
+	<> " and git-annex was unable to update the index."
+	<> " This is only a cosmetic problem affecting git status; git add,"
+	<> " git commit, etc won't be affected."
+	<> " To fix the git status display, you can run:"
+	<> " git-annex restage"
 
 {- Parses a symlink target or a pointer file to a Key.
  -
@@ -353,7 +371,8 @@ parseLinkTargetOrPointer' b =
 		Nothing -> Right Nothing
   where
 	parsekey l
-		| isLinkToAnnex l = fileKey $ snd $ S8.breakEnd pathsep l
+		| isLinkToAnnex l = fileKey $ toOsPath $
+			snd $ S8.breakEnd pathsep l
 		| otherwise = Nothing
 
 	restvalid r
@@ -392,9 +411,10 @@ parseLinkTargetOrPointerLazy' b =
 	in parseLinkTargetOrPointer' (L.toStrict b')
 
 formatPointer :: Key -> S.ByteString
-formatPointer k = prefix <> keyFile k <> nl
+formatPointer k = fromOsPath prefix <> fromOsPath (keyFile k) <> nl
   where
-	prefix = toInternalGitPath $ P.pathSeparator `S.cons` objectDir
+	prefix = toInternalGitPath $
+		pathSeparator `OS.cons` objectDir standardGitLocationMaker
 	nl = S8.singleton '\n'
 
 {- Maximum size of a file that could be a pointer to a key.
@@ -426,26 +446,19 @@ maxSymlinkSz = 8192
  - an object that looks like a pointer file. Or that a non-annex
  - symlink does. Avoids a false positive in those cases.
  - -}
-isPointerFile :: RawFilePath -> IO (Maybe Key)
+isPointerFile :: OsPath -> IO (Maybe Key)
 isPointerFile f = catchDefaultIO Nothing $
 #if defined(mingw32_HOST_OS)
-	checkcontentfollowssymlinks -- no symlinks supported on windows
+	F.withFile f ReadMode readhandle
 #else
-#if MIN_VERSION_unix(2,8,0)
-	bracket
-		(openFd (fromRawFilePath f) ReadOnly (defaultFileFlags { nofollow = True }) Nothing)
-		closeFd
-		(\fd -> readhandle =<< fdToHandle fd)
-#else
-	ifM (isSymbolicLink <$> R.getSymbolicLinkStatus f)
-		( return Nothing
-		, checkcontentfollowssymlinks
-		)
-#endif
+	let open = do
+		fd <- openFdWithMode (fromOsPath f) ReadOnly Nothing
+			(defaultFileFlags { nofollow = True })
+			(CloseOnExecFlag True)
+		fdToHandle fd
+	in bracket open hClose readhandle
 #endif
   where
-	checkcontentfollowssymlinks = 
-		withFile (fromRawFilePath f) ReadMode readhandle
 	readhandle h = parseLinkTargetOrPointer <$> S.hGet h maxPointerSz
 
 {- Checks a symlink target or pointer file first line to see if it
@@ -456,13 +469,14 @@ isPointerFile f = catchDefaultIO Nothing $
  - than .git to be used.
  -}
 isLinkToAnnex :: S.ByteString -> Bool
-isLinkToAnnex s = p `S.isInfixOf` s
+isLinkToAnnex s = p `OS.isInfixOf` s'
 #ifdef mingw32_HOST_OS
 	-- '/' is used inside pointer files on Windows, not the native '\'
-	|| p' `S.isInfixOf` s
+	|| p' `OS.isInfixOf` s'
 #endif
   where
-	p = P.pathSeparator `S.cons` objectDir
+	s' = toOsPath s
+	p = pathSeparator `OS.cons` objectDir standardGitLocationMaker
 #ifdef mingw32_HOST_OS
 	p' = toInternalGitPath p
 #endif

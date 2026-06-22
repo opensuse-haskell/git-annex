@@ -5,11 +5,14 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE OverloadedStrings #-}
+
 module Command.Init where
 
 import Command
 import Annex.Init
 import Annex.Version
+import Annex.Startup
 import Types.RepoVersion
 import qualified Annex.SpecialRemote
 
@@ -17,7 +20,7 @@ import Control.Monad.Fail as Fail (MonadFail(..))
 import qualified Data.Map as M
 	
 cmd :: Command
-cmd = dontCheck repoExists $
+cmd = dontCheck repoExists $ withAnnexOptions [jsonOptions] $
 	command "init" SectionSetup "initialize git-annex"
 		paramDesc (seek <$$> optParser)
 
@@ -62,7 +65,7 @@ start os
 		starting "init" (ActionItemOther (Just "autoenable")) si $
 			performAutoEnableOnly
 	| otherwise = 
-		starting "init" (ActionItemOther (Just $ initDesc os)) si $
+		starting "init" (ActionItemOther (Just $ UnquotedString $ initDesc os)) si $
 			perform os
   where
 	si = SeekInput []
@@ -75,7 +78,7 @@ perform os = do
 			Just v | v /= wantversion ->
 				giveup $ "This repository is already a initialized with version " ++ show (fromRepoVersion v) ++ ", not changing to requested version."
 			_ -> noop
-	initialize
+	initialize startupAnnex
 		(if null (initDesc os) then Nothing else Just (initDesc os))
 		(initVersion os)
 	unless (noAutoEnable os)

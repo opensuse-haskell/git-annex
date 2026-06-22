@@ -5,6 +5,8 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE OverloadedStrings #-}
+
 module Upgrade.V9 where
 
 import Annex.Common
@@ -29,7 +31,7 @@ upgrade automatic
 		)
 	| otherwise = ifM (oldprocessesdanger <&&> (not <$> Annex.getRead Annex.force))
 		( do
-			warning $ unlines unsafeupgrade
+			warning $ UnquotedString $ unlines unsafeupgrade
 			return UpgradeDeferred
 		, performUpgrade automatic
 		)
@@ -53,7 +55,7 @@ upgrade automatic
 	 - run for an entire year and so predate the v9 upgrade. -}
 	assistantrunning = do
 		pidfile <- fromRepo gitAnnexPidFile
-		isJust <$> liftIO (checkDaemon (fromRawFilePath pidfile))
+		isJust <$> liftIO (checkDaemon pidfile)
 	
 	unsafeupgrade =
 		[ "Not upgrading from v9 to v10, because there may be git-annex"

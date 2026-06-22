@@ -22,9 +22,6 @@ module Logs.Export (
 	getExportExcluded,
 ) where
 
-import qualified Data.Map as M
-import qualified Data.ByteString as B
-
 import Annex.Common
 import qualified Annex.Branch
 import qualified Git
@@ -37,7 +34,10 @@ import Logs.File
 import qualified Git.LsTree
 import qualified Git.Tree
 import Annex.UUID
+import qualified Utility.FileIO as F
 
+import qualified Data.Map as M
+import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import Data.Either
 import Data.Char
@@ -66,19 +66,19 @@ recordExportBeginning remoteuuid newtree = do
 		. parseExportLogMap
 		<$> Annex.Branch.get exportLog
 	let new = updateIncompleteExportedTreeish old (nub (newtree:incompleteExportedTreeishes [old]))
+	rememberExportTreeish newtree
 	Annex.Branch.change
 		(Annex.Branch.RegardingUUID [remoteuuid, u])
 		exportLog
 		(buildExportLog . changeMapLog c ep new . parseExportLog)
-	recordExportTreeish newtree
 
 -- Graft a tree ref into the git-annex branch. This is done
 -- to ensure that it's available later, when getting exported files
 -- from the remote. Since that could happen in another clone of the
 -- repository, the tree has to be kept available, even if it
 -- doesn't end up being merged into the master branch.
-recordExportTreeish :: Git.Ref -> Annex ()
-recordExportTreeish t = 
+rememberExportTreeish :: Git.Ref -> Annex ()
+rememberExportTreeish t = void $
 	Annex.Branch.rememberTreeish t (asTopFilePath exportTreeGraftPoint)
 
 -- | Record that an export to a special remote is under way.
@@ -101,18 +101,18 @@ recordExportUnderway remoteuuid ec = do
 	Annex.Branch.change ru exportLog $ 
 		buildExportLog
 			. changeMapLog c ep exported 
-			. M.mapWithKey (updateForExportChange remoteuuid ec c hereuuid)
+			. mapLogWithKey (updateForExportChange remoteuuid ec c hereuuid)
 			. parseExportLog
 
 -- Record information about the export to the git-annex branch.
 --
--- This is equivilant to recordExportBeginning followed by
+-- This is equivalent to recordExportBeginning followed by
 -- recordExportUnderway, but without the ability to clean up from
 -- interrupted exports.
 recordExport :: UUID -> Git.Ref -> ExportChange -> Annex ()
 recordExport remoteuuid tree ec = do
 	when (oldTreeish ec /= [tree]) $
-		recordExportTreeish tree
+		rememberExportTreeish tree
 	recordExportUnderway remoteuuid ec
 
 logExportExcluded :: UUID -> ((Git.Tree.TreeItem -> IO ()) -> Annex a) -> Annex a
@@ -130,7 +130,7 @@ getExportExcluded :: UUID -> Annex [Git.Tree.TreeItem]
 getExportExcluded u = do
 	logf <- fromRepo $ gitAnnexExportExcludeLog u
 	liftIO $ catchDefaultIO [] $ exportExcludedParser
-		<$> L.readFile (fromRawFilePath logf)
+		<$> F.readFile logf
   where
 
 exportExcludedParser :: L.ByteString -> [Git.Tree.TreeItem]

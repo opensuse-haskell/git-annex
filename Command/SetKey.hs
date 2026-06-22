@@ -21,21 +21,22 @@ seek = withWords (commandAction . start)
 
 start :: [String] -> CommandStart
 start ps@(keyname:file:[]) = starting "setkey" ai si $
-	perform (toRawFilePath file) (keyOpt keyname)
+	perform file' (keyOpt keyname)
   where
-	ai = ActionItemOther (Just file)
+	ai = ActionItemOther (Just (QuotedPath file'))
 	si = SeekInput ps
+	file' = toOsPath file
 start _ = giveup "specify a key and a content file"
 
 keyOpt :: String -> Key
 keyOpt = fromMaybe (giveup "bad key") . deserializeKey
 
-perform :: RawFilePath -> Key -> CommandPerform
+perform :: OsPath -> Key -> CommandPerform
 perform file key = do
 	-- the file might be on a different filesystem, so moveFile is used
 	-- rather than simply calling moveAnnex; disk space is also
 	-- checked this way.
-	ok <- getViaTmp RetrievalAllKeysSecure DefaultVerify key (AssociatedFile Nothing) $ \dest -> unVerified $
+	ok <- getViaTmp RetrievalAllKeysSecure DefaultVerify key Nothing $ \dest -> unVerified $
 		if dest /= file
 			then liftIO $ catchBoolIO $ do
 				moveFile file dest
@@ -43,9 +44,9 @@ perform file key = do
 		else return True
 	if ok
 		then next $ cleanup key
-		else error "mv failed!"
+		else giveup "move failed!"
 
 cleanup :: Key -> CommandCleanup
 cleanup key = do
-	logStatus key InfoPresent
+	logStatus NoLiveUpdate key InfoPresent
 	return True

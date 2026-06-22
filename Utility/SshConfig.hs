@@ -5,6 +5,8 @@
  - License: BSD-2-clause
  -}
 
+{-# LANGUAGE OverloadedStrings #-}
+
 module Utility.SshConfig (
 	SshConfig(..),
 	Comment(..),
@@ -28,10 +30,13 @@ import Common
 import Utility.UserInfo
 import Utility.Tmp
 import Utility.FileMode
+import qualified Utility.FileIO as F
 
 import Data.Char
 import Data.Ord
 import Data.Either
+import System.PosixCompat.Files (groupWriteMode, otherWriteMode)
+import qualified Data.ByteString.Char8 as S8
 
 data SshConfig
 	= GlobalConfig SshSetting
@@ -131,9 +136,10 @@ modifyUserSshConfig modifier = changeUserSshConfig $
 changeUserSshConfig :: (String -> String) -> IO ()
 changeUserSshConfig modifier = do
 	sshdir <- sshDir
-	let configfile = sshdir </> "config"
+	let configfile = sshdir </> literalOsPath "config"
 	whenM (doesFileExist configfile) $ do
-		c <- readFileStrict configfile
+		c <- decodeBS . S8.unlines . fileLines'
+			<$> F.readFile' configfile
 		let c' = modifier c
 		when (c /= c') $ do
 			-- If it's a symlink, replace the file it
@@ -141,10 +147,10 @@ changeUserSshConfig modifier = do
 			f <- catchDefaultIO configfile (canonicalizePath configfile)
 			viaTmp writeSshConfig f c'
 
-writeSshConfig :: FilePath -> String -> IO ()
+writeSshConfig :: OsPath -> String -> IO ()
 writeSshConfig f s = do
-	writeFile f s
-	setSshConfigMode (toRawFilePath f)
+	F.writeFile' f (linesFile' (encodeBS s))
+	setSshConfigMode f
 
 {- Ensure that the ssh config file lacks any group or other write bits, 
  - since ssh is paranoid about not working if other users can write
@@ -153,11 +159,11 @@ writeSshConfig f s = do
  - If the chmod fails, ignore the failure, as it might be a filesystem like
  - Android's that does not support file modes.
  -}
-setSshConfigMode :: RawFilePath -> IO ()
+setSshConfigMode :: OsPath -> IO ()
 setSshConfigMode f = void $ tryIO $ modifyFileMode f $
 	removeModes [groupWriteMode, otherWriteMode]
 
-sshDir :: IO FilePath
+sshDir :: IO OsPath
 sshDir = do
 	home <- myHomeDir
-	return $ home </> ".ssh"
+	return $ toOsPath home </> literalOsPath ".ssh"

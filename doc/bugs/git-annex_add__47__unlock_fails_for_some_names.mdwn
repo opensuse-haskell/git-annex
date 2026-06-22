@@ -1,0 +1,97 @@
+### Please describe the problem.
+
+In git-annex version 10.20250721, certain non-Latin filenames, specifically those with Cyrillic characters, fail to be added, unlocked, or adjusted in repositories. The issue affects a range of filename patterns, including simple Cyrillic names, names with numbers, dashes, spaces, or special characters, and files with various extensions. This problem appears to be a regression in this version, as the same repository works perfectly with git-annex version 10.20220121.
+
+### What steps will reproduce the problem?
+
+1. Create a new git repository and initialize git-annex:
+
+   ```sh
+   git init
+   git annex init
+   ```
+
+2. Create test files with different Cyrillic filename patterns (both working and failing examples):
+
+   ```sh
+   echo "test" > "ИА_2222.07.xlsx"    # 2-char Cyrillic prefix - WORKS
+   echo "test" > "ЦППП_202206.xlsx"    # no dot in date - WORKS
+   echo "test" > "ААА_55.22.xlsx"      # different date format - WORKS
+   echo "test" > "ЦППП_2022.06.xlsx"   # 4-char prefix + YYYY.MM - FAILS
+   echo "test" > "ИАИА_2222.07.xlsx"   # 4-char prefix + YYYY.MM - FAILS
+   ```
+
+3. Add the files:
+
+   ```sh
+   git annex add *
+   ```
+
+4. You will see that some files are successfully added, while others fail with the error:
+
+   ```
+   git-annex: .git/annex/othertmp/.0: createSymbolicLink: already exists (File exists) failed
+   ```
+
+5. Additionally, in existing repos, attempts to unlock or adjust in failed files will show errors like:
+
+   ```sh
+   git-annex: ../.git/annex/othertmp/.22/SHA256E-s...: removeDirectoryRecursive: permission denied (Permission denied) failed
+   ```
+
+### What version of git-annex are you using? On what operating system?
+
+* **git-annex version**: 10.20250721 (broken)
+* **OS**: Manjaro Linux (ext4 filesystem)
+* **git config**: `core.quotepath=false`
+* **Note**: The issue does not occur in git-annex version 10.20220121 (tested on WSL Ubuntu).
+
+### Please provide any additional information below.
+
+* **Problematic Filename Examples**:
+
+  * "ЦППП\_2022.06.xlsx" (4-char Cyrillic prefix with YYYY.MM date format) — **fails**
+  * "ИАИА\_2222.07.xlsx" (4-char Cyrillic prefix with YYYY.MM date format) — **fails**
+  * "ДПК\_2021.06-2.xlsx" (Cyrillic prefix with number and dash) — **fails**
+  * "ВУП Авто .pptx" (Cyrillic with spaces) — **fails**
+  * "Ачох\_кейс.dat" (Cyrillic with underscore and special characters) — **fails**
+
+* ** Even Simple Non-Latin names**:
+  *  пожелания.md  — **fails**
+  *  обучение.xlsx  — **fails**
+  *  Протокол.xlsx  — **fails**
+  *  Согласие.docx  — **fails**
+  *  Грейдинг.pptx  — **fails**
+
+* **Working Examples**:
+
+  * "ИА\_2222.07.xlsx" (2-char Cyrillic prefix)
+  * "ЦППП\_202206.xlsx" (no dot in date)
+  * "ААА\_55.22.xlsx" (different date format)
+  * Latin-only filenames such as "IOIO\_2222.07.xlsx" also work fine.
+
+* **Debug Output** shows escaped Cyrillic sequences:
+
+  ```sh
+  git annex --debug whereis "ЦППП_2022.06.xlsx" 2>&1 | grep ls-files
+  git [...] ls-files [...] "\1062\1055\1055\1055_2022.06.xlsx"
+  ```
+
+* **Workaround**: Renaming the problematic file by adding a special character or changing the filename slightly (e.g., using an em-dash or a different date separator) resolves the issue:
+
+  ```sh
+  mv "ЦППП_2022.06.xlsx" "ЦППП_2022.06—.xlsx"  # Add em-dash
+  git annex add "ЦППП_2022.06—.xlsx"  # This works
+  ```
+
+* **Possible Root Cause**: May be the temp filename generation algorithm in git-annex appears to have conflicts when processing escaped Cyrillic sequences (e.g., \1062\1055\1055\1055) in filenames that have 4+ character Cyrillic prefixes and a YYYY.MM date format. This causes temp filenames like "ЦП{PID}-{counter}" to conflict with existing operations.
+
+### Have you had any luck using git-annex before?
+
+Yes, git-annex has been fantastic for managing large datasets across multiple machines, and the same repository works perfectly with an older version (10.20220121) on Ubuntu WSL. However, this issue with non-Latin filenames is a regression in the newer version. Despite this, git-annex remains an invaluable tool for distributed file management.
+
+---
+
+This issue appears to affect **all Cyrillic filenames**, not just the initially identified patterns, making the current version of git-annex barely usable for repositories containing non-Latin filenames.
+
+> [[fixed|done]] --[[Joey]]

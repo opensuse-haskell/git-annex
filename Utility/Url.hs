@@ -1,6 +1,6 @@
 {- Url downloading.
  -
- - Copyright 2011-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2026 Joey Hess <id@joeyh.name>
  -
  - License: BSD-2-clause
  -}
@@ -31,8 +31,8 @@ module Utility.Url (
 	download,
 	downloadConduit,
 	sinkResponseFile,
+	sinkResponseIncrementalVerifier,
 	downloadPartial,
-	parseURIRelaxed,
 	matchStatusCodeException,
 	matchHttpExceptionContent,
 	BasicAuth(..),
@@ -41,6 +41,7 @@ module Utility.Url (
 	applyBasicAuth',
 	extractFromResourceT,
 	conduitUrlSchemes,
+	extendUrlWithPath,
 ) where
 
 import Common
@@ -49,11 +50,14 @@ import Utility.Metered
 import Network.HTTP.Client.Restricted
 import Utility.IPAddress
 import qualified Utility.RawFilePath as R
-import Utility.Hash (IncrementalVerifier(..))
+import Utility.Hash.Incremental
+import Utility.Url.Parse
+import qualified Utility.FileIO as F
 
 import Network.URI
 import Network.HTTP.Types
-import qualified Network.Connection as NC
+import Network.HTTP.Types.Header (hAcceptEncoding, hContentDisposition, hContentRange)
+import qualified System.FilePath.Posix as UrlPath
 import qualified Data.CaseInsensitive as CI
 import qualified Data.ByteString as B
 import qualified Data.ByteString.UTF8 as B8
@@ -175,6 +179,7 @@ allowedScheme uo u = uscheme `S.member` allowedSchemes uo
  -
  - The Left error is returned if policy or the restricted http manager
  - does not allow accessing the url or the url scheme is not supported.
+ - It's also returned on eg, DNS or network failure.
  -}
 checkBoth :: URLString -> Maybe Integer -> UrlOptions -> IO (Either String Bool)
 checkBoth url expected_size uo = fmap go <$> check url expected_size uo
@@ -208,14 +213,17 @@ assumeUrlExists = UrlInfo True Nothing Nothing
  -
  - The Left error is returned if policy or the restricted http manages
  - does not allow accessing the url or the url scheme is not supported.
+ - It's also returned on eg, DNS or network failure.
  -}
 getUrlInfo :: URLString -> UrlOptions -> IO (Either String UrlInfo)
 getUrlInfo url uo = case parseURIRelaxed url of
-	Just u -> checkPolicy uo u (go u)
+	Just u -> checkPolicy uo u $
+		catchJust matchHttpException (go u) (return . Left . showHttpException)
+			`catchNonAsync` (return . Left . show)
 	Nothing -> return (Right dne)
    where
 	go :: URI -> IO (Either String UrlInfo)
-	go u = case (urlDownloader uo, parseRequest (show u)) of
+	go u = case (urlDownloader uo, parseRequestRelaxed u) of
 		(DownloadWithConduit (DownloadWithCurlRestricted r), Just req) ->
 			existsconduit r req
 		(DownloadWithConduit (DownloadWithCurlRestricted r), Nothing)
@@ -255,7 +263,7 @@ getUrlInfo url uo = case parseURIRelaxed url of
 		<=< lookup hContentDisposition . responseHeaders
 
 	existsconduit r req =
-		let a = catchcrossprotoredir r (existsconduit' req uo)
+		let a = catchcrossprotoredir r (existsconduit' req uo Nothing)
 		in catchJust matchconnectionrestricted a retconnectionrestricted
 	
 	matchconnectionrestricted he@(HttpExceptionRequest _ (InternalException ie)) =
@@ -270,7 +278,10 @@ getUrlInfo url uo = case parseURIRelaxed url of
 			_ -> throwM he
 	retconnectionrestricted he = throwM he
 
-	existsconduit' req uo' = do
+	existsconduit' req uo' msignalauthsuccess = do
+		let authedok = liftIO $ case msignalauthsuccess of
+			Nothing -> noop
+			Just signalauthsuccess -> signalauthsuccess True
 		let req' = headRequest (applyRequest uo req)
 		debug "Utility.Url" (show req')
 		join $ runResourceT $ do
@@ -281,15 +292,20 @@ getUrlInfo url uo = case parseURIRelaxed url of
 					fn <- extractFromResourceT (extractfilename resp)
 					return $ found len fn
 				else if responseStatus resp == unauthorized401
-					then return $ getBasicAuth uo' (show (getUri req)) >>= \case
-						Nothing -> return dne
-						Just (ba, signalsuccess) -> do
-							ui <- existsconduit'
-								(applyBasicAuth' ba req)							
-								(uo' { getBasicAuth = noBasicAuth })
-							signalsuccess (urlExists ui)
-							return ui
-					else return $ return dne
+					then case msignalauthsuccess of
+						Nothing -> return $ getBasicAuth uo' (show (getUri req)) (responseHeaders resp) >>= \case
+							Just (ba, signalauthsuccess) ->
+								existsconduit'
+									(applyBasicAuth' ba req)
+									uo'
+									(Just signalauthsuccess)
+							Nothing -> return dne
+						Just signalauthsuccess -> do
+							liftIO $ signalauthsuccess False
+							return $ return dne
+					else do
+						authedok
+						return $ return dne
 
 	existscurl u curlparams = do
 		output <- catchDefaultIO "" $
@@ -312,8 +328,8 @@ getUrlInfo url uo = case parseURIRelaxed url of
 		=<< curlRestrictedParams r u defport (basecurlparams url')
 
 	existsfile u = do
-		let f = toRawFilePath (unEscapeString (uriPath u))
-		s <- catchMaybeIO $ R.getSymbolicLinkStatus f
+		let f = toOsPath (unEscapeString (uriPath u))
+		s <- catchMaybeIO $ R.getSymbolicLinkStatus (fromOsPath f)
 		case s of
 			Just stat -> do
 				sz <- getFileSize' f stat
@@ -352,7 +368,7 @@ contentDispositionFilename s
 headRequest :: Request -> Request
 headRequest r = r
 	{ method = methodHead
-	-- remove defaut Accept-Encoding header, to get actual,
+	-- remove default Accept-Encoding header, to get actual,
 	-- not gzip compressed size.
 	, requestHeaders = (hAcceptEncoding, B.empty) :
 		filter (\(h, _) -> h /= hAcceptEncoding)
@@ -363,17 +379,17 @@ headRequest r = r
  -
  - When the download fails, returns an error message.
  -}
-download :: MeterUpdate -> Maybe IncrementalVerifier -> URLString -> FilePath -> UrlOptions -> IO (Either String ())
+download :: MeterUpdate -> Maybe IncrementalVerifier -> URLString -> OsPath -> UrlOptions -> IO (Either String ())
 download = download' False
 
-download' :: Bool -> MeterUpdate -> Maybe IncrementalVerifier -> URLString -> FilePath -> UrlOptions -> IO (Either String ())
+download' :: Bool -> MeterUpdate -> Maybe IncrementalVerifier -> URLString -> OsPath -> UrlOptions -> IO (Either String ())
 download' nocurlerror meterupdate iv url file uo =
-	catchJust matchHttpException go showhttpexception
+	catchJust matchHttpException go (dlfailed . showHttpException)
 		`catchNonAsync` (dlfailed . show)
   where
 	go = case parseURIRelaxed url of
 		Just u -> checkPolicy uo u $
-			case (urlDownloader uo, parseRequest (show u)) of
+			case (urlDownloader uo, parseRequestRelaxed u) of
 				(DownloadWithConduit (DownloadWithCurlRestricted r), Just req) -> catchJust
 					(matchStatusCodeException (== found302))
 					(downloadConduit meterupdate iv req file uo >> return (Right ()))
@@ -394,16 +410,6 @@ download' nocurlerror meterupdate iv url file uo =
 
 	ftpport = 21
 
-	showhttpexception he = dlfailed $ case he of
-		HttpExceptionRequest _ (StatusCodeException r _) ->
-			B8.toString $ statusMessage $ responseStatus r
-		HttpExceptionRequest _ (InternalException ie) -> 
-			case fromException ie of
-				Nothing -> show ie
-				Just (ConnectionRestricted why) -> why
-		HttpExceptionRequest _ other -> show other
-		_ -> show he
-	
 	dlfailed msg = do
 		noverification
 		return $ Left $ "download failed: " ++ msg
@@ -422,8 +428,8 @@ download' nocurlerror meterupdate iv url file uo =
 		-- curl does not create destination file
 		-- if the url happens to be empty, so pre-create.
 		unlessM (doesFileExist file) $
-			writeFile file ""
-		ifM (boolSystem "curl" (curlparams ++ [Param "-o", File file, File rawurl]))
+			F.writeFile file mempty
+		ifM (boolSystem "curl" (curlparams ++ [Param "-o", File (fromOsPath file), File rawurl]))
 			( return $ Right ()
 			, return $ Left "download failed"
 			)
@@ -433,9 +439,9 @@ download' nocurlerror meterupdate iv url file uo =
 
 	downloadfile u = do
 		noverification
-		let src = unEscapeString (uriPath u)
+		let src = toOsPath $ unEscapeString (uriPath u)
 		withMeteredFile src meterupdate $
-			L.writeFile file
+			F.writeFile file
 		return $ Right ()
 
 	-- Conduit does not support ftp, so will throw an exception on a
@@ -462,24 +468,34 @@ download' nocurlerror meterupdate iv url file uo =
  - thrown for reasons other than http status codes will still be thrown
  - as usual.)
  -}
-downloadConduit :: MeterUpdate -> Maybe IncrementalVerifier -> Request -> FilePath -> UrlOptions -> IO ()
-downloadConduit meterupdate iv req file uo =
-	catchMaybeIO (getFileSize (toRawFilePath file)) >>= \case
+downloadConduit :: MeterUpdate -> Maybe IncrementalVerifier -> Request -> OsPath -> UrlOptions -> IO ()
+downloadConduit = downloadConduit' Nothing
+
+downloadConduit' :: Maybe (Bool -> IO ()) -> MeterUpdate -> Maybe IncrementalVerifier -> Request -> OsPath -> UrlOptions -> IO ()
+downloadConduit' msignalauthsuccess meterupdate iv req file uo =
+	catchMaybeIO (getFileSize file) >>= \case
 		Just sz | sz > 0 -> resumedownload sz
 		_ -> join $ runResourceT $ do
 			liftIO $ debug "Utility.Url" (show req')
 			resp <- http req' (httpManager uo)
 			if responseStatus resp == ok200
 				then do
+					authedok
 					store zeroBytesProcessed WriteMode resp
 					return (return ())
 				else do
 					rf <- extractFromResourceT (respfailure resp)
 					if responseStatus resp == unauthorized401
-						then return $ getBasicAuth uo (show (getUri req')) >>= \case
-							Nothing -> giveup rf
-							Just ba -> retryauthed ba
-						else return $ giveup rf
+						then case msignalauthsuccess of
+							Nothing -> return $ getBasicAuth uo (show (getUri req')) (responseHeaders resp) >>= \case
+								Nothing -> giveup rf
+								Just ba -> retryauthed ba
+							Just signalauthsuccess -> do
+								liftIO $ signalauthsuccess False
+								giveup rf
+						else do
+							authedok
+							return $ giveup rf
   where
 	req' = applyRequest uo $ req
 		-- Override http-client's default decompression of gzip
@@ -503,23 +519,32 @@ downloadConduit meterupdate iv req file uo =
 		resp <- http req'' (httpManager uo)
 		if responseStatus resp == partialContent206
 			then do
+				authedok
 				store (toBytesProcessed sz) AppendMode resp
 				return (return ())
 			else if responseStatus resp == ok200
 				then do
+					authedok
 					store zeroBytesProcessed WriteMode resp
 					return (return ())
 				else if alreadydownloaded sz resp
 					then do
+						authedok
 						liftIO noverification
 						return (return ())
 					else do
 						rf <- extractFromResourceT (respfailure resp)
 						if responseStatus resp == unauthorized401
-							then return $ getBasicAuth uo (show (getUri req'')) >>= \case
-								Nothing -> giveup rf
-								Just ba -> retryauthed ba
-							else return $ giveup rf
+							then case msignalauthsuccess of
+								Nothing -> return $ getBasicAuth uo (show (getUri req'')) (responseHeaders resp) >>= \case
+									Just ba -> retryauthed ba
+									Nothing -> giveup rf
+								Just signalauthsuccess -> do
+									liftIO $ signalauthsuccess False
+									giveup rf
+							else do
+								authedok
+								return $ giveup rf
 	
 	alreadydownloaded sz resp
 		| responseStatus resp /= requestedRangeNotSatisfiable416 = False
@@ -541,19 +566,24 @@ downloadConduit meterupdate iv req file uo =
 	
 	respfailure = B8.toString . statusMessage . responseStatus
 	
-	retryauthed (ba, signalsuccess) = do
-		r <- tryNonAsync $ downloadConduit
+	retryauthed (ba, signalauthsuccess) = do
+		r <- tryNonAsync $ downloadConduit'
+			(Just signalauthsuccess)
 			meterupdate iv
 			(applyBasicAuth' ba req)
 			file
-			(uo { getBasicAuth = noBasicAuth })
+			uo
 		case r of
-			Right () -> signalsuccess True
+			Right () -> signalauthsuccess True
 			Left e -> do
-				() <- signalsuccess False
+				() <- signalauthsuccess False
 				throwM e
 	
 	noverification = maybe noop unableIncrementalVerifier iv
+	
+	authedok = liftIO $ case msignalauthsuccess of
+		Nothing -> noop
+		Just signalauthsuccess -> signalauthsuccess True
 	
 {- Sinks a Response's body to a file. The file can either be appended to
  - (AppendMode), or written from the start of the response (WriteMode).
@@ -567,7 +597,7 @@ sinkResponseFile
 	=> MeterUpdate
 	-> Maybe IncrementalVerifier
 	-> BytesProcessed
-	-> FilePath
+	-> OsPath
 	-> IOMode
 	-> Response (ConduitM () B8.ByteString m ())
 	-> m ()
@@ -578,7 +608,7 @@ sinkResponseFile meterupdate iv initialp file mode resp = do
 			return (const noop)
 		(Just iv', _) -> return (updateIncrementalVerifier iv')
 		(Nothing, _) -> return (const noop)
-	(fr, fh) <- allocate (openBinaryFile file mode) hClose
+	(fr, fh) <- allocate (F.openBinaryFile file mode) hClose
 	runConduit $ responseBody resp .| go ui initialp fh
 	release fr
   where
@@ -592,13 +622,33 @@ sinkResponseFile meterupdate iv initialp file mode resp = do
 				B.hPut fh bs
 			go ui sofar' fh
 
+-- Sends a Response's body to an IncrementalVerifier, without writing it to
+-- a file.
+sinkResponseIncrementalVerifier
+	:: MonadResource m
+	=> MeterUpdate
+	-> IncrementalVerifier
+	-> Response (ConduitM () B8.ByteString m ())
+	-> m ()
+sinkResponseIncrementalVerifier meterupdate iv resp =
+	runConduit $ responseBody resp .| go zeroBytesProcessed
+  where
+	go sofar = await >>= \case
+		Nothing -> return ()
+		Just bs -> do
+			let sofar' = addBytesProcessed sofar (B.length bs)
+			liftIO $ do
+				void $ meterupdate sofar'
+				updateIncrementalVerifier iv bs
+			go sofar'
+
 {- Downloads at least the specified number of bytes from an url. -}
 downloadPartial :: URLString -> UrlOptions -> Int -> IO (Maybe L.ByteString)
 downloadPartial url uo n = case parseURIRelaxed url of
 	Nothing -> return Nothing
 	Just u -> go u `catchNonAsync` const (return Nothing)
   where
-	go u = case parseRequest (show u) of
+	go u = case parseRequestRelaxed u of
 		Nothing -> return Nothing
 		Just req -> do
 			let req' = applyRequest uo req
@@ -608,36 +658,18 @@ downloadPartial url uo n = case parseURIRelaxed url of
 					then Just <$> brReadSome (responseBody resp) n
 					else return Nothing
 
-{- Allows for spaces and other stuff in urls, properly escaping them. -}
-parseURIRelaxed :: URLString -> Maybe URI
-parseURIRelaxed s = maybe (parseURIRelaxed' s) Just $
-	parseURI $ escapeURIString isAllowedInURI s
-
-{- Some characters like '[' are allowed in eg, the address of
- - an uri, but cannot appear unescaped further along in the uri.
- - This handles that, expensively, by successively escaping each character
- - from the back of the url until the url parses.
+{- Generate a http-conduit Request for an URI. This is able
+ - to deal with some urls that parseRequest would usually reject. 
  -}
-parseURIRelaxed' :: URLString -> Maybe URI
-parseURIRelaxed' s = go [] (reverse s)
-  where
-	go back [] = parseURI back
-	go back (c:cs) = case parseURI (escapeURIString isAllowedInURI (reverse (c:cs)) ++ back) of
-		Just u -> Just u
-		Nothing -> go (escapeURIChar escapemore c ++ back) cs
-
-	escapemore '[' = False
-	escapemore ']' = False
-	escapemore c = isAllowedInURI c
-
-hAcceptEncoding :: CI.CI B.ByteString
-hAcceptEncoding = "Accept-Encoding"
-
-hContentDisposition :: CI.CI B.ByteString
-hContentDisposition = "Content-Disposition"
-
-hContentRange :: CI.CI B.ByteString
-hContentRange = "Content-Range"
+parseRequestRelaxed :: MonadThrow m => URI -> m Request
+parseRequestRelaxed u = case uriAuthority u of
+	Just ua
+		-- parseURI can handle an empty port value, but
+		-- parseRequest cannot. So remove the ':' to
+		-- make it work.
+		| uriPort ua == ":" -> parseRequest $ show $
+			u { uriAuthority = Just $ ua { uriPort = "" } }
+	_ -> parseRequest (show u)
 
 resumeFromHeader :: FileSize -> Header
 resumeFromHeader sz = (hRange, renderByteRanges [ByteRangeFrom sz])
@@ -686,6 +718,9 @@ curlRestrictedParams r u defport ps = case uriAuthority u of
 	Nothing -> giveup "malformed url"
 	Just uath -> case uriPort uath of
 		"" -> go (uriRegName uath) defport
+		-- ignore an empty port, same as
+		-- parseRequestRelaxed does.
+		":" -> go (uriRegName uath) defport
 		-- strict parser because the port we provide to curl
 		-- needs to match the port in the url
 		(':':s) -> case readMaybe s :: Maybe Int of
@@ -705,8 +740,8 @@ curlRestrictedParams r u defport ps = case uriAuthority u of
 		case partitionEithers (map checkrestriction addrs) of
 			((e:_es), []) -> throwIO e
 			(_, as)
-				| null as -> throwIO $ 
-					NC.HostNotResolved hostname
+				| null as -> giveup $ 
+					"cannot resolve host " ++ hostname
 				| otherwise -> return $
 					(limitresolve p) as ++ ps
 	checkrestriction addr = maybe (Right addr) Left $
@@ -731,10 +766,10 @@ data BasicAuth = BasicAuth
 --
 -- The returned IO action is run after trying to use the BasicAuth,
 -- indicating if the password worked.
-type GetBasicAuth = URLString -> IO (Maybe (BasicAuth, Bool -> IO ()))
+type GetBasicAuth = URLString -> ResponseHeaders -> IO (Maybe (BasicAuth, Bool -> IO ()))
 
 noBasicAuth :: GetBasicAuth
-noBasicAuth = const $ pure Nothing
+noBasicAuth = const $ const $ pure Nothing
 
 applyBasicAuth' :: BasicAuth -> Request -> Request
 applyBasicAuth' ba = applyBasicAuth
@@ -748,3 +783,35 @@ extractFromResourceT :: (MonadIO m, NFData a) => a -> ResourceT m a
 extractFromResourceT v = do
 	liftIO $ evaluate (rnf v)
 	return v
+
+{- Extends an url by adding a path to the end.
+ -
+ - If the url does not end with '/' already, that will be added before
+ - the path.
+ -
+ - Characters in the path that are not allowed in an url are url-escaped,
+ - so if the input url string is a valid url, the result will also be a
+ - valid url.
+ -}
+extendUrlWithPath :: URLString -> FilePath -> URLString
+extendUrlWithPath u p = u UrlPath.</> escapeURIString skipescape p
+  where
+	-- Don't escape any '/' in the path. But do escape other
+	-- characters that are not allowed unescaped in an url,
+	-- which could result in the url not parsing, or parsing
+	-- to not point to the desired path but somewhere else.
+	-- (In particular '%' and '[' and ']'.)
+	skipescape '/' = True
+	skipescape c = isUnescapedInURIComponent c
+
+showHttpException :: HttpException -> String
+showHttpException (HttpExceptionRequest _ (StatusCodeException r _)) =
+	B8.toString $ statusMessage $ responseStatus r
+showHttpException (HttpExceptionRequest _ (InternalException ie)) =
+	case fromException ie of
+		Nothing -> show ie
+		Just (ConnectionRestricted why) -> why
+showHttpException (HttpExceptionRequest _ (ConnectionFailure e)) = 
+	"connection failure: " ++ show e
+showHttpException (HttpExceptionRequest _ other) = show other
+showHttpException he = show he

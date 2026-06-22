@@ -52,7 +52,7 @@ getShutdownConfirmedR = do
 
 {- Use a custom page to avoid putting long polling elements on it that will 
  - fail and cause thet web browser to show an error once the webapp is
- - truely stopped. -}
+ - truly stopped. -}
 getNotRunningR :: Handler Html
 getNotRunningR = customPage' False Nothing $
 	$(widgetFile "control/notrunning")
@@ -73,6 +73,6 @@ getRestartThreadR name = do
 getLogR :: Handler Html
 getLogR = page "Logs" Nothing $ do
 	logfile <- liftAnnex $ fromRepo gitAnnexDaemonLogFile
-	logs <- liftIO $ listLogs (fromRawFilePath logfile)
-	logcontent <- liftIO $ concat <$> mapM readFile logs
+	logs <- liftIO $ listLogs (fromOsPath logfile)
+	logcontent <- liftIO $ concat <$> mapM (readFileString . toOsPath) logs
 	$(widgetFile "control/log")

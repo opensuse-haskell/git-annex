@@ -1,0 +1,12 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 11"""
+ date="2025-09-05T19:46:25Z"
+ content="""
+I've now converted *all* functions listed above to ones that set the
+close-on-exec flag. (When building with the OsPath flag.)
+
+And checked all the libraries in comment #8.
+
+All that remains is the openTempFile race.
+"""]]

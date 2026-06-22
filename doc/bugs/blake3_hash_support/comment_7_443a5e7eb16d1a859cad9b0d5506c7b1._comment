@@ -1,0 +1,48 @@
+[[!comment format=mdwn
+ username="annexuser64623"
+ avatar="http://cdn.libravatar.org/avatar/f2247695660ba216740a81d573e6a3cd"
+ subject="comment 7"
+ date="2026-06-19T10:18:02Z"
+ content="""
+Thanks for your work on Blake3.
+I am looking forward to use Blake3-256 as well since it's much faster than sha2-256 on my machine.
+
+Regarding support via Botan:
+I could not find any recent activity concerning Blake3 Support.
+Links:
+[Botan Discussion on Blake3](https://github.com/randombit/botan/discussions/4755)
+and
+[Botan Issue on Blake3](https://github.com/randombit/botan/issues/3054)
+
+Unfortunately, I'm unfamiliar with Haskell and cannot help with the suggested/requested implementation changes.
+Thus, I created a patch for updating the docs:
+
+```
+diff --git a/doc/backends.mdwn b/doc/backends.mdwn
+index 2d1328590b..fbcc9c87d6 100644
+--- a/doc/backends.mdwn
++++ b/doc/backends.mdwn
+@@ -26,2 +26,4 @@ in `.gitattributes`:
+
++### SHA-2 and SHA-3
++
+ * `SHA256E` -- The default backend for new files, combines a 256 bit SHA-2
+@@ -41,2 +43,5 @@ in `.gitattributes`:
+   a well-regarded SHA3 hash competition finalist.
++
++### Blake2 and Blake3
++
+ * `BLAKE2B160`, `BLAKE2B224`, `BLAKE2B256`, `BLAKE2B384`, `BLAKE2B512`
+@@ -56,2 +61,9 @@ in `.gitattributes`:
+   8-way CPUs.
++* `BLAKE3_256`, `BLAKE3_256E`
++  -- Very fast [Blake3 hash](https://github.com/BLAKE3-team/BLAKE3).
++  Unlike the Blake2 family, Blake3 is a single variant optimised for many platforms.
++  It is still faster than Blake2 in most cases.
++
++### Other
++
+ * `VURL` -- This is like an `URL` (see below) but the content can
+```
+
+"""]]

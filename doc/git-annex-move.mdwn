@@ -8,7 +8,7 @@ git annex move `[path ...] [--from=remote|--to=remote|--to=here]`
 
 # DESCRIPTION
 
-Moves the content of files from or to another remote.
+Moves the content of files from or to another repository.
 
 With no parameters, operates on all annexed files in the current directory.
 Paths of files or directories to operate on can be specified.
@@ -28,6 +28,21 @@ Paths of files or directories to operate on can be specified.
   Move the content of files from all reachable remotes to the local
   repository.
 
+* `--from=remote1 --to=remote2`
+
+  Move the content of files that are in remote1 to remote2. Does not change
+  what is stored in the local repository.
+
+  This is implemented by first downloading the content from remote1 to the
+  local repository (if not already present), then sending it to remote2, and
+  then deleting the content from the local repository (if it was not present
+  to start with).
+
+* `--from-anywhere --to=remote`
+
+  Move to the remote files from the local repository and from all 
+  reachable remotes.
+
 * `--force`
 
   Override numcopies and required content checking, and always remove
@@ -44,6 +59,9 @@ Paths of files or directories to operate on can be specified.
   running at once. For example: `-J10`
 
   Setting this to "cpus" will run one job per CPU core.
+
+  Note that when using --from with --to, twice this many jobs will
+  run at once, evenly split between the two remotes.
 
 * `--all` `-A`
 
@@ -67,12 +85,6 @@ Paths of files or directories to operate on can be specified.
 * `--key=keyname`
 
   Use this option to move a specified key.
-
-* `--fast`
-
-  When moving content to a remote, avoid a round trip to check if the remote
-  already has content. This can be faster, but might skip moving content
-  to the remote in some cases.
 
 * matching options
 
@@ -113,7 +125,7 @@ Paths of files or directories to operate on can be specified.
 * `--json-error-messages`
 
   Messages that would normally be output to standard error are included in
-  the json instead.
+  the JSON instead.
 
 * Also the [[git-annex-common-options]](1) can be used.
 

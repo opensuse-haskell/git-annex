@@ -5,6 +5,8 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE OverloadedStrings #-}
+
 module Command.FromKey where
 
 import Command
@@ -18,6 +20,7 @@ import Annex.Link
 import Annex.FileMatcher
 import Annex.Ingest
 import Git.FilePath
+import Utility.Url.Parse
 
 import Network.URI
 
@@ -56,7 +59,7 @@ seekBatch matcher fmt = batchInput fmt parse (commandAction . go)
 		let (keyname, file) = separate (== ' ') s
 		if not (null keyname) && not (null file)
 			then do
-				file' <- liftIO $ relPathCwdToFile (toRawFilePath file)
+				file' <- liftIO $ relPathCwdToFile (toOsPath file)
 				return $ Right (file', keyOpt keyname)
 			else return $
 				Left "Expected pairs of key and filename"
@@ -72,11 +75,10 @@ start matcher force (si, (keyname, file)) = do
 		inbackend <- inAnnex key
 		unless inbackend $ giveup $
 			"key ("++ keyname ++") is not present in backend (use --force to override this sanity check)"
+	let file' = toOsPath file
 	let ai = mkActionItem (key, file')
 	starting "fromkey" ai si $
 		perform matcher key file'
-  where
-	file' = toRawFilePath file
 
 -- From user input to a Key.
 -- User can input either a serialized key, or an url.
@@ -89,16 +91,16 @@ keyOpt :: String -> Key
 keyOpt = either giveup id . keyOpt'
 
 keyOpt' :: String -> Either String Key
-keyOpt' s = case parseURI s of
+keyOpt' s = case parseURIPortable s of
 	Just u | not (isKeyPrefix (uriScheme u)) ->
-		Right $ Backend.URL.fromUrl s Nothing
+		Right $ Backend.URL.fromUrl s Nothing True
 	_ -> case deserializeKey s of
 		Just k -> Right k
 		Nothing -> Left $ "bad key/url " ++ s
 
-perform :: AddUnlockedMatcher -> Key -> RawFilePath -> CommandPerform
+perform :: AddUnlockedMatcher -> Key -> OsPath -> CommandPerform
 perform matcher key file = lookupKeyNotHidden file >>= \case
-	Nothing -> ifM (liftIO $ doesFileExist (fromRawFilePath file))
+	Nothing -> ifM (liftIO $ doesFileExist file)
 		( hasothercontent
 		, do
 			contentpresent <- inAnnex key
@@ -120,7 +122,7 @@ perform matcher key file = lookupKeyNotHidden file >>= \case
 						else writepointer
 				, do
 					link <- calcRepo $ gitAnnexLink file key
-					addAnnexLink link file
+					addAnnexLink (fromOsPath link) file
 				)
 			next $ return True
 		)
@@ -129,7 +131,7 @@ perform matcher key file = lookupKeyNotHidden file >>= \case
 		| otherwise -> hasothercontent
   where
 	hasothercontent = do
-		warning $ fromRawFilePath file ++ " already exists with different content"
+		warning $ QuotedPath file <> " already exists with different content"
 		next $ return False
 	
 	linkunlocked = linkFromAnnex key file Nothing >>= \case

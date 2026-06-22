@@ -14,10 +14,11 @@ import Types.KeySource
 import Backend.Utilities
 import Git.FilePath
 import Utility.Metered
+import qualified Utility.RawFilePath as R
 
 import qualified Data.ByteString.Char8 as S8
-import qualified Utility.RawFilePath as R
 import qualified Data.ByteString.Short as S (toShort, fromShort)
+import System.PosixCompat.Files (modificationTime)
 
 backends :: [Backend]
 backends = [backend]
@@ -31,7 +32,8 @@ backend = Backend
 	, canUpgradeKey = Just needsUpgrade
 	, fastMigrate = Just removeProblemChars
 	, isStableKey = const True
-	, isCryptographicallySecure = const False
+	, isCryptographicallySecure = False
+	, isCryptographicallySecureKey = const (pure False)
 	}
 
 {- The key includes the file size, modification time, and the
@@ -40,9 +42,9 @@ backend = Backend
 keyValue :: KeySource -> MeterUpdate -> Annex Key
 keyValue source _ = do
 	let f = contentLocation source
-	stat <- liftIO $ R.getFileStatus f
+	stat <- liftIO $ R.getFileStatus (fromOsPath f)
 	sz <- liftIO $ getFileSize' f stat
-	relf <- fromRawFilePath . getTopFilePath
+	relf <- fromOsPath . getTopFilePath
 		<$> inRepo (toTopFilePath $ keyFilename source)
 	return $ mkKey $ \k -> k
 		{ keyName = genKeyName relf
@@ -57,8 +59,8 @@ needsUpgrade :: Key -> Bool
 needsUpgrade key =
 	any (`S8.elem` S.fromShort (fromKey keyName key)) [' ', '\r']
 
-removeProblemChars :: Key -> Backend -> AssociatedFile -> Annex (Maybe Key)
-removeProblemChars oldkey newbackend _
+removeProblemChars :: Key -> Backend -> AssociatedFile -> Bool -> Annex (Maybe Key)
+removeProblemChars oldkey newbackend _ _
 	| migratable = return $ Just $ alterKey oldkey $ \d -> d
 		{ keyName = S.toShort $ encodeBS $ reSanitizeKeyName $ decodeBS $ S.fromShort $ keyName d }
 	| otherwise = return Nothing

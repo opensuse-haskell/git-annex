@@ -11,7 +11,6 @@
 module Remote.Helper.Hooks (addHooks) where
 
 import qualified Data.Map as M
-import qualified System.FilePath.ByteString as P
 
 import Annex.Common
 import Types.Remote
@@ -34,14 +33,15 @@ addHooks' r Nothing Nothing = r
 addHooks' r starthook stophook = r'
   where
 	r' = r
-		{ storeKey = \k f p -> 
-			wrapper $ storeKey r k f p
+		{ storeKey = \k af o p -> 
+			wrapper $ storeKey r k af o p
 		, retrieveKeyFile = \k f d p vc -> 
 			wrapper $ retrieveKeyFile r k f d p vc
 		, retrieveKeyFileCheap = case retrieveKeyFileCheap r of
 			Just a -> Just $ \k af f -> wrapper $ a k af f
 			Nothing -> Nothing
-		, removeKey = wrapper . removeKey r
+		, removeKey = \proof k ->
+			wrapper $ removeKey r proof k
 		, checkPresent = wrapper . checkPresent r
 		}
 	  where
@@ -49,14 +49,13 @@ addHooks' r starthook stophook = r'
 
 runHooks :: Remote -> Maybe String -> Maybe String -> Annex a -> Annex a
 runHooks r starthook stophook a = do
-	dir <- fromRepo gitAnnexRemotesDir
-	let lck = dir P.</> remoteid <> ".lck"
+	lck <- fromRepo $ gitAnnexRemoteLockFile (uuid r)
+	let dir = takeDirectory lck
 	whenM (notElem lck . M.keys <$> getLockCache) $ do
 		createAnnexDirectory dir
 		firstrun lck
 	a
   where
-	remoteid = fromUUID (uuid r)
 	run Nothing = noop
 	run (Just command) = void $ liftIO $
 		boolSystem "sh" [Param "-c", Param command]
@@ -87,7 +86,7 @@ runHooks r starthook stophook a = do
 		unlockFile lck
 #ifndef mingw32_HOST_OS
 		mode <- annexFileMode
-		v <- noUmask mode $ tryLockExclusive (Just mode) lck
+		v <- tryLockExclusive (Just mode) lck
 #else
 		v <- liftIO $ lockExclusive lck
 #endif

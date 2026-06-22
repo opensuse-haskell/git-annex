@@ -9,12 +9,12 @@ module Types.Transferrer where
 
 import Annex.Common
 import Types.Messages
-import Git.Types (RemoteName)
 import qualified Utility.SimpleProtocol as Proto
 import Utility.Format
 import Utility.Metered (TotalSize(..))
 
 import Data.Char
+import qualified Data.ByteString.Lazy as L
 
 -- Sent to start a transfer.
 data TransferRequest
@@ -82,9 +82,9 @@ instance Proto.Receivable TransferRequest where
 
 instance Proto.Sendable TransferResponse where
 	formatMessage (TransferOutput (OutputMessage m)) =
-		["om", Proto.serialize (encode_c (decodeBS m))]
+		["om", Proto.serialize (decodeBS (encode_c isUtf8Byte m))]
 	formatMessage (TransferOutput (OutputError e)) =
-		["oe", Proto.serialize (encode_c e)]
+		["oe", Proto.serialize (decodeBS (encode_c isUtf8Byte (encodeBS e)))]
 	formatMessage (TransferOutput BeginProgressMeter) =
 		["opb"]
 	formatMessage (TransferOutput (UpdateProgressMeterTotalSize (TotalSize sz))) =
@@ -98,7 +98,7 @@ instance Proto.Sendable TransferResponse where
 	formatMessage (TransferOutput EndPrompt) =
 		["opre"]
 	formatMessage (TransferOutput (JSONObject b)) =
-		["oj", Proto.serialize (encode_c (decodeBL b))]
+		["oj", Proto.serialize (decodeBS (encode_c isUtf8Byte (L.toStrict b)))]
 	formatMessage (TransferResult True) =
 		["t"]
 	formatMessage (TransferResult False) =
@@ -106,9 +106,9 @@ instance Proto.Sendable TransferResponse where
 
 instance Proto.Receivable TransferResponse where
 	parseCommand "om" = Proto.parse1 $
-		TransferOutput . OutputMessage . encodeBS . decode_c
+		TransferOutput . OutputMessage . decode_c . encodeBS
 	parseCommand "oe" = Proto.parse1 $
-		TransferOutput . OutputError . decode_c
+		TransferOutput . OutputError . decodeBS . decode_c . encodeBS
 	parseCommand "opb" = Proto.parse0 $
 		TransferOutput BeginProgressMeter
 	parseCommand "ops" = Proto.parse1 $
@@ -122,7 +122,7 @@ instance Proto.Receivable TransferResponse where
 	parseCommand "opre" = Proto.parse0 $
 		TransferOutput EndPrompt
 	parseCommand "oj" = Proto.parse1 $
-		TransferOutput . JSONObject . encodeBL . decode_c
+		TransferOutput . JSONObject . L.fromStrict . decode_c . encodeBS
 	parseCommand "t" = Proto.parse0 $
 		TransferResult True
 	parseCommand "f" = Proto.parse0 $
@@ -140,20 +140,22 @@ instance Proto.Serializable TransferRemote where
 	serialize (TransferRemoteUUID u) = 'u':fromUUID u
 	-- A remote name could contain whitespace or newlines, which needs
 	-- to be escaped for the protocol. Use C-style encoding.
-	serialize (TransferRemoteName r) = 'r':encode_c' isSpace r
+	serialize (TransferRemoteName r) = 'r':decodeBS (encode_c is_space_or_unicode (encodeBS r))
+	  where
+		is_space_or_unicode c = isUtf8Byte c || isSpace (chr (fromIntegral c))
 
 	deserialize ('u':u) = Just (TransferRemoteUUID (toUUID u))
-	deserialize ('r':r) = Just (TransferRemoteName (decode_c r))
+	deserialize ('r':r) = Just (TransferRemoteName (decodeBS (decode_c (encodeBS r))))
 	deserialize _ = Nothing
 
 instance Proto.Serializable TransferAssociatedFile where
 	-- Comes last, so whitespace is ok. But, in case the filename
 	-- contains eg a newline, escape it. Use C-style encoding.
 	serialize (TransferAssociatedFile (AssociatedFile (Just f))) =
-		encode_c (fromRawFilePath f)
+		fromRawFilePath (encode_c isUtf8Byte (fromOsPath f))
 	serialize (TransferAssociatedFile (AssociatedFile Nothing)) = ""
 
 	deserialize "" = Just $ TransferAssociatedFile $
 		AssociatedFile Nothing
 	deserialize s = Just $ TransferAssociatedFile $
-		AssociatedFile $ Just $ toRawFilePath $ decode_c s
+		AssociatedFile $ Just $ toOsPath $ decode_c $ toRawFilePath s

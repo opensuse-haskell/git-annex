@@ -27,13 +27,11 @@ import Git.Env
 import Git.UpdateIndex
 import qualified Git.LsTree as LsTree
 import qualified Git.Branch as Git
-import Utility.RawFilePath
 
 import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Data.ByteString.Lazy as L
 import Data.ByteString.Builder
-import qualified System.FilePath.ByteString as P
 
 cmd :: Command
 cmd = noMessages $ withAnnexOptions [annexedMatchingOptions] $ 
@@ -120,10 +118,10 @@ mkUUIDMatcher' sameasmap l = \u ->
 
 seek :: FilterBranchOptions -> CommandSeek
 seek o = withOtherTmp $ \tmpdir -> do
-	let tmpindex = tmpdir P.</> "index"
+	let tmpindex = tmpdir </> literalOsPath "index"
 	gc <- Annex.getGitConfig
 	tmpindexrepo <- Annex.inRepo $ \r ->
-		addGitEnv r indexEnv (fromRawFilePath tmpindex)
+		addGitEnv r indexEnv (fromOsPath tmpindex)
 	withUpdateIndex tmpindexrepo $ \h -> do
 		keyinfomatcher <- mkUUIDMatcher (keyInformation o)
 		repoconfigmatcher <- mkUUIDMatcher (repoConfig o)
@@ -157,7 +155,7 @@ seek o = withOtherTmp $ \tmpdir -> do
 					=<< Annex.Branch.get f
 			next (return True)
 		let seeker = AnnexedFileSeeker
-			{ startAction = \_ _ k -> addkeyinfo k
+			{ startAction = startSingle $ \_ _ _ k -> addkeyinfo k
 			, checkContentPresent = Nothing
 			, usesLocationLog = True
 			}
@@ -186,10 +184,10 @@ seek o = withOtherTmp $ \tmpdir -> do
 
 	-- Commit the temporary index, and output the result.
 	t <- liftIO $ Git.writeTree tmpindexrepo
-	liftIO $ removeWhenExistsWith removeLink tmpindex
+	liftIO $ removeWhenExistsWith removeFile tmpindex
 	cmode <- annexCommitMode <$> Annex.getGitConfig
 	cmessage <- Annex.Branch.commitMessage
-	c <- inRepo $ Git.commitTree cmode cmessage [] t
+	c <- inRepo $ Git.commitTree cmode [cmessage] [] t
 	liftIO $ putStrLn (fromRef c)
   where
-	ww = WarnUnmatchLsFiles
+	ww = WarnUnmatchLsFiles "filter-branch"

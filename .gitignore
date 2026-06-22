@@ -13,9 +13,10 @@ Build/BuildVersion
 Build/MakeMans
 git-annex
 git-annex-shell
+git-remote-annex
+git-remote-p2p-annex
+git-remote-tor-annex
 man
-git-union-merge
-git-union-merge.1
 doc/.ikiwiki
 html
 *.tix
@@ -25,12 +26,14 @@ dist-newstyle
 cabal.project.local
 cabal.project.local~*
 result
+git-annex-build-deps*
 # Sandboxed builds
 cabal-dev
 .cabal-sandbox
 cabal.sandbox.config
 .stack-work
 stack.yaml.lock
+stack-botan.yaml.lock
 # Project-local emacs configuration
 .dir-locals.el
 # OSX related

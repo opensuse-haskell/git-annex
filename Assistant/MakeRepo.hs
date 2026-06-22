@@ -19,6 +19,7 @@ import qualified Annex
 import Annex.UUID
 import Annex.AdjustedBranch
 import Annex.Action
+import Annex.Startup
 import Types.StandardGroups
 import Logs.PreferredContent
 import qualified Annex.Branch
@@ -27,37 +28,37 @@ import Config
 
 {- Makes a new git repository. Or, if a git repository already
  - exists, returns False. -}
-makeRepo :: FilePath -> Bool -> IO Bool
+makeRepo :: OsPath -> Bool -> IO Bool
 makeRepo path bare = ifM (probeRepoExists path)
 	( return False
 	, do
 		(transcript, ok) <-
 			processTranscript "git" (toCommand params) Nothing
 		unless ok $
-			error $ "git init failed!\nOutput:\n" ++ transcript
+			giveup $ "git init failed!\nOutput:\n" ++ transcript
 		return True
 	)
   where
 	baseparams = [Param "init", Param "--quiet"]
 	params
-		| bare = baseparams ++ [Param "--bare", File path]
-		| otherwise = baseparams ++ [File path]
+		| bare = baseparams ++ [Param "--bare", File (fromOsPath path)]
+		| otherwise = baseparams ++ [File (fromOsPath path)]
 
 {- Runs an action in the git repository in the specified directory. -}
-inDir :: FilePath -> Annex a -> IO a
+inDir :: OsPath -> Annex a -> IO a
 inDir dir a = do
 	state <- Annex.new
 		=<< Git.Config.read
-		=<< Git.Construct.fromPath (toRawFilePath dir)
+		=<< Git.Construct.fromPath dir
 	Annex.eval state $ a `finally` quiesce True
 
 {- Creates a new repository, and returns its UUID. -}
-initRepo :: Bool -> Bool -> FilePath -> Maybe String -> Maybe StandardGroup -> IO UUID
+initRepo :: Bool -> Bool -> OsPath -> Maybe String -> Maybe StandardGroup -> IO UUID
 initRepo True primary_assistant_repo dir desc mgroup = inDir dir $ do
 	initRepo' desc mgroup
 	{- Initialize the master branch, so things that expect
 	 - to have it will work, before any files are added. -}
-	unlessM (Git.Config.isBare <$> gitRepo) $ do
+	unlessM (fromMaybe False . Git.Config.isBare <$> gitRepo) $ do
 		cmode <- annexCommitMode <$> Annex.getGitConfig
 		void $ inRepo $ Git.Branch.commitCommand cmode
 			(Git.Branch.CommitQuiet True)
@@ -68,7 +69,7 @@ initRepo True primary_assistant_repo dir desc mgroup = inDir dir $ do
 	{- Repositories directly managed by the assistant use 
 	 - an adjusted unlocked branch with annex.thin set.
 	 - 
-	 - Automatic gc is disabled, as it can be slow. Insted, gc is done
+	 - Automatic gc is disabled, as it can be slow. Instead, gc is done
 	 - once a day.
 	 -}
 	when primary_assistant_repo $ do
@@ -85,7 +86,7 @@ initRepo False _ dir desc mgroup = inDir dir $ do
 
 initRepo' :: Maybe String -> Maybe StandardGroup -> Annex ()
 initRepo' desc mgroup = unlessM isInitialized $ do
-	initialize desc Nothing
+	initialize startupAnnex desc Nothing
 	u <- getUUID
 	maybe noop (defaultStandardGroup u) mgroup
 	{- Ensure branch gets committed right away so it is
@@ -93,6 +94,6 @@ initRepo' desc mgroup = unlessM isInitialized $ do
 	Annex.Branch.commit =<< Annex.Branch.commitMessage
 
 {- Checks if a git repo exists at a location. -}
-probeRepoExists :: FilePath -> IO Bool
+probeRepoExists :: OsPath -> IO Bool
 probeRepoExists dir = isJust <$>
 	catchDefaultIO Nothing (Git.Construct.checkForRepo dir)

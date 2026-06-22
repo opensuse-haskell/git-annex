@@ -5,6 +5,7 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE CPP #-}
 
 module Assistant.Upgrade where
@@ -19,7 +20,6 @@ import Utility.Env.Set
 import Types.Distribution
 import Types.Transfer
 import Logs.Web
-import Logs.Presence
 import Logs.Location
 import Annex.Content
 import Annex.UUID
@@ -28,6 +28,7 @@ import qualified Types.Backend
 import Assistant.TransferQueue
 import Assistant.TransferSlots
 import Remote (remoteFromUUID)
+import Remote.List
 import Annex.Path
 import Config.Files
 import Utility.ThreadScheduler
@@ -42,6 +43,8 @@ import qualified Utility.Url as Url
 import qualified Annex.Url as Url hiding (download)
 import Utility.Tuple
 import qualified Utility.RawFilePath as R
+import qualified Utility.FileIO as F
+import qualified Utility.OsString as OS
 
 import Data.Either
 import qualified Data.Map as M
@@ -77,7 +80,7 @@ upgradedEnv = "GIT_ANNEX_UPGRADED"
  -
  - Creates the destination directory where the upgrade will be installed
  - early, in order to check if another upgrade has happened (or is
- - happending). On failure, the directory is removed.
+ - happening). On failure, the directory is removed.
  -}
 startDistributionDownload :: GitAnnexDistribution -> Assistant ()
 startDistributionDownload d = go =<< liftIO . newVersionLocation d =<< liftIO oldVersionLocation
@@ -88,28 +91,28 @@ startDistributionDownload d = go =<< liftIO . newVersionLocation d =<< liftIO ol
 		hook <- asIO1 $ distributionDownloadComplete d dest cleanup
 		modifyDaemonStatus_ $ \s -> s
 			{ transferHook = M.insert k hook (transferHook s) }
-		maybe noop (queueTransfer "upgrade" Next (AssociatedFile (Just (toRawFilePath f))) t)
+		maybe noop (queueTransfer "upgrade" Next (AssociatedFile (Just f)) t)
 			=<< liftAnnex (remoteFromUUID webUUID)
 		startTransfer t
 	k = mkKey $ const $ distributionKey d
 	u = distributionUrl d
-	f = takeFileName u ++ " (for upgrade)"
+	f = takeFileName (toOsPath u) <> literalOsPath " (for upgrade)"
 	t = Transfer
 		{ transferDirection = Download
 		, transferUUID = webUUID
 		, transferKeyData = fromKey id k
 		}
 	cleanup = liftAnnex $ do
-		lockContentForRemoval k noop removeAnnex
+		lockContentForRemoval k noop (removeAnnex remoteList)
 		setUrlMissing k u
-		logStatus k InfoMissing
+		logStatus NoLiveUpdate k InfoMissing
 
 {- Called once the download is done.
  - Passed an action that can be used to clean up the downloaded file.
  -
  - Verifies the content of the downloaded key.
  -}
-distributionDownloadComplete :: GitAnnexDistribution -> FilePath -> Assistant () -> Transfer -> Assistant ()
+distributionDownloadComplete :: GitAnnexDistribution -> OsPath -> Assistant () -> Transfer -> Assistant ()
 distributionDownloadComplete d dest cleanup t 
 	| transferDirection t == Download = do
 		debug ["finished downloading git-annex distribution"]
@@ -119,11 +122,11 @@ distributionDownloadComplete d dest cleanup t
   where
 	k = mkKey $ const $ distributionKey d
 	fsckit f = Backend.maybeLookupBackendVariety (fromKey keyVariety k) >>= \case
-		Nothing -> return $ Just (fromRawFilePath f)
+		Nothing -> return $ Just f
 		Just b -> case Types.Backend.verifyKeyContent b of
-			Nothing -> return $ Just (fromRawFilePath f)
+			Nothing -> return $ Just f
 			Just verifier -> ifM (verifier k f)
-				( return $ Just (fromRawFilePath f)
+				( return $ Just f
 				, return Nothing
 				)
 	go f = do
@@ -141,7 +144,7 @@ distributionDownloadComplete d dest cleanup t
  - and unpack the new distribution next to it (in a versioned directory).
  - Then update the programFile to point to the new version.
  -}
-upgradeToDistribution :: FilePath -> Assistant () -> FilePath -> Assistant ()
+upgradeToDistribution :: OsPath -> Assistant () -> OsPath -> Assistant ()
 upgradeToDistribution newdir cleanup distributionfile = do
 	liftIO $ createDirectoryIfMissing True newdir
 	(program, deleteold) <- unpack
@@ -155,92 +158,92 @@ upgradeToDistribution newdir cleanup distributionfile = do
 	postUpgrade url
   where
 	changeprogram program = liftIO $ do
-		unlessM (boolSystem program [Param "version"]) $
+		unlessM (boolSystem (fromOsPath program) [Param "version"]) $
 			giveup "New git-annex program failed to run! Not using."
 		pf <- programFile
-		liftIO $ writeFile pf program
+		liftIO $ writeFileString pf (fromOsPath program)
 	
 #ifdef darwin_HOST_OS
 	{- OS X uses a dmg, so mount it, and copy the contents into place. -}
 	unpack = liftIO $ do
 		olddir <- oldVersionLocation
-		withTmpDirIn (fromRawFilePath (parentDir (toRawFilePath newdir))) "git-annex.upgrade" $ \tmpdir -> do
+		withTmpDirIn (parentDir newdir) (literalOsPath "git-annex.upgrade") $ \tmpdir -> do
 			void $ boolSystem "hdiutil"
-				[ Param "attach", File distributionfile
-				, Param "-mountpoint", File tmpdir
+				[ Param "attach", File (fromOsPath distributionfile)
+				, Param "-mountpoint", File (fromOsPath tmpdir)
 				]
 			void $ boolSystem "cp"
 				[ Param "-R"
-				, File $ tmpdir </> installBase </> "Contents"
-				, File $ newdir
+				, File $ fromOsPath $ tmpdir </> toOsPath installBase </> literalOsPath "Contents"
+				, File (fromOsPath newdir)
 				]
 			void $ boolSystem "hdiutil"
 				[ Param "eject"
-				, File tmpdir
+				, File (fromOsPath tmpdir)
 				]
 			sanitycheck newdir
 		let deleteold = do
-			deleteFromManifest $ olddir </> "Contents" </> "MacOS"
+			deleteFromManifest $ olddir </> literalOsPath "Contents" </> literalOsPath "MacOS"
 			makeorigsymlink olddir
-		return (newdir </> "Contents" </> "MacOS" </> "git-annex", deleteold)
+		return (newdir </> literalOsPath "Contents" </> literalOsPath "MacOS" </> literalOsPath "git-annex", deleteold)
 #else
 	{- Linux uses a tarball (so could other POSIX systems), so
 	 - untar it (into a temp directory) and move the directory
 	 - into place. -}
 	unpack = liftIO $ do
 		olddir <- oldVersionLocation
-		withTmpDirIn (fromRawFilePath $ parentDir $ toRawFilePath newdir) "git-annex.upgrade" $ \tmpdir -> do
-			let tarball = tmpdir </> "tar"
+		withTmpDirIn (parentDir newdir) (literalOsPath "git-annex.upgrade") $ \tmpdir -> do
+			let tarball = tmpdir </> literalOsPath "tar"
 			-- Cannot rely on filename extension, and this also
 			-- avoids problems if tar doesn't support transparent
 			-- decompression.
 			void $ boolSystem "sh"
 				[ Param "-c"
-				, Param $ "zcat < " ++ shellEscape distributionfile ++
-					" > " ++ shellEscape tarball
+				, Param $ "zcat < " ++ shellEscape (fromOsPath distributionfile) ++
+					" > " ++ shellEscape (fromOsPath tarball)
 				]
 			tarok <- boolSystem "tar"
 				[ Param "xf"
-				, Param tarball
-				, Param "--directory", File tmpdir
+				, Param (fromOsPath tarball)
+				, Param "--directory", File (fromOsPath tmpdir)
 				]
 			unless tarok $
-				error $ "failed to untar " ++ distributionfile
-			sanitycheck $ tmpdir </> installBase
-			installby R.rename newdir (tmpdir </> installBase)
+				giveup $ "failed to untar " ++ fromOsPath distributionfile
+			sanitycheck $ tmpdir </> toOsPath installBase
+			installby R.rename newdir (tmpdir </> toOsPath installBase)
 		let deleteold = do
 			deleteFromManifest olddir
 			makeorigsymlink olddir
-		return (newdir </> "git-annex", deleteold)
+		return (newdir </> literalOsPath "git-annex", deleteold)
 	installby a dstdir srcdir =
-		mapM_ (\x -> a (toRawFilePath x) (toRawFilePath (dstdir </> takeFileName x)))
+		mapM_ (\x -> a (fromOsPath x) (fromOsPath (dstdir </> takeFileName x)))
 			=<< dirContents srcdir
 #endif
 	sanitycheck dir = 
 		unlessM (doesDirectoryExist dir) $
-			error $ "did not find " ++ dir ++ " in " ++ distributionfile
+			giveup $ "did not find " ++ fromOsPath dir ++ " in " ++ fromOsPath distributionfile
 	makeorigsymlink olddir = do
-		let origdir = fromRawFilePath (parentDir (toRawFilePath olddir)) </> installBase
-		removeWhenExistsWith R.removeLink (toRawFilePath origdir)
-		createSymbolicLink newdir origdir
+		let origdir = parentDir olddir </> toOsPath installBase
+		removeWhenExistsWith removeFile origdir
+		R.createSymbolicLink (fromOsPath newdir) (fromOsPath origdir)
 
 {- Finds where the old version was installed. -}
-oldVersionLocation :: IO FilePath
+oldVersionLocation :: IO OsPath
 oldVersionLocation = readProgramFile >>= \case
-	Nothing -> error "Cannot find old distribution bundle; not upgrading."
+	Nothing -> giveup "Cannot find old distribution bundle; not upgrading."
 	Just pf -> do
-		let pdir = fromRawFilePath $ parentDir $ toRawFilePath pf
+		let pdir = parentDir pf
 #ifdef darwin_HOST_OS
 		let dirs = splitDirectories pdir
 		{- It will probably be deep inside a git-annex.app directory. -}
-		let olddir = case findIndex ("git-annex.app" `isPrefixOf`) dirs of
+		let olddir = case findIndex (literalOsPath "git-annex.app" `OS.isPrefixOf`) dirs of
 			Nothing -> pdir
 			Just i -> joinPath (take (i + 1) dirs)
 #else
 		let olddir = pdir
 #endif
-		when (null olddir) $
-			error $ "Cannot find old distribution bundle; not upgrading. (Looked in " ++ pdir ++ ")"
+		when (OS.null olddir) $
+			giveup $ "Cannot find old distribution bundle; not upgrading. (Looked in " ++ fromOsPath pdir ++ ")"
 		return olddir
 
 {- Finds a place to install the new version.
@@ -250,15 +253,15 @@ oldVersionLocation = readProgramFile >>= \case
  -
  - The directory is created. If it already exists, returns Nothing.
  -}
-newVersionLocation :: GitAnnexDistribution -> FilePath -> IO (Maybe FilePath)
+newVersionLocation :: GitAnnexDistribution -> OsPath -> IO (Maybe OsPath)
 newVersionLocation d olddir = 
 	trymkdir newloc $ do
 		home <- myHomeDir
-		trymkdir (home </> s) $
+		trymkdir (toOsPath home </> s) $
 			return Nothing
   where
-	s = installBase ++ "." ++ distributionVersion d
-	topdir = fromRawFilePath $ parentDir $ toRawFilePath olddir
+	s = toOsPath $ installBase ++ "." ++ distributionVersion d
+	topdir = parentDir olddir
 	newloc = topdir </> s
 	trymkdir dir fallback =
 		(createDirectory dir >> return (Just dir))
@@ -276,16 +279,17 @@ installBase = "git-annex." ++
 #endif
 #endif
 
-deleteFromManifest :: FilePath -> IO ()
+deleteFromManifest :: OsPath -> IO ()
 deleteFromManifest dir = do
-	fs <- map (dir </>) . lines <$> catchDefaultIO "" (readFile manifest)
-	mapM_ (removeWhenExistsWith R.removeLink . toRawFilePath) fs
-	removeWhenExistsWith R.removeLink (toRawFilePath manifest)
+	fs <- map (\f -> dir </> toOsPath f) . lines 
+		<$> catchDefaultIO "" (readFileString manifest)
+	mapM_ (removeWhenExistsWith removeFile) fs
+	removeWhenExistsWith removeFile manifest
 	removeEmptyRecursive dir
   where
-	manifest = dir </> "git-annex.MANIFEST"
+	manifest = dir </> literalOsPath "git-annex.MANIFEST"
 
-removeEmptyRecursive :: FilePath -> IO ()
+removeEmptyRecursive :: OsPath -> IO ()
 removeEmptyRecursive dir = do
 	mapM_ removeEmptyRecursive =<< dirContents dir
 	void $ tryIO $ removeDirectory dir
@@ -293,7 +297,7 @@ removeEmptyRecursive dir = do
 {- This is a file that the UpgradeWatcher can watch for modifications to
  - detect when git-annex has been upgraded.
  -}
-upgradeFlagFile :: IO FilePath
+upgradeFlagFile :: IO OsPath
 upgradeFlagFile = programPath
 
 {- Sanity check to see if an upgrade is complete and the program is ready
@@ -308,28 +312,29 @@ upgradeSanityCheck = ifM usingDistribution
 		program <- programPath
 		untilM (doesFileExist program <&&> nowriter program) $
 			threadDelaySeconds (Seconds 60)
-		boolSystem program [Param "version"]
+		boolSystem (fromOsPath program) [Param "version"]
 	)
   where
 	nowriter f = null
 		. filter (`elem` [Lsof.OpenReadWrite, Lsof.OpenWriteOnly])
 		. map snd3
-		<$> Lsof.query [f]
+		<$> Lsof.query [fromOsPath f]
 
 usingDistribution :: IO Bool
 usingDistribution = isJust <$> getEnv "GIT_ANNEX_STANDLONE_ENV"
 
 downloadDistributionInfo :: Assistant (Maybe GitAnnexDistribution)
 downloadDistributionInfo = do
-	uo <- liftAnnex Url.getUrlOptions
+	uo <- liftAnnex $ Url.getUrlOptions Nothing
 	gpgcmd <- liftAnnex $ gpgCmd <$> Annex.getGitConfig
-	liftIO $ withTmpDir "git-annex.tmp" $ \tmpdir -> do
-		let infof = tmpdir </> "info"
-		let sigf = infof ++ ".sig"
+	liftIO $ withTmpDir (literalOsPath "git-annex.tmp") $ \tmpdir -> do
+		let infof = tmpdir </> literalOsPath "info"
+		let sigf = infof <> literalOsPath ".sig"
 		ifM (isRight <$> Url.download nullMeterUpdate Nothing distributionInfoUrl infof uo
 			<&&> (isRight <$> Url.download nullMeterUpdate Nothing distributionInfoSigUrl sigf uo)
 			<&&> verifyDistributionSig gpgcmd sigf)
-			( parseInfoFile <$> readFileStrict infof
+			( parseInfoFile . map decodeBS . fileLines' 
+				<$> F.readFile' infof
 			, return Nothing
 			)
 
@@ -358,20 +363,20 @@ upgradeSupported = False
  - The gpg keyring used to verify the signature is located in
  - trustedkeys.gpg, next to the git-annex program.
  -}
-verifyDistributionSig :: GpgCmd -> FilePath -> IO Bool
+verifyDistributionSig :: GpgCmd -> OsPath -> IO Bool
 verifyDistributionSig gpgcmd sig = readProgramFile >>= \case
 	Just p | isAbsolute p ->
-		withUmask 0o0077 $ withTmpDir "git-annex-gpg.tmp" $ \gpgtmp -> do
-			let trustedkeys = takeDirectory p </> "trustedkeys.gpg"
+		withUmask 0o0077 $ withTmpDir (literalOsPath "git-annex-gpg.tmp") $ \gpgtmp -> do
+			let trustedkeys = takeDirectory p </> literalOsPath "trustedkeys.gpg"
 			boolGpgCmd gpgcmd
 				[ Param "--no-default-keyring"
 				, Param "--no-auto-check-trustdb"
 				, Param "--no-options"
 				, Param "--homedir"
-				, File gpgtmp
+				, File (fromOsPath gpgtmp)
 				, Param "--keyring"
-				, File trustedkeys
+				, File (fromOsPath trustedkeys)
 				, Param "--verify"
-				, File sig
+				, File (fromOsPath sig)
 				]
 	_ -> return False

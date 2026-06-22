@@ -1,6 +1,6 @@
 {- git-annex-shell main program
  -
- - Copyright 2010-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -18,6 +18,8 @@ import CmdLine.GitAnnexShell.Checks
 import CmdLine.GitAnnexShell.Fields
 import Remote.GCrypt (getGCryptUUID)
 import P2P.Protocol (ServerMode(..))
+import Git.Types
+import Annex.Proxy
 
 import qualified Command.ConfigList
 import qualified Command.NotifyChanges
@@ -38,20 +40,22 @@ cmdsMap = M.fromList $ map mk
 	]
   where
 	readonlycmds = map addAnnexOptions
-		[ Command.ConfigList.cmd
+		[ notProxyable Command.ConfigList.cmd
 		, gitAnnexShellCheck Command.NotifyChanges.cmd
-		-- p2pstdio checks the enviroment variables to
-		-- determine the security policy to use
+		-- p2pstdio checks the environment variables to
+		-- determine the security policy to use, so is safe to
+		-- include in the readonly list even though it is not
+		-- always readonly
 		, gitAnnexShellCheck Command.P2PStdIO.cmd
-		, gitAnnexShellCheck Command.InAnnex.cmd
-		, gitAnnexShellCheck Command.SendKey.cmd
+		, notProxyable (gitAnnexShellCheck Command.InAnnex.cmd)
+		, notProxyable (gitAnnexShellCheck Command.SendKey.cmd)
 		]
 	appendcmds = readonlycmds ++ map addAnnexOptions
-		[ gitAnnexShellCheck Command.RecvKey.cmd
+		[ notProxyable (gitAnnexShellCheck Command.RecvKey.cmd)
 		]
 	allcmds = appendcmds ++ map addAnnexOptions
-		[ gitAnnexShellCheck Command.DropKey.cmd
-		, Command.GCryptSetup.cmd
+		[ notProxyable (gitAnnexShellCheck Command.DropKey.cmd)
+		, notProxyable Command.GCryptSetup.cmd
 		]
 
 	mk (s, l) = (s, map (adddirparam . noMessages) l)
@@ -76,17 +80,23 @@ commonShellOptions =
   where
 	checkUUID expected = getUUID >>= check
 	  where
-		check u | u == toUUID expected = noop
 		check NoUUID = checkGCryptUUID expected
-		check u = unexpectedUUID expected u
+		check u 
+			| u == toUUID expected = noop
+			| otherwise = 
+				unlessM (checkCanProxy (toUUID expected) u) $
+					unexpectedUUID expected u
+	
 	checkGCryptUUID expected = check =<< getGCryptUUID True =<< gitRepo
 	  where
 		check (Just u) | u == toUUID expected = noop
 		check Nothing = unexpected expected "uninitialized repository"
 		check (Just u) = unexpectedUUID expected u
+	
 	unexpectedUUID expected u = unexpected expected $ "UUID " ++ fromUUID u
 	unexpected expected s = giveup $
 		"expected repository UUID " ++ expected ++ " but found " ++ s
+				
 
 run :: [String] -> IO ()
 run [] = failure
@@ -102,6 +112,11 @@ run c@(cmd:_)
 	| "git-annex-shell " `isPrefixOf` cmd = run $ drop 1 $ shellUnEscape cmd
 	| cmd `elem` builtins = failure
 	| otherwise = external c
+
+failure :: IO ()
+failure = giveup $ "bad parameters\n\n" ++ usage h cmdsList
+  where
+	h = "git-annex-shell [-c] command [parameters ...] [option ...]"
 
 builtins :: [String]
 builtins = map cmdname cmdsList
@@ -121,9 +136,10 @@ builtin cmd dir params = do
 		"Restricted login shell for git-annex only SSH access"
   where
 	mkrepo = do
-		r <- Git.Construct.repoAbsPath (toRawFilePath dir)
+		r <- Git.Construct.repoAbsPath (toOsPath dir)
 			>>= Git.Construct.fromAbsPath
-		Git.Config.read r
+		let r' = r { repoPathSpecifiedExplicitly = True }
+		Git.Config.read r'
 			`catchIO` \_ -> do
 				hn <- fromMaybe "unknown" <$> getHostname
 				giveup $ "failed to read git config of git repository in " ++ hn ++ " on " ++ dir ++ "; perhaps this repository is not set up correctly or has moved"
@@ -162,8 +178,3 @@ checkField (field, val)
 	| field == fieldName remoteUUID = fieldCheck remoteUUID val
 	| field == fieldName autoInit = fieldCheck autoInit val
 	| otherwise = False
-
-failure :: IO ()
-failure = giveup $ "bad parameters\n\n" ++ usage h cmdsList
-  where
-	h = "git-annex-shell [-c] command [parameters ...] [option ...]"

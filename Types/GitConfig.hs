@@ -1,6 +1,6 @@
 {- git-annex configuration
  -
- - Copyright 2012-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2012-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -22,6 +22,12 @@ module Types.GitConfig (
 	RemoteNameable(..),
 	remoteAnnexConfig,
 	remoteConfig,
+	RemoteGitConfigField(..),
+	remoteGitConfigKey,
+	proxyInheritedFields,
+	MkRemoteConfigKey,
+	mkRemoteConfigKey,
+	annexInsteadOfUrl,
 ) where
 
 import Common
@@ -30,30 +36,35 @@ import qualified Git.Config
 import qualified Git.Construct
 import Git.Types
 import Git.ConfigTypes
-import Git.Remote (isRemoteKey, remoteKeyToRemoteName)
+import Git.Remote (isRemoteKey, isLegalName, remoteKeyToRemoteName, insteadOfUrl)
 import Git.Branch (CommitMode(..))
+import Git.Quote (QuotePath(..))
 import Utility.DataUnits
 import Config.Cost
 import Types.UUID
 import Types.Distribution
-import Types.Availability
 import Types.Concurrency
 import Types.NumCopies
 import Types.Difference
 import Types.RefSpec
 import Types.RepoVersion
 import Types.StallDetection
+import Types.View
+import Types.Cluster
+import Types.Group
 import Config.DynamicConfig
 import Utility.HumanTime
 import Utility.Gpg (GpgCmd, mkGpgCmd)
+import Utility.StatelessOpenPGP (SOPCmd(..), SOPProfile(..))
 import Utility.ThreadScheduler (Seconds(..))
 import Utility.Url (Scheme, mkScheme)
+import Network.Socket (PortNumber)
+import P2P.Http.Url
 
 import Control.Concurrent.STM
 import qualified Data.Set as S
 import qualified Data.Map as M
 import qualified Data.ByteString as B
-import qualified System.FilePath.ByteString as P
 
 -- | A configurable value, that may not be fully determined yet because
 -- the global git config has not yet been loaded.
@@ -85,16 +96,22 @@ data GitConfig = GitConfig
 	, annexAlwaysCommit :: Bool
 	, annexAlwaysCompact :: Bool
 	, annexCommitMessage :: Maybe String
+	, annexCommitMessageCommand :: Maybe String
+	, annexPreInitCommand :: Maybe String
+	, annexPreCommitCommand :: Maybe String
+	, annexPostUpdateCommand :: Maybe String
 	, annexMergeAnnexBranches :: Bool
 	, annexDelayAdd :: Maybe Int
 	, annexHttpHeaders :: [String]
 	, annexHttpHeadersCommand :: Maybe String
 	, annexAutoCommit :: GlobalConfigurable Bool
 	, annexResolveMerge :: GlobalConfigurable Bool
-	, annexSyncContent :: GlobalConfigurable Bool
+	, annexSyncContent :: GlobalConfigurable (Maybe Bool)
 	, annexSyncOnlyAnnex :: GlobalConfigurable Bool
+	, annexSyncMigrations :: Bool
 	, annexDebug :: Bool
 	, annexDebugFilter :: Maybe String
+	, annexUrl :: Maybe String
 	, annexWebOptions :: [String]
 	, annexYoutubeDlOptions :: [String]
 	, annexYoutubeDlCommand :: Maybe String
@@ -112,15 +129,17 @@ data GitConfig = GitConfig
 	, annexSecureEraseCommand :: Maybe String
 	, annexGenMetaData :: Bool
 	, annexListen :: Maybe String
+	, annexPort :: Maybe PortNumber
 	, annexStartupScan :: Bool
 	, annexHardLink :: Bool
 	, annexThin :: Bool
 	, annexDifferences :: Differences
 	, annexUsedRefSpec :: Maybe RefSpec
 	, annexVerify :: Bool
+	, annexFastCopy :: Bool
 	, annexPidLock :: Bool
 	, annexPidLockTimeout :: Seconds
-	, annexDbDir :: Maybe RawFilePath
+	, annexDbDir :: Maybe OsPath
 	, annexAddUnlocked :: GlobalConfigurable (Maybe String)
 	, annexSecureHashesOnly :: Bool
 	, annexRetry :: Maybe Integer
@@ -128,8 +147,11 @@ data GitConfig = GitConfig
 	, annexRetryDelay :: Maybe Seconds
 	, annexAllowedUrlSchemes :: S.Set Scheme
 	, annexAllowedIPAddresses :: String
+	, annexAllowInsecureHttps :: Bool
 	, annexAllowUnverifiedDownloads :: Bool
+	, annexAllowedComputePrograms :: Maybe String
 	, annexMaxExtensionLength :: Maybe Int
+	, annexMaxExtensions :: Maybe Int
 	, annexJobs :: Concurrency
 	, annexCacheCreds :: Bool
 	, annexAutoUpgradeRepository :: Bool
@@ -137,14 +159,25 @@ data GitConfig = GitConfig
 	, annexSkipUnknown :: Bool
 	, annexAdjustedBranchRefresh :: Integer
 	, annexSupportUnlocked :: Bool
+	, annexAssistantAllowUnlocked :: Bool
+	, annexTrashbin :: Maybe RemoteName
 	, coreSymlinks :: Bool
 	, coreSharedRepository :: SharedRepository
+	, coreQuotePath :: QuotePath
 	, receiveDenyCurrentBranch :: DenyCurrentBranch
+	, httpSslCAInfo :: Maybe String
+	, httpSslCAPath :: Maybe String
 	, gcryptId :: Maybe String
 	, gpgCmd :: GpgCmd
 	, mergeDirectoryRenames :: Maybe String
 	, annexPrivateRepos :: S.Set UUID
 	, annexAdviceNoSshCaching :: Bool
+	, annexViewUnsetDirectory :: ViewUnset
+	, annexClusters :: M.Map RemoteName ClusterUUID
+	, annexFullyBalancedThreshhold :: Double
+	, annexInitWanted :: Maybe String
+	, annexInitRequired :: Maybe String
+	, annexInitGroups :: [Group]
 	}
 
 extractGitConfig :: ConfigSource -> Git.Repo -> GitConfig
@@ -169,6 +202,10 @@ extractGitConfig configsource r = GitConfig
 	, annexAlwaysCommit = getbool (annexConfig "alwayscommit") True
 	, annexAlwaysCompact = getbool (annexConfig "alwayscompact") True
 	, annexCommitMessage = getmaybe (annexConfig "commitmessage")
+	, annexCommitMessageCommand = getmaybe (annexConfig "commitmessage-command")
+	, annexPreInitCommand = getmaybe (annexConfig "pre-init-command")
+	, annexPreCommitCommand = getmaybe (annexConfig "pre-commit-command")
+	, annexPostUpdateCommand = getmaybe (annexConfig "post-update-command")
 	, annexMergeAnnexBranches = getbool (annexConfig "merge-annex-branches") True
 	, annexDelayAdd = getmayberead (annexConfig "delayadd")
 	, annexHttpHeaders = getlist (annexConfig "http-headers")
@@ -177,12 +214,14 @@ extractGitConfig configsource r = GitConfig
 		getmaybebool (annexConfig "autocommit")
 	, annexResolveMerge = configurable True $ 
 		getmaybebool (annexConfig "resolvemerge")
-	, annexSyncContent = configurable False $ 
+	, annexSyncContent = configurablemaybe $ 
 		getmaybebool (annexConfig "synccontent")
 	, annexSyncOnlyAnnex = configurable False $ 
 		getmaybebool (annexConfig "synconlyannex")
+	, annexSyncMigrations = getbool (annexConfig "syncmigrations") True
 	, annexDebug = getbool (annexConfig "debug") False
 	, annexDebugFilter = getmaybe (annexConfig "debugfilter")
+	, annexUrl = getmaybe (annexConfig "url")
 	, annexWebOptions = getwords (annexConfig "web-options")
 	, annexYoutubeDlOptions = getwords (annexConfig "youtube-dl-options")
 	, annexYoutubeDlCommand = getmaybe (annexConfig "youtube-dl-command")
@@ -204,6 +243,7 @@ extractGitConfig configsource r = GitConfig
 	, annexSecureEraseCommand = getmaybe (annexConfig "secure-erase-command")
 	, annexGenMetaData = getbool (annexConfig "genmetadata") False
 	, annexListen = getmaybe (annexConfig "listen")
+	, annexPort = getmayberead (annexConfig "port")
 	, annexStartupScan = getbool (annexConfig "startupscan") True
 	, annexHardLink = getbool (annexConfig "hardlink") False
 	, annexThin = getbool (annexConfig "thin") False
@@ -211,10 +251,11 @@ extractGitConfig configsource r = GitConfig
 	, annexUsedRefSpec = either (const Nothing) Just . parseRefSpec 
 		=<< getmaybe (annexConfig "used-refspec")
 	, annexVerify = getbool (annexConfig "verify") True
+	, annexFastCopy = getbool (annexConfig "fastcopy") False
 	, annexPidLock = getbool (annexConfig "pidlock") False
 	, annexPidLockTimeout = Seconds $ fromMaybe 300 $
 		getmayberead (annexConfig "pidlocktimeout")
-	, annexDbDir = (\d -> toRawFilePath d P.</> fromUUID hereuuid)
+	, annexDbDir = (\d -> toOsPath d </> fromUUID hereuuid)
 		<$> getmaybe (annexConfig "dbdir")
 	, annexAddUnlocked = configurable Nothing $
 		fmap Just $ getmaybe (annexConfig "addunlocked")
@@ -230,9 +271,14 @@ extractGitConfig configsource r = GitConfig
 		getmaybe (annexConfig "security.allowed-ip-addresses")
 			<|>
 		getmaybe (annexConfig "security.allowed-http-addresses") -- old name
+	, annexAllowInsecureHttps = (== Just "tls-1.2-no-EMS") $
+		getmaybe (annexConfig "security.allow-insecure-https")
 	, annexAllowUnverifiedDownloads = (== Just "ACKTHPPT") $
 		getmaybe (annexConfig "security.allow-unverified-downloads")
+	, annexAllowedComputePrograms =
+		getmaybe (annexConfig "security.allowed-compute-programs")
 	, annexMaxExtensionLength = getmayberead (annexConfig "maxextensionlength")
+	, annexMaxExtensions = getmayberead (annexConfig "maxextensions")
 	, annexJobs = fromMaybe NonConcurrent $ 
 		parseConcurrency =<< getmaybe (annexConfig "jobs")
 	, annexCacheCreds = getbool (annexConfig "cachecreds") True
@@ -246,9 +292,14 @@ extractGitConfig configsource r = GitConfig
 		(if getbool "adjustedbranchrefresh" False then 1 else 0)
 		(getmayberead (annexConfig "adjustedbranchrefresh"))
 	, annexSupportUnlocked = getbool (annexConfig "supportunlocked") True
+	, annexAssistantAllowUnlocked = getbool (annexConfig "assistant.allowunlocked") False
+	, annexTrashbin = getmaybe (annexConfig "trashbin")
 	, coreSymlinks = getbool "core.symlinks" True
 	, coreSharedRepository = getSharedRepository r
+	, coreQuotePath = QuotePath (getbool "core.quotepath" True)
 	, receiveDenyCurrentBranch = getDenyCurrentBranch r
+	, httpSslCAInfo = getmaybe "http.sslcainfo"
+	, httpSslCAPath = getmaybe "http.sslcapath"
 	, gcryptId = getmaybe "core.gcrypt-id"
 	, gpgCmd = mkGpgCmd (getmaybe "gpg.program")
 	, mergeDirectoryRenames = getmaybe "directoryrenames"
@@ -260,12 +311,27 @@ extractGitConfig configsource r = GitConfig
 			| Git.Config.isTrueFalse' v /= Just True = Nothing
 			| isRemoteKey (remoteAnnexConfigEnd "private") k = do
 				remotename <- remoteKeyToRemoteName k
-				toUUID <$> Git.Config.getMaybe
-					(remoteAnnexConfig remotename "uuid") r
+				let getu c = 
+					toUUID <$> Git.Config.getMaybe
+						(remoteAnnexConfig remotename c) r
+				getu "config-uuid" <|> getu "uuid"
 			| otherwise = Nothing
 		  in mapMaybe get (M.toList (Git.config r))
 		]
 	, annexAdviceNoSshCaching = getbool (annexConfig "advicenosshcaching") True
+	, annexViewUnsetDirectory = ViewUnset $ fromMaybe "_" $
+		getmaybe (annexConfig "viewunsetdirectory")
+	, annexClusters = 
+		M.mapMaybe (mkClusterUUID . toUUID) $
+			M.mapKeys removeclusterprefix $
+				M.filterWithKey isclusternamekey (config r)
+	, annexFullyBalancedThreshhold =
+		fromMaybe 0.9 $ (/ 100) <$> getmayberead
+			(annexConfig "fullybalancedthreshhold")
+	, annexInitWanted = getmaybe (annexConfig "initwanted")
+	, annexInitRequired = getmaybe (annexConfig "initrequired")
+	, annexInitGroups = map (Group . encodeBS) $
+		getwords (annexConfig "initgroups")
 	}
   where
 	getbool k d = fromMaybe d $ getmaybebool k
@@ -280,10 +346,20 @@ extractGitConfig configsource r = GitConfig
 	configurable _ (Just v) = case configsource of
 		FromGitConfig -> HasGitConfig v
 		FromGlobalConfig -> HasGlobalConfig v
+	
+	configurablemaybe Nothing = DefaultConfig Nothing
+	configurablemaybe (Just v) = case configsource of
+		FromGitConfig -> HasGitConfig (Just v)
+		FromGlobalConfig -> HasGlobalConfig (Just v)
 
 	onemegabyte = 1000000
 	
 	hereuuid = maybe NoUUID toUUID $ getmaybe (annexConfig "uuid")
+
+	clusterprefix = annexConfigPrefix <> "cluster."
+	isclusternamekey k _ = clusterprefix `B.isPrefixOf` (fromConfigKey' k)
+		&& isLegalName (removeclusterprefix k)
+	removeclusterprefix k = drop (B.length clusterprefix) (fromConfigKey k)
 
 {- Merge a GitConfig that comes from git-config with one containing
  - repository-global defaults. -}
@@ -329,26 +405,41 @@ globalConfigs =
 data RemoteGitConfig = RemoteGitConfig
 	{ remoteAnnexCost :: DynamicConfig (Maybe Cost)
 	, remoteAnnexIgnore :: DynamicConfig Bool
+	, remoteAnnexIgnoreAuto :: Bool
 	, remoteAnnexSync :: DynamicConfig Bool
 	, remoteAnnexPull :: Bool
 	, remoteAnnexPush :: Bool
 	, remoteAnnexReadOnly :: Bool
 	, remoteAnnexVerify :: Bool
+	, remoteAnnexFastCopy :: Bool
 	, remoteAnnexCheckUUID :: Bool
 	, remoteAnnexTrackingBranch :: Maybe Git.Ref
 	, remoteAnnexTrustLevel :: Maybe String
 	, remoteAnnexStartCommand :: Maybe String
 	, remoteAnnexStopCommand :: Maybe String
-	, remoteAnnexAvailability :: Maybe Availability
 	, remoteAnnexSpeculatePresent :: Bool
 	, remoteAnnexBare :: Maybe Bool
 	, remoteAnnexRetry :: Maybe Integer
 	, remoteAnnexForwardRetry :: Maybe Integer
 	, remoteAnnexRetryDelay :: Maybe Seconds
 	, remoteAnnexStallDetection :: Maybe StallDetection
+	, remoteAnnexStallDetectionUpload :: Maybe StallDetection
+	, remoteAnnexStallDetectionDownload :: Maybe StallDetection
 	, remoteAnnexBwLimit :: Maybe BwRate
+	, remoteAnnexBwLimitUpload :: Maybe BwRate
+	, remoteAnnexBwLimitDownload :: Maybe BwRate
 	, remoteAnnexAllowUnverifiedDownloads :: Bool
+	, remoteAnnexWebOptions :: [String]
+	, remoteAnnexUUID :: Maybe UUID
 	, remoteAnnexConfigUUID :: Maybe UUID
+	, remoteAnnexMaxGitBundles :: Int
+	, remoteAnnexAllowEncryptedGitRepo :: Bool
+	, remoteAnnexProxy :: Bool
+	, remoteAnnexProxiedBy :: Maybe UUID
+	, remoteAnnexClusterNode :: Maybe [RemoteName]
+	, remoteAnnexClusterGateway :: [ClusterUUID]
+	, remoteUrl :: Maybe String
+	, remoteAnnexP2PHttpUrl :: Maybe P2PHttpUrl
 
 	{- These settings are specific to particular types of remotes
 	 - including special remotes. -}
@@ -360,12 +451,16 @@ data RemoteGitConfig = RemoteGitConfig
 	, remoteAnnexRsyncTransport :: [String]
 	, remoteAnnexGnupgOptions :: [String]
 	, remoteAnnexGnupgDecryptOptions :: [String]
+	, remoteAnnexSharedSOPCommand :: Maybe SOPCmd
+	, remoteAnnexSharedSOPProfile :: Maybe SOPProfile
 	, remoteAnnexRsyncUrl :: Maybe String
 	, remoteAnnexBupRepo :: Maybe String
 	, remoteAnnexBorgRepo :: Maybe String
 	, remoteAnnexTahoe :: Maybe FilePath
 	, remoteAnnexBupSplitOptions :: [String]
 	, remoteAnnexDirectory :: Maybe FilePath
+	, remoteAnnexS3RestoreTier :: Maybe String
+	, remoteAnnexS3RestoreDays :: Maybe Integer
 	, remoteAnnexAndroidDirectory :: Maybe FilePath
 	, remoteAnnexAndroidSerial :: Maybe String
 	, remoteAnnexGCrypt :: Maybe String
@@ -373,6 +468,7 @@ data RemoteGitConfig = RemoteGitConfig
 	, remoteAnnexDdarRepo :: Maybe String
 	, remoteAnnexHookType :: Maybe String
 	, remoteAnnexExternalType :: Maybe String
+	, remoteAnnexMask :: Maybe String
 	}
 
 {- The Git.Repo is the local repository, which has the remote with the
@@ -380,78 +476,283 @@ data RemoteGitConfig = RemoteGitConfig
 extractRemoteGitConfig :: Git.Repo -> RemoteName -> STM RemoteGitConfig
 extractRemoteGitConfig r remotename = do
 	annexcost <- mkDynamicConfig readCommandRunner
-		(notempty $ getmaybe "cost-command")
-		(getmayberead "cost")
+		(notempty $ getmaybe CostCommandField)
+		(getmayberead CostField)
 	annexignore <- mkDynamicConfig unsuccessfullCommandRunner
-		(notempty $ getmaybe "ignore-command")
-		(getbool "ignore" False)
+		(notempty $ getmaybe IgnoreCommandField)
+		(getbool IgnoreField False)
 	annexsync <- mkDynamicConfig successfullCommandRunner
-		(notempty $ getmaybe "sync-command")
-		(getbool "sync" True)
+		(notempty $ getmaybe SyncCommandField)
+		(getbool SyncField True)
 	return $ RemoteGitConfig
 		{ remoteAnnexCost = annexcost
 		, remoteAnnexIgnore = annexignore
+		, remoteAnnexIgnoreAuto = getbool IgnoreAutoField False
 		, remoteAnnexSync = annexsync
-		, remoteAnnexPull = getbool "pull" True
-		, remoteAnnexPush = getbool "push" True
-		, remoteAnnexReadOnly = getbool "readonly" False
-		, remoteAnnexCheckUUID = getbool "checkuuid" True
-		, remoteAnnexVerify = getbool "verify" True
+		, remoteAnnexPull = getbool PullField True
+		, remoteAnnexPush = getbool PushField True
+		, remoteAnnexReadOnly = getbool ReadOnlyField False
+		, remoteAnnexCheckUUID = getbool CheckUUIDField True
+		, remoteAnnexVerify = getbool VerifyField True
+		, remoteAnnexFastCopy = getbool FastCopyField False
 		, remoteAnnexTrackingBranch = Git.Ref . encodeBS <$>
-			( notempty (getmaybe "tracking-branch")
-			<|> notempty (getmaybe "export-tracking") -- old name
+			( notempty (getmaybe TrackingBranchField)
+			<|> notempty (getmaybe ExportTrackingField) -- old name
 			)
-		, remoteAnnexTrustLevel = notempty $ getmaybe "trustlevel"
-		, remoteAnnexStartCommand = notempty $ getmaybe "start-command"
-		, remoteAnnexStopCommand = notempty $ getmaybe "stop-command"
-		, remoteAnnexAvailability = getmayberead "availability"
-		, remoteAnnexSpeculatePresent = getbool "speculate-present" False
-		, remoteAnnexBare = getmaybebool "bare"
-		, remoteAnnexRetry = getmayberead "retry"
-		, remoteAnnexForwardRetry = getmayberead "forward-retry"
+		, remoteAnnexTrustLevel = notempty $ getmaybe TrustLevelField
+		, remoteAnnexStartCommand = notempty $ getmaybe StartCommandField
+		, remoteAnnexStopCommand = notempty $ getmaybe StopCommandField
+		, remoteAnnexSpeculatePresent = 
+			getbool SpeculatePresentField False
+		, remoteAnnexBare = getmaybebool BareField
+		, remoteAnnexRetry = getmayberead RetryField
+		, remoteAnnexForwardRetry = getmayberead ForwardRetryField
 		, remoteAnnexRetryDelay = Seconds
-			<$> getmayberead "retrydelay"
+			<$> getmayberead RetryDelayField
 		, remoteAnnexStallDetection =
-			either (const Nothing) Just . parseStallDetection
-				=<< getmaybe "stalldetection"
-		, remoteAnnexBwLimit = do
-			sz <- readSize dataUnits =<< getmaybe "bwlimit"
-			return (BwRate sz (Duration 1))
+			readStallDetection =<< getmaybe StallDetectionField
+		, remoteAnnexStallDetectionUpload =
+			readStallDetection =<< getmaybe StallDetectionUploadField
+		, remoteAnnexStallDetectionDownload =
+			readStallDetection =<< getmaybe StallDetectionDownloadField
+		, remoteAnnexBwLimit =
+			readBwRatePerSecond =<< getmaybe BWLimitField
+		, remoteAnnexBwLimitUpload =
+			readBwRatePerSecond =<< getmaybe BWLimitUploadField
+		, remoteAnnexBwLimitDownload =
+			readBwRatePerSecond =<< getmaybe BWLimitDownloadField
 		, remoteAnnexAllowUnverifiedDownloads = (== Just "ACKTHPPT") $
-			getmaybe ("security-allow-unverified-downloads")
-		, remoteAnnexConfigUUID = toUUID <$> getmaybe "config-uuid"
-		, remoteAnnexShell = getmaybe "shell"
-		, remoteAnnexSshOptions = getoptions "ssh-options"
-		, remoteAnnexRsyncOptions = getoptions "rsync-options"
-		, remoteAnnexRsyncDownloadOptions = getoptions "rsync-download-options"
-		, remoteAnnexRsyncUploadOptions = getoptions "rsync-upload-options"
-		, remoteAnnexRsyncTransport = getoptions "rsync-transport"
-		, remoteAnnexGnupgOptions = getoptions "gnupg-options"
-		, remoteAnnexGnupgDecryptOptions = getoptions "gnupg-decrypt-options"
-		, remoteAnnexRsyncUrl = notempty $ getmaybe "rsyncurl"
-		, remoteAnnexBupRepo = getmaybe "buprepo"
-		, remoteAnnexBorgRepo = getmaybe "borgrepo"
-		, remoteAnnexTahoe = getmaybe "tahoe"
-		, remoteAnnexBupSplitOptions = getoptions "bup-split-options"
-		, remoteAnnexDirectory = notempty $ getmaybe "directory"
-		, remoteAnnexAndroidDirectory = notempty $ getmaybe "androiddirectory"
-		, remoteAnnexAndroidSerial = notempty $ getmaybe "androidserial"
-		, remoteAnnexGCrypt = notempty $ getmaybe "gcrypt"
-		, remoteAnnexGitLFS = getbool "git-lfs" False
-		, remoteAnnexDdarRepo = getmaybe "ddarrepo"
-		, remoteAnnexHookType = notempty $ getmaybe "hooktype"
-		, remoteAnnexExternalType = notempty $ getmaybe "externaltype"
+			getmaybe SecurityAllowUnverifiedDownloadsField
+		, remoteAnnexWebOptions = getwords WebOptionsField
+		, remoteAnnexUUID = toUUID <$> getmaybe UUIDField
+		, remoteAnnexConfigUUID = toUUID <$> getmaybe ConfigUUIDField
+		, remoteAnnexMaxGitBundles =
+			fromMaybe 100 (getmayberead MaxGitBundlesField)
+		, remoteAnnexAllowEncryptedGitRepo = 
+			getbool AllowEncryptedGitRepoField False
+		, remoteAnnexProxy = getbool ProxyField False
+		, remoteAnnexProxiedBy = toUUID <$> getmaybe ProxiedByField
+		, remoteAnnexClusterNode = 
+			(filter isLegalName . words)
+				<$> getmaybe ClusterNodeField
+		, remoteAnnexClusterGateway = fromMaybe [] $
+			(mapMaybe (mkClusterUUID . toUUID) . words)
+				<$> getmaybe ClusterGatewayField
+		, remoteUrl = getremoteurl
+		, remoteAnnexP2PHttpUrl =
+			case Git.Config.getMaybe (mkRemoteConfigKey remotename (remoteGitConfigKey AnnexUrlField)) r of
+				Just (ConfigValue b) ->
+					parseP2PHttpUrl (decodeBS b)
+				_ -> parseP2PHttpUrl
+					=<< annexInsteadOfUrl (fullconfig r)
+					=<< getremoteurl
+		, remoteAnnexShell = getmaybe ShellField
+		, remoteAnnexSshOptions = getoptions SshOptionsField
+		, remoteAnnexRsyncOptions = getoptions RsyncOptionsField
+		, remoteAnnexRsyncDownloadOptions = getoptions RsyncDownloadOptionsField
+		, remoteAnnexRsyncUploadOptions = getoptions RsyncUploadOptionsField
+		, remoteAnnexRsyncTransport = getoptions RsyncTransportField
+		, remoteAnnexGnupgOptions = getoptions GnupgOptionsField
+		, remoteAnnexGnupgDecryptOptions = getoptions GnupgDecryptOptionsField
+		, remoteAnnexSharedSOPCommand = SOPCmd <$>
+			notempty (getmaybe SharedSOPCommandField)
+		, remoteAnnexSharedSOPProfile = SOPProfile <$>
+			notempty (getmaybe SharedSOPProfileField)
+		, remoteAnnexRsyncUrl = notempty $ getmaybe RsyncUrlField
+		, remoteAnnexBupRepo = getmaybe BupRepoField
+		, remoteAnnexBorgRepo = getmaybe BorgRepoField
+		, remoteAnnexTahoe = getmaybe TahoeField
+		, remoteAnnexBupSplitOptions = getoptions BupSplitOptionsField
+		, remoteAnnexDirectory = notempty $ getmaybe DirectoryField
+		, remoteAnnexS3RestoreTier = notempty $ getmaybe S3RestoreTierField
+		, remoteAnnexS3RestoreDays = getmayberead S3RestoreDaysField
+		, remoteAnnexAndroidDirectory = notempty $ getmaybe AndroidDirectoryField
+		, remoteAnnexAndroidSerial = notempty $ getmaybe AndroidSerialField
+		, remoteAnnexGCrypt = notempty $ getmaybe GCryptField
+		, remoteAnnexGitLFS = getbool GitLFSField False
+		, remoteAnnexDdarRepo = getmaybe DdarRepoField
+		, remoteAnnexHookType = notempty $ getmaybe HookTypeField
+		, remoteAnnexExternalType = notempty $ getmaybe ExternalTypeField
+		, remoteAnnexMask = notempty $ getmaybe MaskField
 		}
   where
 	getbool k d = fromMaybe d $ getmaybebool k
 	getmaybebool k = Git.Config.isTrueFalse' =<< getmaybe' k
 	getmayberead k = readish =<< getmaybe k
 	getmaybe = fmap fromConfigValue . getmaybe'
-	getmaybe' k = 
-		Git.Config.getMaybe (remoteAnnexConfig remotename k) r
-			<|>
-		Git.Config.getMaybe (annexConfig k) r
+	getmaybe' :: RemoteGitConfigField -> Maybe ConfigValue
+	getmaybe' f =
+		let k = remoteGitConfigKey f
+		in Git.Config.getMaybe (mkRemoteConfigKey remotename k) r
+			<|> Git.Config.getMaybe (mkAnnexConfigKey k) r
 	getoptions k = fromMaybe [] $ words <$> getmaybe k
+	getremoteurl = case Git.Config.getMaybe (mkRemoteConfigKey remotename (remoteGitConfigKey UrlField)) r of
+		Just (ConfigValue b)
+			| B.null b -> Nothing
+			| otherwise -> Just (decodeBS b)
+		_ -> Nothing
+	getwords k = fromMaybe [] $ words <$> getmaybe k
+
+data RemoteGitConfigField
+	= CostField
+	| CostCommandField
+	| IgnoreField
+	| IgnoreAutoField
+	| IgnoreCommandField
+	| SyncField
+	| SyncCommandField
+	| PullField
+	| PushField
+	| ReadOnlyField
+	| CheckUUIDField
+	| VerifyField
+	| FastCopyField
+	| TrackingBranchField
+	| ExportTrackingField
+	| TrustLevelField
+	| StartCommandField
+	| StopCommandField
+	| SpeculatePresentField
+	| BareField
+	| RetryField
+	| ForwardRetryField
+	| RetryDelayField
+	| StallDetectionField
+	| StallDetectionUploadField
+	| StallDetectionDownloadField
+	| BWLimitField
+	| BWLimitUploadField
+	| BWLimitDownloadField
+	| UUIDField
+	| ConfigUUIDField
+	| SecurityAllowUnverifiedDownloadsField
+	| WebOptionsField
+	| MaxGitBundlesField
+	| AllowEncryptedGitRepoField
+	| ProxyField
+	| ProxiedByField
+	| ClusterNodeField
+	| ClusterGatewayField
+	| UrlField
+	| AnnexUrlField
+	| ShellField
+	| SshOptionsField
+	| RsyncOptionsField
+	| RsyncDownloadOptionsField
+	| RsyncUploadOptionsField
+	| RsyncTransportField
+	| GnupgOptionsField
+	| GnupgDecryptOptionsField
+	| SharedSOPCommandField
+	| SharedSOPProfileField
+	| RsyncUrlField
+	| BupRepoField
+	| BorgRepoField
+	| TahoeField
+	| BupSplitOptionsField
+	| DirectoryField
+	| S3RestoreTierField
+	| S3RestoreDaysField
+	| AndroidDirectoryField
+	| AndroidSerialField
+	| GCryptField
+	| GitLFSField
+	| DdarRepoField
+	| HookTypeField
+	| ExternalTypeField
+	| MaskField
+	deriving (Enum, Bounded)
+
+remoteGitConfigField :: RemoteGitConfigField -> (MkRemoteConfigKey, ProxyInherited)
+remoteGitConfigField = \case
+	-- Hard to know the true cost of accessing eg a slow special
+	-- remote via the proxy. The cost of the proxy is the best guess
+	-- so do inherit it.
+	CostField -> inherited True "cost"
+	CostCommandField -> inherited True "cost-command"
+	IgnoreField -> inherited True "ignore"
+	IgnoreAutoField -> inherited True "ignore-auto"
+	IgnoreCommandField -> inherited True "ignore-command"
+	SyncField -> inherited True "sync"
+	SyncCommandField -> inherited True "sync-command"
+	PullField -> inherited True "pull"
+	PushField -> inherited True "push"
+	ReadOnlyField -> inherited True "readonly"
+	CheckUUIDField -> uninherited True "checkuuid"
+	VerifyField -> inherited True "verify"
+	FastCopyField -> inherited True "fastcopy"
+	TrackingBranchField -> uninherited True "tracking-branch"
+	ExportTrackingField -> uninherited True "export-tracking"
+	TrustLevelField -> uninherited True "trustlevel"
+	StartCommandField -> uninherited True "start-command"
+	StopCommandField -> uninherited True "stop-command"
+	SpeculatePresentField -> inherited True "speculate-present"
+	BareField -> inherited True "bare"
+	RetryField -> inherited True "retry"
+	ForwardRetryField -> inherited True "forward-retry"
+	RetryDelayField -> inherited True "retrydelay"
+	StallDetectionField -> inherited True "stalldetection"
+	StallDetectionUploadField -> inherited True "stalldetection-upload"
+	StallDetectionDownloadField -> inherited True "stalldetection-download"
+	BWLimitField -> inherited True "bwlimit"
+	BWLimitUploadField -> inherited True "bwlimit-upload"
+	BWLimitDownloadField -> inherited True "bwlimit-upload"
+	UUIDField -> uninherited True "uuid"
+	ConfigUUIDField -> uninherited True "config-uuid"
+	SecurityAllowUnverifiedDownloadsField -> inherited True "security-allow-unverified-downloads"
+	WebOptionsField -> inherited True "web-options"
+	MaxGitBundlesField -> inherited True "max-git-bundles"
+	AllowEncryptedGitRepoField -> inherited True "allow-encrypted-gitrepo"
+	-- Allow proxy chains.
+	ProxyField -> inherited True "proxy"
+	ProxiedByField -> uninherited True "proxied-by"
+	ClusterNodeField -> uninherited True "cluster-node"
+	ClusterGatewayField -> uninherited True "cluster-gateway"
+	UrlField -> uninherited False "url"
+	AnnexUrlField -> inherited False "annexurl"
+	ShellField -> inherited True "shell"
+	SshOptionsField -> inherited True "ssh-options"
+	RsyncOptionsField -> inherited True "rsync-options"
+	RsyncDownloadOptionsField -> inherited True "rsync-download-options"
+	RsyncUploadOptionsField -> inherited True "rsync-upload-options"
+	RsyncTransportField -> inherited True "rsync-transport"
+	GnupgOptionsField -> inherited True "gnupg-options"
+	GnupgDecryptOptionsField -> inherited True "gnupg-decrypt-options"
+	SharedSOPCommandField -> inherited True "shared-sop-command"
+	SharedSOPProfileField -> inherited True "shared-sop-profile"
+	RsyncUrlField -> uninherited True "rsyncurl"
+	BupRepoField -> uninherited True "buprepo"
+	BorgRepoField -> uninherited True "borgrepo"
+	TahoeField -> uninherited True "tahoe"
+	BupSplitOptionsField -> uninherited True "bup-split-options"
+	DirectoryField -> uninherited True "directory"
+	S3RestoreTierField -> uninherited True "s3-restore-tier"
+	S3RestoreDaysField -> uninherited True "s3-restore-days"
+	AndroidDirectoryField -> uninherited True "androiddirectory"
+	AndroidSerialField -> uninherited True "androidserial"
+	GCryptField -> uninherited True "gcrypt"
+	GitLFSField -> uninherited True "git-lfs"
+	DdarRepoField -> uninherited True "ddarrepo"
+	HookTypeField -> uninherited True "hooktype"
+	ExternalTypeField -> uninherited True "externaltype"
+	MaskField -> uninherited True "mask"
+  where
+	inherited True f = (MkRemoteAnnexConfigKey f, ProxyInherited True)
+	inherited False f = (MkRemoteConfigKey f, ProxyInherited True)
+	uninherited True f = (MkRemoteAnnexConfigKey f, ProxyInherited False)
+	uninherited False f = (MkRemoteConfigKey f, ProxyInherited False)
+
+newtype ProxyInherited = ProxyInherited Bool
+
+-- All remote config fields that are inherited from a proxy.
+proxyInheritedFields :: [MkRemoteConfigKey]
+proxyInheritedFields = 
+	map fst $
+		filter (\(_, ProxyInherited p) -> p) $
+			map remoteGitConfigField [minBound..maxBound]
+
+remoteGitConfigKey :: RemoteGitConfigField -> MkRemoteConfigKey
+remoteGitConfigKey = fst . remoteGitConfigField
 
 notempty :: Maybe String -> Maybe String	
 notempty Nothing = Nothing
@@ -462,11 +763,24 @@ dummyRemoteGitConfig :: IO RemoteGitConfig
 dummyRemoteGitConfig = atomically $ 
 	extractRemoteGitConfig Git.Construct.fromUnknown "dummy"
 
-type UnqualifiedConfigKey = B.ByteString
+data MkRemoteConfigKey
+	= MkRemoteAnnexConfigKey B.ByteString
+	| MkRemoteConfigKey B.ByteString
+
+mkRemoteConfigKey :: RemoteNameable r => r -> MkRemoteConfigKey -> ConfigKey
+mkRemoteConfigKey r (MkRemoteAnnexConfigKey b) = remoteAnnexConfig r b
+mkRemoteConfigKey r (MkRemoteConfigKey b) = remoteConfig r b
+
+mkAnnexConfigKey :: MkRemoteConfigKey -> ConfigKey
+mkAnnexConfigKey (MkRemoteAnnexConfigKey b) = annexConfig b
+mkAnnexConfigKey (MkRemoteConfigKey b) = annexConfig b
+
+annexConfigPrefix :: B.ByteString
+annexConfigPrefix = "annex."
 
 {- A global annex setting in git config. -}
-annexConfig :: UnqualifiedConfigKey -> ConfigKey
-annexConfig key = ConfigKey ("annex." <> key)
+annexConfig :: B.ByteString -> ConfigKey
+annexConfig key = ConfigKey (annexConfigPrefix <> key)
 
 class RemoteNameable r where
 	getRemoteName :: r -> RemoteName
@@ -478,13 +792,16 @@ instance RemoteNameable RemoteName where
 	 getRemoteName = id
 
 {- A per-remote annex setting in git config. -}
-remoteAnnexConfig :: RemoteNameable r => r -> UnqualifiedConfigKey -> ConfigKey
+remoteAnnexConfig :: RemoteNameable r => r -> B.ByteString -> ConfigKey
 remoteAnnexConfig r = remoteConfig r . remoteAnnexConfigEnd
 
-remoteAnnexConfigEnd :: UnqualifiedConfigKey -> UnqualifiedConfigKey
+remoteAnnexConfigEnd :: B.ByteString -> B.ByteString
 remoteAnnexConfigEnd key = "annex-" <> key
 
 {- A per-remote setting in git config. -}
-remoteConfig :: RemoteNameable r => r -> UnqualifiedConfigKey -> ConfigKey
+remoteConfig :: RemoteNameable r => r -> B.ByteString -> ConfigKey
 remoteConfig r key = ConfigKey $
 	"remote." <> encodeBS (getRemoteName r) <> "." <> key
+
+annexInsteadOfUrl :: RepoFullConfig -> String -> Maybe String
+annexInsteadOfUrl fullcfg loc = insteadOfUrl loc ".annexinsteadof" fullcfg

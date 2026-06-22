@@ -1,0 +1,11 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 3"""
+ date="2026-04-28T17:05:56Z"
+ content="""
+`git-annex addurl --no-raw` will prevent it from using the web remote in
+these cases.
+
+But, it does not force treating a given url as a torrent. I suppose the
+`torrent:url` idea still has merit.
+"""]]

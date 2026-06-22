@@ -1,0 +1,127 @@
+Adding a relaxed url currently prevents verifying the content of the object
+when transferring it between repositories. This risks data corruption going
+unnoticed. Could the hash be recorded when a relaxed url is downloaded from
+the web, and then used for verification of other transfers?
+
+This would need a new per-key file in the git-annex branch, that can list
+one or more hash-based keys. Then implement verification for url keys, that
+checks if hash-based keys are recorded in the file, and if so uses them to
+verify the content.
+
+The web special remote can hash the content as it's downloading it from the
+web, and record the resulting hash-based key.
+
+> [[done]] --[[Joey]]
+
+## handling upgrades
+
+A repository that currently contains the content of a relaxed url needs to
+keep working. So, the object stored in the repository has to be treated as
+valid, even though it does not correspond to any hash-based keys listed for
+the url key. 
+
+This presents a problem; there is no way to tell the difference between
+a valid object in such a repository and an object that was downloaded from
+the web with its hash recorded, but has since gotten corrupted.
+
+Seems that the only possible way to resolve this problem is to change to a
+new type of url key, that is known to always have its hash recorded on
+download from the web. (Call this a verifiable url key: a VURL.)
+And handle all existing relaxed url keys as before.
+
+That would leave it up to the user to migrate their URL keys to
+VURL keys, if desired. Now that distributed migration is
+implemented, that seems sufficiently easy.
+
+See [[migration_to_VURL_by_default]]
+
+## addurl --fast 
+
+Using addurl --fast rather than --relaxed records the size but doesn't
+hash. So it has the same problem that data corruption can go unnoticed,
+only the data corruption has to involve bit flips and not truncation.
+
+So it seems that --fast ought to also be handled. The difference being that
+an url added with --fast is expected to always be the same on re-download
+from the web, while an url added with --relaxed may change its content on
+re-download from the web while being still considered the same object.
+
+This can also use a VURL key, but include the size in it. When downloading
+a sized VURL, the web special remote will hash the content, and verify
+that either no hash has been recorded before (and record the hash when the
+size matches), or that it matches the previously recorded hash.
+
+Note that, if an url is added with --fast and that gets committed and
+pulled by another repo, and then later both repos download the content
+from the web, it would be possible for the web to serve up different
+content to the two, and in that case either hash would be treated as
+valid.
+
+## other special remotes
+
+If the web special remote is what takes care of hashing the content on
+download and recording the hash-based key, what about other special remotes
+that claim an url?
+
+This could also be implemented in the bittorrent special remote
+(though ), but what
+about external special remotes?
+
+An alternative would be to add a downloadVerifiedUrl that is called instead
+of retrieveKeyFile and returns a hash-based key (allowing hashing the
+download on the fly). Then git-annex would take
+care of recording the hash-based key. The external special remote interface
+could be extended to include that.
+
+> For now, gonna punt on this. It would be possible to support other
+> special remotes later, but implemented it in the web special remote only
+> for now. When using `git-annex addurl --verified` with others, it creates
+> a VURL, but never generates a hash key, so the VURL works just like an
+> URL key.
+
+## hash-based key choice
+
+Should annex.backend gitconfig be used to pick which hash-based key to use?
+The risk is that config changes and several different hash-based keys get
+recorded for a VURL. Not really a problem, but would increase the
+size of the git-annex branch unncessarily, and require extra work when
+verifying the key.)
+
+> It will let annex.backend gitconfig and --backend be used,
+> but it didn't seem worth supporting annex.backend gitattribute, or really
+> even appropriate to since this is not really related to any particular
+> work tree file. --[[Joey]]
+
+What if annex.backend uses WORM or something that is not hash-based?
+Seems it ought to fall back to SHA256 or something then.
+
+To support annex.securehashesonly it would be good if only
+cryptographically secure hashes were recorded for a VURL. But of course,
+which hashes are considered secure can change. Still, let's start by
+only allowing currently secure hashes to be used for VURLs. This way,
+when there are multiple hashes recorded for a VURL, they will all be
+cryptographically secure normally, and so the VURL can be considered
+cryptographically secure itself. If any of the hashes later becomes
+broken, the VURL will no longer be treated as cryptographically secure,
+because the broken hash can be used to verify its content.
+In that case, the user would probably just migrate to a hash-based key,
+although perhaps something VURL-specific could be built to upgrade its
+hashes.
+
+## use for other types of keys
+
+It would also be possible to use these new git-annex branch log files
+for other types of keys, like WORM, or perhaps SHA1. But, the same upgrade
+problem would apply. So, there's problably no benefit in doing that,
+compared with migrating the key to the desired hash backend.
+
+Does seem to be some chance this could help implementing 
+[[wishlist_degraded_files]].
+
+## security
+
+There is the potential for a loop, where a VURL has recorded an equivilant
+key what is the same VURL, or another VURL in a loop. Leading to a crafted
+git-annex branch that DOSes git-annex.
+
+To avoid this, any VURL in equivilant keys will be ignored.

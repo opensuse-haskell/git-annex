@@ -16,8 +16,8 @@ import Assistant.NamedThread
 import Utility.ThreadScheduler
 import Utility.NotificationBroadcaster
 import Utility.Url
+import Utility.Url.Parse
 import Utility.PID
-import qualified Utility.RawFilePath as R
 import qualified Git.Construct
 import qualified Git.Config
 import qualified Annex
@@ -40,8 +40,8 @@ import Network.URI
 prepRestart :: Assistant ()
 prepRestart = do
 	liftIO . maybe noop (`throwTo` PauseWatcher) =<< namedThreadId watchThread
-	liftIO . removeWhenExistsWith R.removeLink =<< liftAnnex (fromRepo gitAnnexUrlFile)
-	liftIO . removeWhenExistsWith R.removeLink =<< liftAnnex (fromRepo gitAnnexPidFile)
+	liftIO . removeWhenExistsWith removeFile =<< liftAnnex (fromRepo gitAnnexUrlFile)
+	liftIO . removeWhenExistsWith removeFile =<< liftAnnex (fromRepo gitAnnexPidFile)
 
 {- To finish a restart, send a global redirect to the new url
  - to any web browsers that are displaying the webapp.
@@ -65,21 +65,21 @@ terminateSelf =
 
 runRestart :: Assistant URLString
 runRestart = liftIO . newAssistantUrl
-	=<< liftAnnex (Git.repoLocation <$> Annex.gitRepo)
+	=<< liftAnnex (Git.repoPath <$> Annex.gitRepo)
 
 {- Starts up the assistant in the repository, and waits for it to create
  - a gitAnnexUrlFile. Waits for the assistant to be up and listening for
  - connections by testing the url. -}
-newAssistantUrl :: FilePath -> IO URLString
+newAssistantUrl :: OsPath -> IO URLString
 newAssistantUrl repo = do
 	startAssistant repo
 	geturl
   where
 	geturl = do
-		r <- Git.Config.read =<< Git.Construct.fromPath (toRawFilePath repo)
-		waiturl $ fromRawFilePath $ gitAnnexUrlFile r
+		r <- Git.Config.read =<< Git.Construct.fromPath repo
+		waiturl $ gitAnnexUrlFile r
 	waiturl urlfile = do
-		v <- tryIO $ readFile urlfile
+		v <- tryIO $ readFileString urlfile
 		case v of
 			Left _ -> delayed $ waiturl urlfile
 			Right url -> ifM (assistantListening url)
@@ -100,7 +100,7 @@ assistantListening url = catchBoolIO $ do
 	uo <- defUrlOptions
 	(== Right True) <$> exists url' uo
   where
-	url' = case parseURI url of
+	url' = case parseURIPortable url of
 		Nothing -> url
 		Just uri -> show $ uri
 			{ uriScheme = "http:"
@@ -111,8 +111,8 @@ assistantListening url = catchBoolIO $ do
  - On windows, the assistant does not daemonize, which is why the forkIO is
  - done.
  -}
-startAssistant :: FilePath -> IO ()
+startAssistant :: OsPath -> IO ()
 startAssistant repo = void $ forkIO $ do
-	program <- programPath
-	let p = (proc program ["assistant"]) { cwd = Just repo }
+	program <- fromOsPath <$> programPath
+	let p = (proc program ["assistant"]) { cwd = Just (fromOsPath repo) }
 	withCreateProcess p $ \_ _ _ pid -> void $ checkSuccessProcess pid

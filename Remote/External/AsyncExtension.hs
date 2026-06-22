@@ -7,6 +7,7 @@
 
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Remote.External.AsyncExtension (runRelayToExternalAsync) where
 
@@ -46,7 +47,7 @@ runRelayToExternalAsync external st annexrunner = do
 			, externalReceive = atomically (readTBMChan receiveq)
 			-- This shuts down the whole relay.
 			, externalShutdown = shutdown external st sendq sender receiver
-			-- These three TMVars are shared amoung all
+			-- These three TMVars are shared among all
 			-- ExternalStates that use this relay; they're
 			-- common state about the external process.
 			, externalPrepared = externalPrepared st
@@ -86,7 +87,7 @@ receiveloop external st jidmap sendq sendthread annexrunner = externalReceive st
 	Nothing -> closeandshutdown
   where
 	protoerr s = do
-		annexrunner $ warning $ "async external special remote protocol error: " ++ s
+		annexrunner $ warning $ "async external special remote protocol error: " <> s
 		closeandshutdown
 	
 	closeandshutdown = do

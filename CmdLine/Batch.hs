@@ -115,7 +115,17 @@ batchLines (BatchFormat sep _) = do
   where
 	splitter = case sep of
 		BatchLine -> lines
-		BatchNull -> splitc '\0'
+		BatchNull -> elimemptyend . splitc '\0'
+
+	-- When there is a trailing null on the input, eliminate the empty
+	-- string that splitc generates. Other empty strings elsewhere in
+	-- the list are preserved. This is the same effect as how `lines`
+	-- handles a trailing newline.
+	elimemptyend [] = []
+	elimemptyend (x:[])
+		| null x = []
+		| otherwise = [x]
+	elimemptyend (x:rest) = x : elimemptyend rest
 
 -- When concurrency is enabled at the command line, it is used in batch
 -- mode. But, if it's only set in git config, don't use it, because the
@@ -144,63 +154,69 @@ batchCommandStart a = a >>= \case
 -- to handle them.
 --
 -- File matching options are checked, and non-matching files skipped.
-batchFiles :: BatchFormat -> ((SeekInput, RawFilePath) -> CommandStart) -> Annex ()
-batchFiles fmt a = batchFilesKeys fmt $ \(si, v) -> case v of
-	Right f -> a (si, f)
-	Left _k -> return Nothing
+batchFiles :: BatchFormat -> ((SeekInput, OsPath) -> CommandStart) -> Annex ()
+batchFiles fmt a = batchFilesKeys fmt $ \(si, v) -> 
+	return $ case v of
+		Right f -> [a (si, f)]
+		Left _k -> [return Nothing]
 
-batchFilesKeys :: BatchFormat -> ((SeekInput, Either Key RawFilePath) -> CommandStart) -> Annex ()
+batchFilesKeys :: BatchFormat -> ((SeekInput, Either Key OsPath) -> Annex [CommandStart]) -> Annex ()
 batchFilesKeys fmt a = do
 	matcher <- getMatcher
 	go $ \si v -> case v of
 		Right f -> 
-			let f' = toRawFilePath f
-			in ifM (matcher $ MatchingFile $ FileInfo f' f' Nothing)
-				( a (si, Right f')
-				, return Nothing
+			ifM (matcher $ MatchingFile $ FileInfo f f Nothing)
+				( a (si, Right f)
+				, return [return Nothing]
 				)
 		Left k -> a (si, Left k)
   where
-	go a' = batchInput fmt parser (batchCommandAction . uncurry a')
+	go a' = batchInput fmt parser $ \v ->
+		mapM_ batchCommandAction =<< uncurry a' v
 	parser = case fmt of
 		-- Absolute filepaths are converted to relative,
 		-- because in non-batch mode, that is done when
 		-- CmdLine.Seek uses git ls-files.
 		BatchFormat _ (BatchKeys False) -> 
-			Right . Right . fromRawFilePath 
-				<$$> liftIO . relPathCwdToFile . toRawFilePath
+			Right . Right
+				<$$> liftIO . relPathCwdToFile . toOsPath
 		BatchFormat _ (BatchKeys True) -> \i ->
 			pure $ case deserializeKey i of
 				Just k -> Right (Left k)
 				Nothing -> Left "not a valid key"
 
 batchAnnexedFiles :: BatchFormat -> AnnexedFileSeeker -> Annex ()
-batchAnnexedFiles fmt seeker = batchAnnexed fmt seeker (const (return Nothing))
+batchAnnexedFiles fmt seeker = 
+	batchAnnexed' fmt seeker (const (return [return Nothing]))
 
 -- Reads lines of batch input and passes filepaths to the AnnexedFileSeeker
 -- to handle them. Or, with --batch-keys, passes keys to the keyaction.
 --
 -- Matching options are checked, and non-matching items skipped.
 batchAnnexed :: BatchFormat -> AnnexedFileSeeker -> ((SeekInput, Key, ActionItem) -> CommandStart) -> Annex ()
-batchAnnexed fmt seeker keyaction = do
+batchAnnexed fmt seeker keyaction =
+	batchAnnexed' fmt seeker $ \v -> return [keyaction v]
+
+batchAnnexed' :: BatchFormat -> AnnexedFileSeeker -> ((SeekInput, Key, ActionItem) -> Annex [CommandStart]) -> Annex ()
+batchAnnexed' fmt seeker keyaction = do
 	matcher <- getMatcher
 	batchFilesKeys fmt $ \(si, v) ->
 		case v of
 			Right f -> lookupKeyStaged f >>= \case
-				Nothing -> return Nothing
+				Nothing -> return [return Nothing]
 				Just k -> checkpresent k $
-					startAction seeker si f k
+					startAction seeker Nothing si f k
 			Left k -> ifM (matcher (MatchingInfo (mkinfo k)))
 				( checkpresent k $
 					keyaction (si, k, mkActionItem k)
-				, return Nothing)
+				, return [return Nothing])
   where
 	checkpresent k cont = case checkContentPresent seeker of
 		Just v -> do
 			present <- inAnnex k
 			if present == v
 				then cont
-				else return Nothing
+				else return [return Nothing]
 		Nothing -> cont
 	
 	mkinfo k = ProvidedInfo

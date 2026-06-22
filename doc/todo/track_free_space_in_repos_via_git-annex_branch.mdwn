@@ -1,0 +1,113 @@
+[[!toc ]]
+
+## motivations
+
+If the total space available in a repository for annex objects is recorded
+on the git-annex branch (by the user running a command probably, or perhaps
+automatically), then it is possible to examine the git-annex branch and
+tell how much free space a remote has available.
+
+One use case is just to display it in `git-annex info`. But a more
+compelling use case is [[design/balanced_preferred_content]], which needs a
+way to tell when an object is too large to store on a repository, so that
+it can be redirected to be stored on another repository in the same group.
+
+This was actually a fairly common feature request early on in git-annex
+and I probably should have thought about it more back then!
+
+## implementation
+
+`git-annex info` has recently started summing up the sizes of repositories
+from location logs, and is well optimised. In my big repository, that takes
+8.54 seconds of its total runtime.
+
+Since info already knows the repo sizes, just adding a `git-annex maxsize
+here 200gb` type of command would let it display the free space of all
+repos that had a maxsize recorded, essentially for free.
+
+But 8 seconds is rather a long time to block a `git-annex push`
+type command. Which would be needed if any remote's preferred content
+expression used the free space information.
+
+Would it be possible to update incrementally from the previous git-annex
+branch to the current one? That's essentially what `git-annex log
+--sizesof` does for each commit on the git-annex branch, so could
+imagine adapting that to store its state on disk, so it can resume
+at a new git-annex branch commit.
+
+Perhaps a less expensive implementation than `git-annex log --sizesof`
+is possible, to get only the current sizes, if the past sizes are known at a
+particular git-annex branch commit. We don't care about sizes at
+intermediate points in time, which that command does calculate.
+
+See [[todo/info_--size-history]] for the subtleties that had to be handled.
+In particular, computing the previous git-annex branch commit to current may
+yield lines that seem to indicate content was added to a repo, but in fact
+that repo already had that content at the previous git-annex branch commit
+and another log line was recorded elsewhere redundantly.
+So it needs to look at the location log's value at the 
+previous commit in order to determine if a change to a log should be
+counted.
+
+Worst case, that's queries of the location log file for every single key.
+If queried from git, that would be slow -- slower than `git-annex info`'s
+streaming approach. If they were all cached in a sqlite database, it might
+manage to be faster?
+
+## incremental update via git diff
+
+Could `git diff -U1000000` be used and the patch parsed to get the complete
+old and new location log? (Assuming no log file ever reaches a million
+lines.) I tried this in my big repo, and even diffing from the first
+git-annex branch commit to the last took 7.54 seconds. 
+
+Compare that with the method used by `git-annex info`'s size gathering, of
+dumping out the content of all files on the branch with `git ls-tree -r
+git-annex |awk '{print $3}'|git cat-file --batch --buffer`, which only
+takes 3 seconds. So, this is not ideal when diffing to too old a point.
+
+Diffing in my big repo to the git-annex branch from 2020 takes 4 seconds.  
+... from 3 months ago takes 2 seconds.  
+... from 1 week ago takes 1 second.  
+
+## incremental update when merging git-annex branch
+
+When merging git-annex branch changes into .git/annex/index, 
+it already diffs between the branch and the index and uses `git cat-file`
+to get both versions of the file in order to union merge them.
+
+That's essentially the same information needed to do the incremental update
+of the repo sizes. So could update sizes at the same time as merging the
+git-annex branch. That would be essentially free!
+
+Note that the use of `git cat-file` in union merge is not --buffer
+streaming, so is slower than the patch parsing method that was discussed in
+the previous section. So it might be possible to speed up git-annex branch
+merging using patch parsing.
+
+Note that Database.ContentIdentifier and Database.ImportFeed also update
+by diffing from the old to new git-annex branch (with `git cat-file` to
+read log files) so could also be sped up by being done at git-annex branch
+merge time. Those are less expensive than diffing the location logs only
+because the logs they diff are less often used, and the work is only 
+done when relevant commands are run.
+
+(Opened [[todo/optimise_git-annex_branch_merge_and_database_updates]]
+about that possibility.)
+
+## concurrency
+
+Suppose a repository is almost full. Two concurrent threads or processes
+are considering sending two different keys to the repository. It can hold
+either key, but not both. So the size tracking seems to need to be 
+provisionally updated for one key before it is sent, and then the check for
+the other key will show not enough space and it won't be sent. If the first
+key fails to get sent, the size needs to be reset back.
+
+Note that checkDiskSpace deals with this by looking at 
+sizeOfDownloadsInProgress. It would be possible to make a
+`sizeOfUploadsInProgressToRemote r` similarly.
+
+[[!tag projects/openneuro]]
+
+> [[done]]! > --[[Joey]]

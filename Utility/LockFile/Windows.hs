@@ -5,7 +5,7 @@
  - License: BSD-2-clause
  -}
 
-{-# LANGUAGE OverloadedStrings, CPP #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Utility.LockFile.Windows (
 	lockShared,
@@ -18,14 +18,13 @@ module Utility.LockFile.Windows (
 import System.Win32.Types
 import System.Win32.File
 import Control.Concurrent
-import qualified Data.ByteString as B
-import qualified System.FilePath.Windows.ByteString as P
 
+import Utility.Path.Windows
 import Utility.FileSystemEncoding
-import Utility.Split
-import Utility.Path.AbsRel
+import Utility.OsPath
+import Common (tryNonAsync)
 
-type LockFile = RawFilePath
+type LockFile = OsPath
 
 type LockHandle = HANDLE
 
@@ -60,56 +59,19 @@ lockExclusive = openLock fILE_SHARE_NONE
  -}
 openLock :: ShareMode -> LockFile -> IO (Maybe LockHandle)
 openLock sharemode f = do
-	f' <- convertToNativeNamespace f
-#if MIN_VERSION_Win32(2,13,4)
-	r <- tryNonAsync $ createFile_NoRetry f' gENERIC_READ sharemode 
-		security_attributes oPEN_ALWAYS fILE_ATTRIBUTE_NORMAL
-		(maybePtr Nothing)
+	f' <- convertToWindowsNativeNamespace (fromOsPath f)
+	r <- tryNonAsync $ createFile_NoRetry (fromRawFilePath f') gENERIC_READ sharemode 
+		Nothing oPEN_ALWAYS fILE_ATTRIBUTE_NORMAL
+		Nothing
 	return $ case r of
 		Left _ -> Nothing
 		Right h -> Just h
-#else
-	h <- withTString (fromRawFilePath f') $ \c_f ->
-		c_CreateFile c_f gENERIC_READ sharemode security_attributes
-			oPEN_ALWAYS fILE_ATTRIBUTE_NORMAL (maybePtr Nothing)
-	return $ if h == iNVALID_HANDLE_VALUE
-		then Nothing
-		else Just h
-#endif
-  where
-	security_attributes = maybePtr Nothing
-
-{- Convert a filepath to use Windows's native namespace.
- - This avoids filesystem length limits.
- -
- - This is similar to the way base converts filenames on windows,
- - but as that is implemented in C (create_device_name) and not
- - exported, it cannot be used here. Several edge cases are not handled,
- - including network shares and dos short paths. 
- -}
-convertToNativeNamespace :: RawFilePath -> IO RawFilePath
-convertToNativeNamespace f
-	| win32_dev_namespace `B.isPrefixOf` f = return f
-	| win32_file_namespace `B.isPrefixOf` f = return f
-	| nt_device_namespace `B.isPrefixOf` f = return f
-	| otherwise = do
-		-- Make absolute because any '.' and '..' in the path
-		-- will not be resolved once it's converted.
-		p <- absPath f
-		-- Normalize slashes.
-		let p' = P.normalise p
-		return (win32_file_namespace <> p')
-  where
- 
-	win32_dev_namespace = "\\\\.\\"
-	win32_file_namespace = "\\\\?\\"
-	nt_device_namespace = "\\Device\\"
 
 dropLock :: LockHandle -> IO ()
 dropLock = closeHandle
 
 {- If the initial lock fails, this is a BUSY wait, and does not
- - guarentee FIFO order of waiters. In other news, Windows is a POS. -}
+ - guarantee FIFO order of waiters. In other news, Windows is a POS. -}
 waitToLock :: IO (Maybe lockhandle) -> IO lockhandle
 waitToLock locker = takelock
   where

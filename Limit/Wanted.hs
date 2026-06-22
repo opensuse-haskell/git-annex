@@ -15,37 +15,42 @@ import Logs.PreferredContent
 import qualified Remote
 
 addWantGet :: Annex ()
-addWantGet = addPreferredContentLimit $
-	checkWant $ wantGet False Nothing
+addWantGet = addPreferredContentLimit "want-get" $
+	checkWant $ wantGet NoLiveUpdate False Nothing
 
 addWantGetBy :: String -> Annex ()
 addWantGetBy name = do
 	u <- Remote.nameToUUID name
-	addPreferredContentLimit $ checkWant $ \af ->
-		wantGetBy False Nothing af u
+	addPreferredContentLimit "want-get-by" $ checkWant $ \af ->
+		wantGetBy NoLiveUpdate False Nothing af u
 
 addWantDrop :: Annex ()
-addWantDrop = addPreferredContentLimit $ checkWant $ \af ->
-	wantDrop False Nothing Nothing af (Just [])
+addWantDrop = addPreferredContentLimit "want-drop" $ checkWant $ \af ->
+	wantDrop NoLiveUpdate False Nothing Nothing af (Just [])
 
 addWantDropBy :: String -> Annex ()
 addWantDropBy name = do
 	u <- Remote.nameToUUID name
-	addPreferredContentLimit $ checkWant $ \af ->
-		wantDrop False (Just u) Nothing af (Just [])
+	addPreferredContentLimit "want-drop-by" $ checkWant $ \af ->
+		wantDrop NoLiveUpdate False (Just u) Nothing af (Just [])
 
-addPreferredContentLimit :: (MatchInfo -> Annex Bool) -> Annex ()
-addPreferredContentLimit a = do
+addPreferredContentLimit :: String -> (MatchInfo -> Annex Bool) -> Annex ()
+addPreferredContentLimit desc a = do
 	nfn <- introspectPreferredRequiredContent matchNeedsFileName Nothing
 	nfc <- introspectPreferredRequiredContent matchNeedsFileContent Nothing
 	nk <- introspectPreferredRequiredContent matchNeedsKey Nothing
 	nl <- introspectPreferredRequiredContent matchNeedsLocationLog Nothing
+	lsz <- introspectPreferredRequiredContent matchNeedsLiveRepoSize Nothing
+	nu <- introspectPreferredRequiredContent matchNegationUnstable Nothing
 	addLimit $ Right $ MatchFiles
-		{ matchAction = const a
+		{ matchAction = const $ const a
 		, matchNeedsFileName = nfn
 		, matchNeedsFileContent = nfc
 		, matchNeedsKey = nk
 		, matchNeedsLocationLog = nl
+		, matchNeedsLiveRepoSize = lsz
+		, matchNegationUnstable = nu
+		, matchDesc = matchDescSimple desc
 		}
 
 checkWant :: (AssociatedFile -> Annex Bool) -> MatchInfo -> Annex Bool

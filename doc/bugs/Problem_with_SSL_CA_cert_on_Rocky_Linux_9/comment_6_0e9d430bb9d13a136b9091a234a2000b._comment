@@ -1,0 +1,13 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 6"""
+ date="2026-05-11T13:43:15Z"
+ content="""
+git-annex's own SSL cert checking comes via http-client and 
+crypton-connection, which uses crypton-x509-system. 
+
+That happens to read every cert file
+in `/etc/ssl/certs/` (amoung some other places for other OS's, including
+`/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` for fedora), 
+which would include `/etc/ssl/certs/ca-bundle.crt`.
+"""]]

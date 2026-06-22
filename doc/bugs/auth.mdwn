@@ -1,0 +1,68 @@
+### Please describe the problem.
+
+`git annex push` does not trigger git credential retrieval reliably, but forces manual credential entry.
+
+### What steps will reproduce the problem?
+
+I have the following git-credential setup
+
+```
+[credential]
+        helper = cache --timeout 21600
+        helper = oauth
+```
+
+Most of my remotes are on some forgejo-aneksajo site. This setup makes git perform an oauth2 workflow against forgejo, and then use the cached credential for a couple of hours. I find this convenient.
+
+git-annex usage also benefits from this setup, as it appears to be able to use a cached credential fine.
+
+But when a credential is not yet cached, the oauth workflow is not triggered when git-annex needs a credential. Instead, it causes a prompt:
+
+```
+❯ git annex push
+copy vid/trr379-metadata-website-update.mp4 (to origin...) Password for 'https://oauth2@<host>':
+```
+
+When I ctrl-c that and immediately afterwards run git-push, this is happening:
+
+```
+❯ git push
+Please complete authentication in your browser...
+https://<host>/login/oauth/authorize?client_id=a4792ccc-...&code_challenge=mHvQCJU...&code_challenge_method=S256&redirect_uri=http%3A%2F%2F127.0.0.1%3A43407&response_type=code&state=QTFf...
+...
+To https://<host>/<repo>.git
+   0ee8c89..4977dac  main -> main
+```
+
+Afterwards, git-annex-push runs fine too.
+
+```
+❯ git annex push
+copy vid/trr379-metadata-website-update.mp4 (to origin...) 
+ok                                
+(recording state in git...)
+push origin 
+Everything up-to-date
+...
+remote: 
+remote: Create a new pull request for 'synced/git-annex':
+remote:   https://<host>/<repo>/compare/main...synced/git-annex
+remote: 
+remote: 
+remote: Create a new pull request for 'synced/main':
+remote:   https://<host>/<repo>/compare/main...synced/main
+remote: 
+To https://<host>/<repo>.git
+   aec36a7..18aa9ab  git-annex -> synced/git-annex
+   0ee8c89..4977dac  main -> synced/main
+ok
+
+```
+
+My expectation would be that a git-annex push would be able to trigger the oauth workflow in the same way that Git does.
+ 
+### What version of git-annex are you using? On what operating system?
+
+`git-annex version: 10.20260316-gf01ba218ffb36e8607516d9895dfaeaeaf101a05` on Debian forky/sid
+
+[[!tag projects/INM7]]

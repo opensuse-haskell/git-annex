@@ -1,6 +1,6 @@
 # NAME
 
-git-annex get - make content of annexed files available
+git-annex get - get content of annexed files
 
 # SYNOPSIS
 
@@ -28,11 +28,17 @@ be specified.
 
 # OPTIONS
 
+* `--wanted`
+
+  Rather than getting all the specified files, get only those that
+  are preferred content of the repository.
+  See [[git-annex-preferred-content]](1)
+
 * `--auto`
 
   Rather than getting all the specified files, get only those that don't yet
   have the desired number of copies, or that are preferred content of the
-  repository. See [[git-annex-preferred-content]](1)
+  repository.
 
 * `--from=remote`
 
@@ -135,7 +141,7 @@ be specified.
 * `--json-error-messages`
 
   Messages that would normally be output to standard error are included in
-  the json instead.
+  the JSON instead.
 
 * Also the [[git-annex-common-options]](1) can be used.
 

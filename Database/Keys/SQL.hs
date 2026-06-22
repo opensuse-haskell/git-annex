@@ -5,17 +5,14 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE QuasiQuotes, TypeFamilies, TemplateHaskell #-}
+{-# LANGUAGE QuasiQuotes, TypeFamilies, TypeOperators, TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings, GADTs, FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes, ScopedTypeVariables #-}
 {-# LANGUAGE DataKinds, FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
-#if MIN_VERSION_persistent_template(2,8,0)
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE StandaloneDeriving #-}
-#endif
 
 module Database.Keys.SQL where
 
@@ -24,6 +21,7 @@ import Database.Handle
 import qualified Database.Queue as H
 import Utility.InodeCache
 import Git.FilePath
+import Utility.OsPath
 
 import Database.Persist.Sql hiding (Key)
 import Database.Persist.TH
@@ -33,7 +31,7 @@ import Data.Maybe
 -- Note on indexes: KeyFileIndex etc are really uniqueness constraints,
 -- which cause sqlite to automatically add indexes. So when adding indexes,
 -- have to take care to only add ones that work as uniqueness constraints.
--- (Unfortunatly persistent does not support indexes that are not
+-- (Unfortunately persistent does not support indexes that are not
 -- uniqueness constraints; https://github.com/yesodweb/persistent/issues/109)
 --
 -- To speed up queries for a key, there's KeyFileIndex, 
@@ -45,7 +43,7 @@ import Data.Maybe
 share [mkPersist sqlSettings, mkMigrate "migrateKeysDb"] [persistLowerCase|
 Associated
   key Key
-  file SFilePath
+  file SByteString
   KeyFileIndex key file
   FileKeyIndex file key
 Content
@@ -86,23 +84,23 @@ addAssociatedFile k f = queueDb $
 		(Associated k af)
 		[AssociatedFile =. af, AssociatedKey =. k]
   where
-	af = SFilePath (getTopFilePath f)
+	af = SByteString (fromOsPath (getTopFilePath f))
 
 -- Faster than addAssociatedFile, but only safe to use when the file
 -- was not associated with a different key before, as it does not delete
 -- any old key.
 newAssociatedFile :: Key -> TopFilePath -> WriteHandle -> IO ()
 newAssociatedFile k f = queueDb $
-	void $ insert $ Associated k af
+	insert_ $ Associated k af
   where
-	af = SFilePath (getTopFilePath f)
+	af = SByteString (fromOsPath (getTopFilePath f))
 
 {- Note that the files returned were once associated with the key, but
  - some of them may not be any longer. -}
 getAssociatedFiles :: Key -> ReadHandle -> IO [TopFilePath]
 getAssociatedFiles k = readDb $ do
 	l <- selectList [AssociatedKey ==. k] []
-	return $ map (asTopFilePath . (\(SFilePath f) -> f) . associatedFile . entityVal) l
+	return $ map (asTopFilePath . toOsPath . (\(SByteString f) -> f) . associatedFile . entityVal) l
 
 {- Gets any keys that are on record as having a particular associated file.
  - (Should be one or none.) -}
@@ -111,17 +109,17 @@ getAssociatedKey f = readDb $ do
 	l <- selectList [AssociatedFile ==. af] []
 	return $ map (associatedKey . entityVal) l
   where
-	af = SFilePath (getTopFilePath f)
+	af = SByteString (fromOsPath (getTopFilePath f))
 
 removeAssociatedFile :: Key -> TopFilePath -> WriteHandle -> IO ()
 removeAssociatedFile k f = queueDb $
 	deleteWhere [AssociatedKey ==. k, AssociatedFile ==. af]
   where
-	af = SFilePath (getTopFilePath f)
+	af = SByteString (fromOsPath (getTopFilePath f))
 
 addInodeCaches :: Key -> [InodeCache] -> WriteHandle -> IO ()
 addInodeCaches k is = queueDb $
-	forM_ is $ \i -> insertUnique $ Content k i 
+	forM_ is $ \i -> insertUnique_ $ Content k i 
 		(inodeCacheToFileSize i)
 		(inodeCacheToEpochTime i)
 

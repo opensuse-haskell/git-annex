@@ -1,55 +1,65 @@
 {- directory traversal and manipulation
  -
- - Copyright 2011-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2025 Joey Hess <id@joeyh.name>
  -
  - License: BSD-2-clause
  -}
 
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-tabs #-}
 
-module Utility.Directory (
-	module Utility.Directory,
-	module Utility.SystemDirectory
-) where
+module Utility.Directory where
 
-import Control.Monad
-import System.FilePath
-import System.PosixCompat.Files (getSymbolicLinkStatus, isDirectory, isSymbolicLink)
-import Control.Applicative
-import System.IO.Unsafe (unsafeInterleaveIO)
-import Data.Maybe
-import Prelude
-
+#ifdef WITH_OSPATH
+import System.Directory.OsPath
+#else
 import Utility.SystemDirectory
+#endif
+import Control.Monad
+import System.PosixCompat.Files (isDirectory, isSymbolicLink)
+import System.IO.Unsafe (unsafeInterleaveIO)
+
+import Utility.OsPath
 import Utility.Exception
 import Utility.Monad
-import Utility.Applicative
+import qualified Utility.RawFilePath as R
 
-dirCruft :: FilePath -> Bool
-dirCruft "." = True
-dirCruft ".." = True
-dirCruft _ = False
+dirCruft :: [OsPath]
+dirCruft = [literalOsPath ".", literalOsPath ".."]
 
 {- Lists the contents of a directory.
  - Unlike getDirectoryContents, paths are not relative to the directory. -}
-dirContents :: FilePath -> IO [FilePath]
-dirContents d = map (d </>) . filter (not . dirCruft) <$> getDirectoryContents d
+dirContents :: OsPath -> IO [OsPath]
+dirContents d = map (d </>) . filter (`notElem` dirCruft)
+	<$> getDirectoryContents d
 
 {- Gets files in a directory, and then its subdirectories, recursively,
  - and lazily.
  -
  - Does not follow symlinks to other subdirectories.
  -
- - When the directory does not exist, no exception is thrown,
- - instead, [] is returned. -}
-dirContentsRecursive :: FilePath -> IO [FilePath]
+ - Throws exception if the directory does not exist or otherwise cannot be
+ - accessed. However, does not throw exceptions when subdirectories cannot
+ - be accessed (the use of unsafeInterleaveIO would make it difficult to
+ - trap such exceptions).
+ -}
+dirContentsRecursive :: OsPath -> IO [OsPath]
 dirContentsRecursive = dirContentsRecursiveSkipping (const False) True
 
 {- Skips directories whose basenames match the skipdir. -}
-dirContentsRecursiveSkipping :: (FilePath -> Bool) -> Bool -> FilePath -> IO [FilePath]
-dirContentsRecursiveSkipping skipdir followsubdirsymlinks topdir = go [topdir]
+dirContentsRecursiveSkipping :: (OsPath -> Bool) -> Bool -> OsPath -> IO [OsPath]
+dirContentsRecursiveSkipping skipdir followsubdirsymlinks topdir
+	| skipdir (takeFileName topdir) = return []
+	| otherwise = do
+		-- Get the contents of the top directory outside of
+		-- unsafeInterleaveIO, which allows throwing exceptions if
+		-- it cannot be accessed.
+		(files, dirs) <- collect [] []
+			=<< dirContents topdir
+		files' <- go dirs
+		return (files ++ files')
   where
 	go [] = return []
 	go (dir:dirs)
@@ -59,13 +69,15 @@ dirContentsRecursiveSkipping skipdir followsubdirsymlinks topdir = go [topdir]
 				=<< catchDefaultIO [] (dirContents dir)
 			files' <- go (dirs' ++ dirs)
 			return (files ++ files')
+	
+	collect :: [OsPath] -> [OsPath] -> [OsPath] -> IO ([OsPath], [OsPath])
 	collect files dirs' [] = return (reverse files, reverse dirs')
 	collect files dirs' (entry:entries)
-		| dirCruft entry = collect files dirs' entries
+		| entry `elem` dirCruft = collect files dirs' entries
 		| otherwise = do
 			let skip = collect (entry:files) dirs' entries
 			let recurse = collect files (entry:dirs') entries
-			ms <- catchMaybeIO $ getSymbolicLinkStatus entry
+			ms <- catchMaybeIO $ R.getSymbolicLinkStatus (fromOsPath entry)
 			case ms of
 				(Just s) 
 					| isDirectory s -> recurse
@@ -78,18 +90,35 @@ dirContentsRecursiveSkipping skipdir followsubdirsymlinks topdir = go [topdir]
 
 {- Gets the directory tree from a point, recursively and lazily,
  - with leaf directories **first**, skipping any whose basenames
- - match the skipdir. Does not follow symlinks. -}
-dirTreeRecursiveSkipping :: (FilePath -> Bool) -> FilePath -> IO [FilePath]
-dirTreeRecursiveSkipping skipdir topdir = go [] [topdir]
+ - match the skipdir. Does not follow symlinks.
+ -
+ - Throws exception if the directory does not exist or otherwise cannot be
+ - accessed. However, does not throw exceptions when subdirectories cannot
+ - be accessed (the use of unsafeInterleaveIO would make it difficult to
+ - trap such exceptions).
+ -}
+dirTreeRecursiveSkipping :: (OsPath -> Bool) -> OsPath -> IO [OsPath]
+dirTreeRecursiveSkipping skipdir topdir
+	| skipdir (takeFileName topdir) = return []
+	| otherwise = do
+		subdirs <- filterM isdir =<< dirContents topdir
+		go [] subdirs
   where
 	go c [] = return c
 	go c (dir:dirs)
 		| skipdir (takeFileName dir) = go c dirs
 		| otherwise = unsafeInterleaveIO $ do
 			subdirs <- go []
-				=<< filterM (isDirectory <$$> getSymbolicLinkStatus)
+				=<< filterM isdir
 				=<< catchDefaultIO [] (dirContents dir)
 			go (subdirs++dir:c) dirs
+	isdir p = isDirectory <$> R.getSymbolicLinkStatus (fromOsPath p)
+
+{- When the action fails due to the directory not existing, returns []. -}
+emptyWhenDoesNotExist :: IO [a] -> IO [a]
+emptyWhenDoesNotExist a = tryWhenExists a >>= return . \case
+	Just v -> v
+	Nothing -> []
 
 {- Use with an action that removes something, which may or may not exist.
  -

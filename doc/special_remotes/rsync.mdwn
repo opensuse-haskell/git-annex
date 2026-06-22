@@ -2,12 +2,12 @@ This special remote type rsyncs file contents to somewhere else.
 
 Setup example:
 
-	# git annex initremote myrsync type=rsync rsyncurl=rsync://rsync.example.com/myrsync keyid=id@joeyh.name encryption=shared
+	# git annex initremote myrsync type=rsync rsyncurl=rsync://rsync.example.com/myrsync encryption=shared
 	# git annex describe myrsync "rsync server"
 
 Or for using rsync over SSH
 
-	# git annex initremote myrsync type=rsync rsyncurl=ssh.example.com:/myrsync keyid=id@joeyh.name encryption=shared
+	# git annex initremote myrsync type=rsync rsyncurl=ssh.example.com:/myrsync encryption=shared
 	# git annex describe myrsync "rsync server"
 
 ## configuration
@@ -25,6 +25,11 @@ These parameters can be passed to `git annex initremote` to configure rsync:
 * `exporttree` - Set to "yes" to make this special remote usable
   by [[git-annex-export]]. It will not be usable as a general-purpose
   special remote.
+
+* `annexobjects` - When set to "yes" along with "exporttree=yes",
+  this allows storing other objects in the remote along with the
+  exported tree. They will be stored under .git/annex/objects/ in the
+  remote.
 
 * `shellescape` - Optional. This has no effect when using rsync 3.2.4 or
   newer. Set to "no" to avoid shell escaping
@@ -58,4 +63,4 @@ To pass parameters to ssh/rsh, include the parameters after "rsh" or
 "ssh".  For example, to configure ssh to use the private key at
 `/path/to/private/key`:
 
-	git config renote.name.annex-rsync-transport "ssh -i /path/to/private/key"
+	git config remote.name.annex-rsync-transport "ssh -i /path/to/private/key"

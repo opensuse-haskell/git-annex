@@ -1,0 +1,62 @@
+`git-annex addurl --fast/--relaxed --verifiable` now uses VURL keys,
+which is an improvement over the old, un-verifiable URL keys. But users
+have to know to use it, and can have URL keys in their repository.
+
+Note that old git-annex, when in a repo with VURL keys, is still able to
+operate on them fine, even though it doesn't know what they are.
+Only fsck warns about them. So --verifiable could become the default
+reasonably soon. It's not necessary to wait for everyone to have the new
+version of git-annex.
+
+It might be good to nudge users to migrate their existing files to VURL
+eventually. Could be a fsck warning about URL keys, at some point after
+--verifiable becomes the default for addurl. Or could be a warning when
+transferring the content between repositories that it's not possible to
+verify it.
+
+> This would need a way to migrate from URL key to VURL key.
+> 
+> > Oh, I was wrong, that does exist already, just `git-annex migrate
+> > --backend=VURL` works for URL keys. (Content must be present of course
+> > or no migration is done). --[[Joey]]
+
+Of course if users want to continue to use their existing URL keys and 
+not be able to verify content, that's fine. Users can also choose to use 
+WORM keys if they really want to. 
+
+However, I don't think there's enough reason to want to use URL keys to add
+configuration of which kind of keys addurl uses, once VURL is the default.
+--[[Joey]]
+
+> One way this might cause trouble is that current `git-annex registerurl`
+> and `unregisterurl` (and `fromkey`)  when passed an url rather than a key,
+> generates an URL key. If that is changed to generate a VURL key, then
+> it might break some workflow, particularly one where an url was
+> registered as an URL key and is now being unregistered.
+> 
+> > Also `git-annex registerurl`, if it generated a VURL key, would not be 
+> > able to register an equivilant key for that VURL key, because it does
+> > not have the content of the url available. This leads me to think 
+> > that it's not possible to have registerurl usefully support generating
+> > VURL keys. (Registering one without an equivilant key would make no hash
+> > verification be done, so no better than an URL key.)
+> > 
+> > > Wait, if it generates a VURL key with no size, wouldn't it be the
+> > > same as `git-annex addurl --verifiable --relaxed`? Which is fine;
+> > > it's currently the same as `git-annex addurl --relaxed`.
+> > 
+> > But, I don't think that registerurl/unregisterurl continuing to
+> > generate URL keys is a big problem, it should not block making VURL
+> > the default in places where it can be default. --[[Joey]]
+
+----
+
+Made --verifiable be the default for addurl and importfeed.
+
+Made generate from an url both an URL and a VURL and
+unregister both, or whichever is registered.
+
+Made registerurl (and fromkey) generate a VURL key that behaves the same
+as addurl --relaxed.
+
+So all [[done]]! --[[Joey]]

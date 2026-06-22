@@ -25,21 +25,18 @@ import Utility.LockPool.STM (LockFile, LockMode(..))
 import Utility.LockPool.LockHandle
 import Utility.ThreadScheduler
 
-import System.IO
 import System.Posix
 import Control.Concurrent.STM
 import Data.Maybe
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Control.Applicative
-import Prelude
 
 -- Does locking using a pid lock, blocking until the lock is available
 -- or the Seconds timeout if the pid lock is held by another process.
 --
 -- There are two levels of locks. A STM lock is used to handle
--- fine-grained locking amoung threads, locking a specific lockfile,
+-- fine-grained locking among threads, locking a specific lockfile,
 -- but only in memory. The pid lock handles locking between processes.
 --
 -- The pid lock is only taken once, and LockShared is used for it,

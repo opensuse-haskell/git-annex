@@ -1,6 +1,6 @@
 {- git-annex command-line actions and concurrency
  -
- - Copyright 2010-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -74,9 +74,7 @@ commandAction start = do
 	st <- Annex.getState id
 	case getConcurrency' (Annex.concurrency st) of
 		NonConcurrent -> runnonconcurrent (Annex.sizelimit st)
-		Concurrent n
-			| n > 1 -> runconcurrent (Annex.sizelimit st) (Annex.workers st)
-			| otherwise -> runnonconcurrent (Annex.sizelimit st)
+		Concurrent _ -> runconcurrent (Annex.sizelimit st) (Annex.workers st)
 		ConcurrentPerCpu -> runconcurrent (Annex.sizelimit st) (Annex.workers st)
   where
 	runnonconcurrent sizelimit = start >>= \case
@@ -89,9 +87,8 @@ commandAction start = do
 
 	runconcurrent sizelimit Nothing = runnonconcurrent sizelimit
 	runconcurrent sizelimit (Just tv) = 
-		liftIO (atomically (waitStartWorkerSlot tv)) >>= maybe
-			(runnonconcurrent sizelimit)
-			(runconcurrent' sizelimit tv)
+		liftIO (atomically (waitStartWorkerSlot tv))
+			>>= runconcurrent' sizelimit tv
 	runconcurrent' sizelimit tv (workerstrd, workerstage) = do
 		aid <- liftIO $ async $ snd 
 			<$> Annex.run workerstrd
@@ -151,7 +148,7 @@ commandAction start = do
 				showEndMessage startmsg False
 				return False
 	
-{- Waits for all worker threads to finish and merges their AnnexStates
+{- Waits for all worker thrneads to finish and merges their AnnexStates
  - back into the current Annex's state.
  -}
 finishCommandActions :: Annex ()
@@ -192,7 +189,7 @@ accountCommandAction startmsg cleanup = tryNonAsync cleanup >>= \case
 	Left err -> case fromException err of
 		Just exitcode -> liftIO $ exitWith exitcode
 		Nothing -> do
-			toplevelWarning True (show err)
+			toplevelWarning True (UnquotedString (show err))
 			showEndMessage startmsg False
 			incerr
   where
@@ -235,8 +232,11 @@ startConcurrency usedstages a = do
 	let usegitcfg = setConcurrency (ConcurrencyGitConfig fromgitcfg)
 	case (fromcmdline, fromgitcfg) of
 		(NonConcurrent, NonConcurrent) -> a
-		(Concurrent n, _) ->
-			goconcurrent n
+		(Concurrent n, _) 
+			| n > 1 -> goconcurrent n
+			| otherwise -> do
+				setConcurrency' NonConcurrent ConcurrencyCmdLine
+				a
 		(ConcurrentPerCpu, _) ->
 			goconcurrentpercpu
 		(NonConcurrent, Concurrent n) -> do
@@ -247,7 +247,7 @@ startConcurrency usedstages a = do
 			goconcurrentpercpu
   where
 	goconcurrent n = do
-		raisecapabilitiesto n
+		raiseCapabilitiesForJobs n
 		withMessageState $ \s -> case outputType s of
 			NormalOutput -> ifM (liftIO concurrentOutputSupported)
 				( Regions.displayConsoleRegions $
@@ -269,11 +269,6 @@ startConcurrency usedstages a = do
 
 	setconcurrentoutputenabled b = Annex.changeState $ \s ->
 		s { Annex.output = (Annex.output s) { concurrentOutputEnabled = b } }
-
-	raisecapabilitiesto n = do
-		c <- liftIO getNumCapabilities
-		when (n > c) $
-			liftIO $ setNumCapabilities n
 	
 	initworkerpool n = do
 		tv <- liftIO newEmptyTMVarIO
@@ -345,3 +340,12 @@ checkSizeLimit (Just sizelimitvar) startmsg a =
 			else reachedlimit
 	
 	reachedlimit = Annex.changeState $ \s -> s { Annex.reachedlimit = True }
+
+raiseCapabilitiesForJobs :: Int -> Annex ()
+raiseCapabilitiesForJobs njobs = do
+	ncpus <- maybe (liftIO getNumProcessors) (\(Cpus n) -> return n)
+		=<< Annex.getState Annex.cpus
+	let n = min ncpus njobs
+	c <- liftIO getNumCapabilities
+	when (n > c) $
+		liftIO $ setNumCapabilities n

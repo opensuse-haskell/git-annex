@@ -18,10 +18,11 @@ import Types.ProposedAccepted
 import qualified Data.Map as M
 
 cmd :: Command
-cmd = command "renameremote" SectionSetup
-	"changes name of special remote"
-	(paramPair paramName paramName)
-	(withParams seek)
+cmd = withAnnexOptions [jsonOptions] $
+	command "renameremote" SectionSetup
+		"changes name of special remote"
+		(paramPair paramName paramName)
+		(withParams seek)
 
 seek :: CmdParams -> CommandSeek
 seek = withWords (commandAction . start)
@@ -35,12 +36,12 @@ start ps@(oldname:newname:[]) = Annex.SpecialRemote.findExisting oldname >>= \ca
 	-- as a fallback when there is nothing with the name in the
 	-- special remote log.
 	[] -> Remote.nameToUUID' oldname >>= \case
-		Left e -> giveup e
-		Right u -> do
+		([u], _) -> do
 			m <- Logs.Remote.remoteConfigMap
 			case M.lookup u m of
 				Nothing -> giveup "That is not a special remote."
 				Just cfg -> go u cfg Nothing
+		(_, msg) -> giveup msg
 	_ -> giveup $ "There are multiple special remotes named " ++ oldname ++ ". Provide instead the uuid or description of the remote to rename."
   where
 	ai = ActionItemOther Nothing

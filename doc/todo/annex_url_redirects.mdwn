@@ -1,0 +1,24 @@
+annex:: urls are long, and in some situations it's useful to have a nice
+short url
+
+How about supporting an url like "annex::https://example.com/foo",
+where the http url redirects to the full annex url. Then any url
+shortener can be used. --[[Joey]]
+
+> This might be a security problem. An arbitrary annex:: url can access an
+> arbitrary resource. Eg, it might be a directory special remote, using any
+> directory on the user's computer, and they won't know if it's hidden
+> behind a http redirect.
+> 
+> Perhaps that could be dealt with by displaying information about the
+> special remote and prompting if it's ok to use. But users generally
+> say "yes" without thinking.
+> 
+> Perhaps it could be limited to safe special remotes. httpalso is surely
+> safe in this context. Would anything else be? Any external special
+> remotes? --[[Joey]]
+
+>> Implemented this, but it was being a bit hard to handle a redirect to an
+>> annex:: url, and in any case with httpalso, the user has a web server
+>> they can host files on. So made the url be downloaded as a file, and
+>> the first line contains the complete annex:: url. [[done]]

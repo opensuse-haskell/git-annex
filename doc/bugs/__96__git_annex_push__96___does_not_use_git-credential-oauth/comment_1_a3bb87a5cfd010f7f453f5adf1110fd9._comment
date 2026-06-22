@@ -1,0 +1,16 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 1"""
+ date="2026-01-02T16:42:10Z"
+ content="""
+git-annex is actually using git credential here. That's
+where the "Username for" prompt comes from.
+
+Looks like the url you gave 404's. But git-annex is hitting
+`https://atris.fz-juelich.de/m.risse/test1.git/config` and getting a 401
+Unauthorized for that. Which is why it is using git credential. 
+But I'm not sure if I'm seeing now the same now as what you would have seen.
+
+@matrs Any chance you could give me access to reproduce this using your
+server so I could look into that?
+"""]]

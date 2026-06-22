@@ -11,6 +11,7 @@ import Command
 import qualified Remote
 import Logs.PreferredContent
 import Types.StandardGroups
+import Utility.SafeOutput
 
 import qualified Data.Map as M
 
@@ -26,9 +27,10 @@ cmd'
 	-> (UUID -> PreferredContentExpression -> Annex ())
 	-> Command
 cmd' name desc getter setter = noMessages $ 
-	command name SectionSetup desc pdesc (withParams seek)
+	command name SectionSetup desc pdesc
+		(withParams' seek completeRemotes)
   where
-	pdesc = paramPair paramRemote (paramOptional paramExpression)
+	pdesc = paramPair paramRepository (paramOptional paramExpression)
 
 	seek = withWords (commandAction . start)
 
@@ -39,7 +41,7 @@ cmd' name desc getter setter = noMessages $
 	start ps@(rname:expr:[]) = do
 		u <- Remote.nameToUUID rname
 		let si = SeekInput ps
-		let ai = ActionItemOther (Just rname)
+		let ai = ActionItemOther (Just (UnquotedString rname))
 		startingUsualMessages name ai si $
 			performSet setter expr u
 	start _ = giveup "Specify a repository."
@@ -47,7 +49,7 @@ cmd' name desc getter setter = noMessages $
 performGet :: Ord a => Annex (M.Map a PreferredContentExpression) -> a -> CommandPerform
 performGet getter a = do
 	m <- getter
-	liftIO $ putStrLn $ fromMaybe "" $ M.lookup a m
+	liftIO $ putStrLn $ safeOutput $ fromMaybe "" $ M.lookup a m
 	next $ return True
 
 performSet :: (a -> PreferredContentExpression -> Annex ()) -> String -> a -> CommandPerform

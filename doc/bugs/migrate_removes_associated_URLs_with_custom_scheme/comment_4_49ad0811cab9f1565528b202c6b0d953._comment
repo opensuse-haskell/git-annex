@@ -1,0 +1,9 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""Re: annex-security-allow-unverified-downloads"""
+ date="2026-06-12T15:16:21Z"
+ content="""
+The reason downloading from the web special remote with just an URL key is
+allowed is because it avoids the specific security holes that
+annex-security-allow-unverified-downloads was added to deal with.
+"""]]

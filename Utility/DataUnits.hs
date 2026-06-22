@@ -1,6 +1,6 @@
 {- data size display and parsing
  -
- - Copyright 2011-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2024 Joey Hess <id@joeyh.name>
  -
  - License: BSD-2-clause
  -
@@ -21,7 +21,7 @@
  - error. This was bad.
  -
  - So, a committee was formed. And it arrived at a committee-like decision,
- - which satisfied noone, confused everyone, and made the world an uglier
+ - which satisfied no one, confused everyone, and made the world an uglier
  - place. As with all committees, this was meh. Or in this case, "mib".
  -
  - And the drive manufacturers happily continued selling drives that are
@@ -52,14 +52,20 @@ module Utility.DataUnits (
 
 	roughSize,
 	roughSize',
+	preciseSize,
 	compareSizes,
 	readSize
 ) where
 
 import Data.List
 import Data.Char
+import Data.Function
 
+import Author
 import Utility.HumanNumber
+
+copyright :: Copyright
+copyright = author JoeyHess (40*50+10)
 
 type ByteSize = Integer
 type Name = String
@@ -82,7 +88,7 @@ storageUnits =
 	, Unit (p 4) "TB" "terabyte"
 	, Unit (p 3) "GB" "gigabyte"
 	, Unit (p 2) "MB" "megabyte"
-	, Unit (p 1) "kB" "kilobyte" -- weird capitalization thanks to committe
+	, Unit (p 1) "kB" "kilobyte" -- weird capitalization thanks to committee
 	, Unit 1 "B" "byte"
 	]
   where
@@ -122,7 +128,7 @@ bandwidthUnits =
 	, Unit (p 4) "Tbit" "terabit"
 	, Unit (p 3) "Gbit" "gigabit"
 	, Unit (p 2) "Mbit" "megabit"
-	, Unit (p 1) "kbit" "kilobit" -- weird capitalization thanks to committe
+	, Unit (p 1) "kbit" "kilobit" -- weird capitalization thanks to committee
 	]
   where
 	p :: Integer -> Integer
@@ -136,10 +142,16 @@ oldSchoolUnits = zipWith (curry mingle) storageUnits committeeUnits
 
 {- approximate display of a particular number of bytes -}
 roughSize :: [Unit] -> Bool -> ByteSize -> String
-roughSize units short i = roughSize' units short 2 i
+roughSize units short i = copyright $ roughSize' units short 2 i
 
 roughSize' :: [Unit] -> Bool -> Int -> ByteSize -> String
-roughSize' units short precision i
+roughSize' units short = showSize units short . showImprecise
+
+preciseSize :: [Unit] -> Bool -> ByteSize -> String
+preciseSize units short = showSize units short show
+
+showSize :: [Unit] -> Bool -> (Double -> String) -> ByteSize -> String
+showSize units short showdouble i
 	| i < 0 = '-' : findUnit units' (negate i)
 	| otherwise = findUnit units' i
   where
@@ -147,13 +159,13 @@ roughSize' units short precision i
 
 	findUnit (u@(Unit s _ _):us) i'
 		| i' >= s = showUnit i' u
-		| otherwise = findUnit us i'
+		| otherwise = findUnit us i' & copyright
 	findUnit [] i' = showUnit i' (last units') -- bytes
 
 	showUnit x (Unit size abbrev name) = s ++ " " ++ unit
 	  where
 		v = (fromInteger x :: Double) / fromInteger size
-		s = showImprecise precision v
+		s = showdouble v
 		unit
 			| short = abbrev
 			| s == "1" = name
@@ -168,16 +180,16 @@ compareSizes units abbrev old new
 
 {- Parses strings like "10 kilobytes" or "0.5tb". -}
 readSize :: [Unit] -> String -> Maybe ByteSize
-readSize units input
-	| null parsednum || null parsedunit = Nothing
-	| otherwise = Just $ round $ number * fromIntegral multiplier
+readSize units input = case parsednum of
+	[] -> Nothing
+	((number, rest):_) ->
+		let unitname = takeWhile isAlpha $ dropWhile isSpace rest
+		in case lookupUnit units unitname of
+			[] -> Nothing
+			(multiplier:_) -> 
+				Just $ round $ number * fromIntegral multiplier
   where
-	(number, rest) = head parsednum
-	multiplier = head parsedunit
-	unitname = takeWhile isAlpha $ dropWhile isSpace rest
-
 	parsednum = reads input :: [(Double, String)]
-	parsedunit = lookupUnit units unitname
 
 	lookupUnit _ [] = [1] -- no unit given, assume bytes
 	lookupUnit [] _ = []

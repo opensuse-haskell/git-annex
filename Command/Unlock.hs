@@ -18,6 +18,8 @@ import Git.FilePath
 import qualified Database.Keys
 import qualified Utility.RawFilePath as R
 
+import System.PosixCompat.Files (fileMode)
+
 cmd :: Command
 cmd = mkcmd "unlock" "unlock files for modification"
 
@@ -31,14 +33,14 @@ mkcmd n d = withAnnexOptions [jsonOptions, annexedMatchingOptions] $
 seek :: CmdParams -> CommandSeek
 seek ps = withFilesInGitAnnex ww seeker =<< workTreeItems ww ps
   where
-	ww = WarnUnmatchLsFiles
+	ww = WarnUnmatchLsFiles "unlock"
 	seeker = AnnexedFileSeeker
-		{ startAction = start
+		{ startAction = startSingle $ const start
 		, checkContentPresent = Nothing
 		, usesLocationLog = False
 		}
 
-start :: SeekInput -> RawFilePath -> Key -> CommandStart
+start :: SeekInput -> OsPath -> Key -> CommandStart
 start si file key = ifM (isJust <$> isAnnexLink file)
 	( starting "unlock" ai si $ perform file key
 	, stop
@@ -46,25 +48,25 @@ start si file key = ifM (isJust <$> isAnnexLink file)
   where
 	ai = mkActionItem (key, AssociatedFile (Just file))
 
-perform :: RawFilePath -> Key -> CommandPerform
+perform :: OsPath -> Key -> CommandPerform
 perform dest key = do
-	destmode <- liftIO $ catchMaybeIO $ fileMode <$> R.getFileStatus dest
-	destic <- replaceWorkTreeFile (fromRawFilePath dest) $ \tmp -> do
+	destmode <- liftIO $ catchMaybeIO $ fileMode <$> R.getFileStatus (fromOsPath dest)
+	destic <- replaceWorkTreeFile dest $ \tmp -> do
 		ifM (inAnnex key)
 			( do
-				r <- linkFromAnnex' key (toRawFilePath tmp) destmode
+				r <- linkFromAnnex' key tmp destmode
 				case r of
 					LinkAnnexOk -> return ()
 					LinkAnnexNoop -> return ()
-					LinkAnnexFailed -> error "unlock failed"
-			, liftIO $ writePointerFile (toRawFilePath tmp) key destmode
+					LinkAnnexFailed -> giveup "unlock failed"
+			, liftIO $ writePointerFile tmp key destmode
 			)
-		withTSDelta (liftIO . genInodeCache (toRawFilePath tmp))
+		withTSDelta (liftIO . genInodeCache tmp)
 	next $ cleanup dest destic key destmode
 
-cleanup :: RawFilePath -> Maybe InodeCache -> Key -> Maybe FileMode -> CommandCleanup
+cleanup :: OsPath -> Maybe InodeCache -> Key -> Maybe FileMode -> CommandCleanup
 cleanup dest destic key destmode = do
 	stagePointerFile dest destmode =<< hashPointerFile key
-	maybe noop (restagePointerFile (Restage True) dest) destic
+	maybe noop (restagePointerFile QueueRestage dest) destic
 	Database.Keys.addAssociatedFile key =<< inRepo (toTopFilePath dest)
 	return True

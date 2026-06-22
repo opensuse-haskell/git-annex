@@ -1,6 +1,6 @@
 {- git-annex repository differences
  -
- - Copyright 2015 Joey Hess <id@joeyh.name>
+ - Copyright 2015-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -17,6 +17,7 @@ module Types.Difference (
 	differenceConfigVal,
 	hasDifference,
 	listDifferences,
+	mkDifferences,
 ) where
 
 import Utility.PartialPrelude
@@ -25,18 +26,15 @@ import qualified Git.Config
 import Git.Types
 
 import Data.Maybe
-import Data.Monoid
 import qualified Data.ByteString as B
 import qualified Data.Set as S
-import qualified Data.Semigroup as Sem
-import Prelude
 
--- Describes differences from the v5 repository format.
+-- Describes differences from the standard repository format.
 --
 -- The serialization is stored in difference.log, so avoid changes that
--- would break compatability.
+-- would break compatibility.
 --
--- Not breaking compatability is why a list of Differences is used, rather
+-- Not breaking compatibility is why a list of Differences is used, rather
 -- than a record type. With a record type, adding a new field for some future
 -- difference would serialize to a value that an older version could not
 -- parse, even if that new field was not used. With the Differences list,
@@ -50,6 +48,7 @@ data Difference
 	= ObjectHashLower
 	| OneLevelObjectHash
 	| OneLevelBranchHash
+	| Simulation
 	deriving (Show, Read, Eq, Ord, Enum, Bounded)
 
 -- This type is used internally for efficient checking for differences,
@@ -59,6 +58,7 @@ data Differences
 		{ objectHashLower :: Bool
 		, oneLevelObjectHash :: Bool
 		, oneLevelBranchHash :: Bool
+		, simulation :: Bool
 		}
 	| UnknownDifferences
 
@@ -70,6 +70,7 @@ instance Eq Differences where
 		[ objectHashLower
 		, oneLevelObjectHash
 		, oneLevelBranchHash
+		, simulation
 		]
 
 appendDifferences :: Differences -> Differences -> Differences
@@ -77,14 +78,15 @@ appendDifferences a@(Differences {}) b@(Differences {}) = a
 	{ objectHashLower = objectHashLower a || objectHashLower b
 	, oneLevelObjectHash = oneLevelObjectHash a || oneLevelObjectHash b
 	, oneLevelBranchHash = oneLevelBranchHash a || oneLevelBranchHash b
+	, simulation = simulation a || simulation b
 	}
 appendDifferences _ _ = UnknownDifferences
 
-instance Sem.Semigroup Differences where
+instance Semigroup Differences where
 	(<>) = appendDifferences
 
 instance Monoid Differences where
-	mempty = Differences False False False
+	mempty = Differences False False False False
 
 readDifferences :: String -> Differences
 readDifferences = maybe UnknownDifferences mkDifferences . readish
@@ -96,26 +98,28 @@ getDifferences :: Git.Repo -> Differences
 getDifferences r = mkDifferences $ S.fromList $
 	mapMaybe getmaybe [minBound .. maxBound]
   where
-	getmaybe d = case Git.Config.isTrueFalse' =<< Git.Config.getMaybe (differenceConfigKey d) r of
+	getmaybe d = case Git.Config.isTrueFalse' =<< flip Git.Config.getMaybe r =<< differenceConfigKey d of
 		Just True -> Just d
 		_ -> Nothing
 
-differenceConfigKey :: Difference -> ConfigKey
+differenceConfigKey :: Difference -> Maybe ConfigKey
 differenceConfigKey ObjectHashLower = tunable "objecthashlower"
 differenceConfigKey OneLevelObjectHash = tunable "objecthash1"
 differenceConfigKey OneLevelBranchHash = tunable "branchhash1"
+differenceConfigKey Simulation = Nothing
 
 differenceConfigVal :: Difference -> String
 differenceConfigVal _ = Git.Config.boolConfig True
 
-tunable :: B.ByteString -> ConfigKey
-tunable k = ConfigKey ("annex.tune." <> k)
+tunable :: B.ByteString -> Maybe ConfigKey
+tunable k = Just $ ConfigKey ("annex.tune." <> k)
 
 hasDifference :: Difference -> Differences -> Bool
 hasDifference _ UnknownDifferences = False
 hasDifference ObjectHashLower ds = objectHashLower ds
 hasDifference OneLevelObjectHash ds = oneLevelObjectHash ds
 hasDifference OneLevelBranchHash ds = oneLevelBranchHash ds
+hasDifference Simulation ds = simulation ds
 
 listDifferences :: Differences -> [Difference]
 listDifferences d@(Differences {}) = map snd $
@@ -123,6 +127,7 @@ listDifferences d@(Differences {}) = map snd $
 		[ (objectHashLower, ObjectHashLower)
 		, (oneLevelObjectHash, OneLevelObjectHash)
 		, (oneLevelBranchHash, OneLevelBranchHash)
+		, (simulation, Simulation)
 		]
 listDifferences UnknownDifferences = []
 
@@ -131,6 +136,7 @@ mkDifferences s = Differences
 	{ objectHashLower = check ObjectHashLower
 	, oneLevelObjectHash = check OneLevelObjectHash
 	, oneLevelBranchHash = check OneLevelBranchHash
+	, simulation = check Simulation
 	}
   where
 	check f = f `S.member` s

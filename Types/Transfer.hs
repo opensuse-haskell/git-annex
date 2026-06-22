@@ -5,24 +5,24 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleInstances #-}
 
-module Types.Transfer where
+module Types.Transfer (
+	module Types.Transfer,
+	module Types.Direction
+) where
 
 import Types
 import Types.Remote (Verification(..))
 import Types.Key
+import Types.Direction
 import Utility.PID
 import Utility.QuickCheck
 import Utility.Url
-import Utility.FileSystemEncoding
+import Utility.OsPath
 
-import qualified Data.ByteString as B
 import Data.Time.Clock.POSIX
 import Control.Concurrent
-import Control.Applicative
-import Prelude
 
 {- Enough information to uniquely identify a transfer. -}
 data Transfer = Transfer
@@ -54,18 +54,6 @@ data TransferInfo = TransferInfo
 
 stubTransferInfo :: TransferInfo
 stubTransferInfo = TransferInfo Nothing Nothing Nothing Nothing Nothing (AssociatedFile Nothing) False
-
-data Direction = Upload | Download
-	deriving (Eq, Ord, Show, Read)
-
-formatDirection :: Direction -> B.ByteString
-formatDirection Upload = "upload"
-formatDirection Download = "download"
-
-parseDirection :: String -> Maybe Direction
-parseDirection "upload" = Just Upload
-parseDirection "download" = Just Download
-parseDirection _ = Nothing
 
 instance Arbitrary TransferInfo where
 	arbitrary = TransferInfo
@@ -99,11 +87,17 @@ instance Observable (Maybe a) where
 	observeBool Nothing = False
 	observeFailure = Nothing
 
+instance Observable (Either e (Maybe a)) where
+	observeBool (Left _) = False
+	observeBool (Right Nothing) = False
+	observeBool (Right (Just _)) = True
+	observeFailure = Right Nothing
+
 class Transferrable t where
 	descTransfrerrable :: t -> Maybe String
 
 instance Transferrable AssociatedFile where
-	descTransfrerrable (AssociatedFile af) = fromRawFilePath <$> af
+	descTransfrerrable (AssociatedFile af) = fromOsPath <$> af
 
 instance Transferrable URLString where
 	descTransfrerrable = Just

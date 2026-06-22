@@ -1,0 +1,19 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 3"""
+ date="2023-06-23T16:47:29Z"
+ content="""
+`git-annex import --from remote` has recently been sped up a lot,
+and the plan is to [[todo/remove_legacy_import_directory_interface]]
+in favor of it or reimplement the lecacy interface on top of it.
+
+Using `git-annex import --from remote --fast`, when there's a huge file in
+the directory remote, will hash it, but only once. On subsequent runs it
+will recognise the file it has seen before.
+
+So all that's needed to emulate --clean-duplicates is a way to do this:
+
+	git-annex move --from remote --copies 2
+
+Which doesn't work currently, but see [[drop_from_export_remote]].
+"""]]

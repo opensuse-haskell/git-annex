@@ -1,0 +1,24 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 3"""
+ date="2026-06-12T15:01:37Z"
+ content="""
+The urls are actually being copied to the new key. But `whereis` only displays
+an url when it's located in a remote that contains a key. After the migration,
+git-annex does not think that your special remote contains the new key,
+so it does not display urls that are claimed by that special remote.
+
+For the web, there is a special case that handles this, recording that the
+new key is present in the web special remote. (setUrlPresent does it)
+
+I don't think it makes sense to make that be done for other types of
+special remotes generally. Consider that `git-annex get`
+would request the special remote get the new key. If the special remote
+is a key/value store, the new key is not located on it, so the get would
+fail. Similarly, `git-annex fsck --from specialremote` would detect a
+problem.
+
+Maybe there are other special remotes that are also url based in a way that
+it would make sense to update the location log when migrating a key.
+The bittorrent special remote comes to mind.
+"""]]

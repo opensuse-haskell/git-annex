@@ -10,11 +10,12 @@ module Command.Reinit where
 import Command
 import Annex.Init
 import Annex.UUID
+import Annex.Startup
 import qualified Remote
 import qualified Annex.SpecialRemote
 	
 cmd :: Command
-cmd = dontCheck repoExists $
+cmd = dontCheck repoExists $ withAnnexOptions [jsonOptions] $
 	command "reinit" SectionUtility 
 		"initialize repository, reusing old UUID"
 		(paramUUID ++ "|" ++ paramDesc)
@@ -24,9 +25,10 @@ seek :: CmdParams -> CommandSeek
 seek = withWords (commandAction . start)
 
 start :: [String] -> CommandStart
-start ws = starting "reinit" (ActionItemOther (Just s)) (SeekInput ws) $
+start ws = starting "reinit" ai (SeekInput ws) $
 	perform s
   where
+	ai = ActionItemOther (Just (UnquotedString s))
 	s = unwords ws
 
 perform :: String -> CommandPerform
@@ -35,6 +37,6 @@ perform s = do
 		then return $ toUUID s
 		else Remote.nameToUUID s
 	storeUUID u
-	checkInitializeAllowed $ initialize' Nothing
+	checkInitializeAllowed $ initialize' startupAnnex Nothing
 	Annex.SpecialRemote.autoEnable
 	next $ return True

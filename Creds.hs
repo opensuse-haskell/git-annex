@@ -5,6 +5,8 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE OverloadedStrings #-}
+
 module Creds (
 	module Types.Creds,
 	CredPairStorage(..),
@@ -31,20 +33,19 @@ import Annex.Perms
 import Utility.FileMode
 import Crypto
 import Types.ProposedAccepted
-import Remote.Helper.Encryptable (remoteCipher, remoteCipher', embedCreds, EncryptionIsSetup, extractCipher)
+import Remote.Helper.Encryptable (remoteCipher, remoteCipher', CipherPurpose(..), embedCreds, EncryptionIsSetup, extractCipher)
 import Utility.Env (getEnv)
 import Utility.Base64
-import qualified Utility.RawFilePath as R
+import qualified Utility.FileIO as F
 
-import qualified Data.ByteString.Lazy.Char8 as L
-import qualified Data.ByteString.Char8 as S
+import qualified Data.ByteString.Lazy.Char8 as L8
+import qualified Data.ByteString.Char8 as S8
 import qualified Data.Map as M
-import qualified System.FilePath.ByteString as P
 
 {- A CredPair can be stored in a file, or in the environment, or
  - in a remote's configuration. -}
 data CredPairStorage = CredPairStorage
-	{ credPairFile :: FilePath
+	{ credPairFile :: OsPath
 	, credPairEnvironment :: (String, String)
 	, credPairRemoteField :: RemoteConfigField
 	}
@@ -94,14 +95,19 @@ setRemoteCredPair' pc encsetup gc storage mcreds = case mcreds of
   where
 	localcache creds = writeCacheCredPair creds storage
 
-	storeconfig creds key (Just cipher) = do
+	storeconfig creds key (Just (CipherAllPurpose cipher)) = 
+		storeconfigcipher creds key cipher
+	storeconfig creds key (Just (CipherOnlyCreds cipher)) = 
+		storeconfigcipher creds key cipher
+	storeconfig creds key Nothing =
+		storeconfig' key (Accepted (decodeBS $ toB64 $ encodeBS $ encodeCredPair creds))
+	
+	storeconfigcipher creds key cipher = do
 		cmd <- gpgCmd <$> Annex.getGitConfig
 		s <- liftIO $ encrypt cmd (pc, gc) cipher
-			(feedBytes $ L.pack $ encodeCredPair creds)
-			(readBytesStrictly $ return . S.unpack)
-		storeconfig' key (Accepted (toB64 s))
-	storeconfig creds key Nothing =
-		storeconfig' key (Accepted (toB64 $ encodeCredPair creds))
+			(feedBytes $ L8.pack $ encodeCredPair creds)
+			(readBytesStrictly return)
+		storeconfig' key (Accepted (decodeBS (toB64 s)))
 	
 	storeconfig' key val = return $ pc
 		{ parsedRemoteConfigMap = M.insert key (RemoteConfigValue val) (parsedRemoteConfigMap pc)
@@ -126,15 +132,17 @@ getRemoteCredPair c gc storage = maybe fromcache (return . Just) =<< fromenv
 			<|> getRemoteConfigValue key c			
 		case (getval, mcipher) of
 			(Nothing, _) -> return Nothing
-			(Just enccreds, Just (cipher, storablecipher)) ->
+			(Just enccreds, Just ((CipherAllPurpose cipher, storablecipher))) ->
+				fromenccreds enccreds cipher storablecipher
+			(Just enccreds, Just ((CipherOnlyCreds cipher, storablecipher))) ->
 				fromenccreds enccreds cipher storablecipher
 			(Just bcreds, Nothing) ->
-				fromcreds $ fromB64 bcreds
+				fromcreds $ decodeBS $ fromB64 $ encodeBS bcreds
 	fromenccreds enccreds cipher storablecipher = do
 		cmd <- gpgCmd <$> Annex.getGitConfig
 		mcreds <- liftIO $ catchMaybeIO $ decrypt cmd (c, gc) cipher
-			(feedBytes $ L.pack $ fromB64 enccreds)
-			(readBytesStrictly $ return . S.unpack)
+			(feedBytes $ L8.fromStrict $ fromB64 $ encodeBS enccreds)
+			(readBytesStrictly $ return . S8.unpack)
 		case mcreds of
 			Just creds -> fromcreds creds
 			Nothing -> do
@@ -144,19 +152,19 @@ getRemoteCredPair c gc storage = maybe fromcache (return . Just) =<< fromenv
 				case storablecipher of
 					SharedCipher {} -> showLongNote "gpg error above was caused by an old git-annex bug in credentials storage. Working around it.."
 					_ -> giveup "*** Insecure credentials storage detected for this remote! See https://git-annex.branchable.com/upgrades/insecure_embedded_creds/"
-				fromcreds $ fromB64 enccreds
+				fromcreds $ decodeBS $ fromB64 $ encodeBS enccreds
 	fromcreds creds = case decodeCredPair creds of
 		Just credpair -> do
 			writeCacheCredPair credpair storage
 
 			return $ Just credpair
-		_ -> error "bad creds"
+		_ -> giveup "bad creds"
 
 getRemoteCredPairFor :: String -> ParsedRemoteConfig -> RemoteGitConfig -> CredPairStorage -> Annex (Maybe CredPair)
 getRemoteCredPairFor this c gc storage = go =<< getRemoteCredPair c gc storage
   where
 	go Nothing = do
-		warning $ missingCredPairFor this storage
+		warning $ UnquotedString $ missingCredPairFor this storage
 		return Nothing
 	go (Just credpair) = return $ Just credpair
 
@@ -193,18 +201,21 @@ existsCacheCredPair storage =
 
 {- Stores the creds in a file inside gitAnnexCredsDir that only the user
  - can read. -}
-writeCreds :: Creds -> FilePath -> Annex ()
+writeCreds :: Creds -> OsPath -> Annex ()
 writeCreds creds file = do
 	d <- fromRepo gitAnnexCredsDir
 	createAnnexDirectory d
-	liftIO $ writeFileProtected (d P.</> toRawFilePath file) creds
+	liftIO $ writeFileProtected (d </> file) creds
 
-readCreds :: FilePath -> Annex (Maybe Creds)
-readCreds f = liftIO . catchMaybeIO . readFileStrict =<< credsFile f
+readCreds :: OsPath -> Annex (Maybe Creds)
+readCreds f = do
+	f' <- credsFile f
+	liftIO $ catchMaybeIO $ decodeBS . S8.unlines . fileLines'
+		<$> F.readFile' f'
 
-credsFile :: FilePath -> Annex FilePath
+credsFile :: OsPath -> Annex OsPath
 credsFile basefile = do
-	d <- fromRawFilePath <$> fromRepo gitAnnexCredsDir
+	d <- fromRepo gitAnnexCredsDir
 	return $ d </> basefile
 
 encodeCredPair :: CredPair -> Creds
@@ -215,10 +226,10 @@ decodeCredPair creds = case lines creds of
 	l:p:[] -> Just (l, p)
 	_ -> Nothing
 
-removeCreds :: FilePath -> Annex ()
+removeCreds :: OsPath -> Annex ()
 removeCreds file = do
 	d <- fromRepo gitAnnexCredsDir
-	liftIO $ removeWhenExistsWith R.removeLink (d P.</> toRawFilePath file)
+	liftIO $ removeWhenExistsWith removeFile (d </> file)
 
 includeCredsInfo :: ParsedRemoteConfig -> CredPairStorage -> [(String, String)] -> Annex [(String, String)]
 includeCredsInfo pc@(ParsedRemoteConfig cm _) storage info = do

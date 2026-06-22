@@ -21,11 +21,13 @@ import CmdLine.AnnexSetter as ReExported
 import CmdLine.GitAnnex.Options as ReExported
 import CmdLine.Batch as ReExported
 import Options.Applicative as ReExported hiding (command)
+import Annex.RepoSize.LiveUpdate as ReExported
 import qualified Git
 import Annex.Init
+import Annex.Startup
 import Utility.Daemon
 import Types.Transfer
-import Types.ActionItem
+import Types.ActionItem as ReExported
 import Types.WorkerPool as ReExported
 import Remote.List
 
@@ -38,6 +40,10 @@ command name section desc paramdesc mkparser =
 {- Simple option parser that takes all non-option params as-is. -}
 withParams :: (CmdParams -> v) -> CmdParamsDesc -> Parser v
 withParams mkseek paramdesc = mkseek <$> cmdParams paramdesc
+
+withParams' :: (CmdParams -> v) -> Mod ArgumentFields String -> String -> Parser v
+withParams' mkseek completers paramdesc = mkseek
+	<$> cmdParamsWithCompleter paramdesc completers
 
 {- Uses the supplied option parser, which yields a deferred parse,
  - and calls finishParse on the result before passing it to the
@@ -66,7 +72,7 @@ noMessages c = c { cmdnomessages = True }
 
 {- Adds a fallback action to a command, that will be run if it's used
  - outside a git repository. -}
-noRepo :: (String -> Parser (IO ())) -> Command -> Command
+noRepo :: (CmdParamsDesc -> Parser (IO ())) -> Command -> Command
 noRepo a c = c { cmdnorepo = Just (a (cmdparamdesc c)) }
 
 {- Adds Annex options to a command. -}
@@ -125,28 +131,27 @@ commonChecks :: [CommandCheck]
 commonChecks = [repoExists]
 
 repoExists :: CommandCheck
-repoExists = CommandCheck 0 (ensureInitialized remoteList)
+repoExists = CommandCheck RepoExists (ensureInitialized startupAnnex remoteList)
 
 notBareRepo :: Command -> Command
-notBareRepo = addCheck checkNotBareRepo
+notBareRepo = addCheck CheckNotBareRepo checkNotBareRepo
 
 checkNotBareRepo :: Annex ()
 checkNotBareRepo = whenM (fromRepo Git.repoIsLocalBare) $
 	giveup "You cannot run this command in a bare repository."
 
 noDaemonRunning :: Command -> Command
-noDaemonRunning = addCheck $ whenM (isJust <$> daemonpid) $
+noDaemonRunning = addCheck NoDaemonRunning $ whenM (isJust <$> daemonpid) $
 	giveup "You cannot run this command while git-annex watch or git-annex assistant is running."
   where
-	daemonpid = liftIO . checkDaemon . fromRawFilePath
-		=<< fromRepo gitAnnexPidFile
+	daemonpid = liftIO . checkDaemon =<< fromRepo gitAnnexPidFile
 
 dontCheck :: CommandCheck -> Command -> Command
 dontCheck check cmd = mutateCheck cmd $ \c -> filter (/= check) c
 
-addCheck :: Annex () -> Command -> Command
-addCheck check cmd = mutateCheck cmd $ \c ->
-	CommandCheck (length c + 100) check : c
+addCheck :: CommandCheckId -> Annex () -> Command -> Command
+addCheck cid check cmd = mutateCheck cmd $ \c ->
+	CommandCheck cid check : c
 
 mutateCheck :: Command -> ([CommandCheck] -> [CommandCheck]) -> Command
 mutateCheck cmd@(Command { cmdcheck = c }) a = cmd { cmdcheck = a c }

@@ -76,22 +76,22 @@ doMerge hashhandle ch differ repo streamer = do
 	void $ cleanup
   where
 	go [] = noop
-	go (info:file:rest) = mergeFile info file hashhandle ch >>=
+	go (info:file:rest) = mergeFile info (toOsPath file) hashhandle ch >>=
 		maybe (go rest) (\l -> streamer l >> go rest)
-	go (_:[]) = error $ "parse error " ++ show differ
+	go (_:[]) = giveup $ "parse error " ++ show differ
 
 {- Given an info line from a git raw diff, and the filename, generates
  - a line suitable for update-index that union merges the two sides of the
  - diff. -}
-mergeFile :: S.ByteString -> RawFilePath -> HashObjectHandle -> CatFileHandle -> IO (Maybe L.ByteString)
+mergeFile :: S.ByteString -> OsPath -> HashObjectHandle -> CatFileHandle -> IO (Maybe L.ByteString)
 mergeFile info file hashhandle h = case S8.words info of
 	[_colonmode, _bmode, asha, bsha, _status] -> 
 		case filter (`notElem` nullShas) [Ref asha, Ref bsha] of
-		[] -> return Nothing
-		(sha:[]) -> use sha
-		shas -> use
-			=<< either return (hashBlob hashhandle . L8.unlines)
-			=<< calcMerge . zip shas <$> mapM getcontents shas
+			[] -> return Nothing
+			(sha:[]) -> use sha
+			shas -> use
+				=<< either return (hashBlob hashhandle . L8.unlines)
+				=<< calcMerge . zip shas <$> mapM getcontents shas
 	_ -> return Nothing
   where
 	use sha = return $ Just $
@@ -107,10 +107,10 @@ mergeFile info file hashhandle h = case S8.words info of
  - generating new content.
  -}
 calcMerge :: [(Ref, [L8.ByteString])] -> Either Ref [L8.ByteString]
-calcMerge shacontents
-	| null reuseable = Right new
-	| otherwise = Left $ fst $ Prelude.head reuseable
+calcMerge shacontents = case reusable of
+	[] -> Right new
+	(r:_) -> Left $ fst r
   where
-	reuseable = filter (\c -> sorteduniq (snd c) == new) shacontents
+	reusable = filter (\c -> sorteduniq (snd c) == new) shacontents
 	new = sorteduniq $ concat $ map snd shacontents
 	sorteduniq = S.toList . S.fromList

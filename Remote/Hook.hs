@@ -50,7 +50,7 @@ hooktypeField = Accepted "hooktype"
 gen :: Git.Repo -> UUID -> RemoteConfig -> RemoteGitConfig -> RemoteStateHandle -> Annex (Maybe Remote)
 gen r u rc gc rs = do
 	c <- parsedRemoteConfig remote rc
-	cst <- remoteCost gc expensiveRemoteCost
+	cst <- remoteCost gc c expensiveRemoteCost
 	return $ Just $ specialRemote c
 		(store hooktype)
 		(retrieve hooktype)
@@ -62,6 +62,7 @@ gen r u rc gc rs = do
 			, name = Git.repoDescribe r
 			, storeKey = storeKeyDummy
 			, retrieveKeyFile = retrieveKeyFileDummy
+			, retrieveKeyFileInOrder = pure False
 			, retrieveKeyFileCheap = Nothing
 			-- A hook could use http and be vulnerable to
 			-- redirect to file:// attacks, etc.
@@ -74,6 +75,7 @@ gen r u rc gc rs = do
 			, importActions = importUnsupported
 			, whereisKey = Nothing
 			, remoteFsck = Nothing
+			, repairKey = Nothing
 			, repairRepo = Nothing
 			, config = c
 			, localpath = Nothing
@@ -82,7 +84,7 @@ gen r u rc gc rs = do
 			, readonly = False
 			, appendonly = False
 			, untrustworthy = False
-			, availability = GloballyAvailable
+			, availability = pure GloballyAvailable
 			, remotetype = remote
 			, mkUnavailable = gen r u rc
 				(gc { remoteAnnexHookType = Just "!dne!" })
@@ -95,12 +97,12 @@ gen r u rc gc rs = do
   where
 	hooktype = fromMaybe (giveup "missing hooktype") $ remoteAnnexHookType gc
 
-hookSetup :: SetupStage -> Maybe UUID -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
-hookSetup _ mu _ c gc = do
+hookSetup :: SetupStage -> Maybe UUID -> RemoteName -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
+hookSetup ss mu _ _ c gc = do
 	u <- maybe (liftIO genUUID) return mu
 	let hooktype = maybe (giveup "Specify hooktype=") fromProposedAccepted $
 		M.lookup hooktypeField c
-	(c', _encsetup) <- encryptionSetup c gc
+	(c', _encsetup) <- encryptionSetup ss c gc
 	gitConfigSpecialRemote u c' [("hooktype", hooktype)]
 	return (c', u)
 
@@ -117,8 +119,8 @@ hookEnv action k f = Just <$> mergeenv (fileenv f ++ keyenv)
 		]
 	fileenv Nothing = []
 	fileenv (Just file) =  [envvar "FILE" file]
-	hashbits = map takeDirectory $ splitPath $
-		fromRawFilePath $ hashDirMixed def k
+	hashbits = map (fromOsPath . takeDirectory) $
+		splitPath $ hashDirMixed def k
 
 lookupHook :: HookName -> Action -> Annex (Maybe String)
 lookupHook hookname action = do
@@ -128,7 +130,7 @@ lookupHook hookname action = do
 			fallback <- fromConfigValue <$> getConfig hookfallback mempty
 			if null fallback
 				then do
-					warning $ "missing configuration for " ++ fromConfigKey hook ++ " or " ++ fromConfigKey hookfallback
+					warning $ UnquotedString $ "missing configuration for " ++ fromConfigKey hook ++ " or " ++ fromConfigKey hookfallback
 					return Nothing
 				else return $ Just fallback
 		else return $ Just command
@@ -153,20 +155,20 @@ runHook' hook action k f a = maybe (return False) run =<< lookupHook hook action
 		ifM (progressCommandEnv "sh" [Param "-c", Param command] =<< liftIO (hookEnv action k f))
 			( a
 			, do
-				warning $ hook ++ " hook exited nonzero!"
+				warning $ UnquotedString $ hook ++ " hook exited nonzero!"
 				return False
 			)
 
 store :: HookName -> Storer
-store h = fileStorer $ \k src _p -> runHook h "store" k (Just src)
+store h = fileStorer $ \k src _p -> runHook h "store" k (Just (fromOsPath src))
 
 retrieve :: HookName -> Retriever
 retrieve h = fileRetriever $ \d k _p ->
-	unlessM (runHook' h "retrieve" k (Just (fromRawFilePath d)) $ return True) $
+	unlessM (runHook' h "retrieve" k (Just (fromOsPath d)) $ return True) $
 		giveup "failed to retrieve content"
 
 remove :: HookName -> Remover
-remove h k = 
+remove h _proof k = 
 	unlessM (runHook' h "remove" k Nothing $ return True) $
 		giveup "failed to remove content"
 

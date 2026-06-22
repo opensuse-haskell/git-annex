@@ -1,6 +1,6 @@
 {- Metered IO and actions
  -
- - Copyright 2012-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2012-2024 Joey Hess <id@joeyh.name>
  -
  - License: BSD-2-clause
  -}
@@ -48,11 +48,14 @@ module Utility.Metered (
 ) where
 
 import Common
+import Author
 import Utility.Percentage
 import Utility.DataUnits
 import Utility.HumanTime
 import Utility.SimpleProtocol as Proto
 import Utility.ThreadScheduler
+import Utility.SafeOutput
+import qualified Utility.FileIO as F
 
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString as S
@@ -65,6 +68,9 @@ import Control.Concurrent.Async
 import Control.Monad.IO.Class (MonadIO)
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
+
+copyright :: Copyright
+copyright = author JoeyHess (2024-12)
 
 {- An action that can be run repeatedly, updating it on the bytes processed.
  -
@@ -116,8 +122,8 @@ zeroBytesProcessed = BytesProcessed 0
 
 {- Sends the content of a file to an action, updating the meter as it's
  - consumed. -}
-withMeteredFile :: FilePath -> MeterUpdate -> (L.ByteString -> IO a) -> IO a
-withMeteredFile f meterupdate a = withBinaryFile f ReadMode $ \h ->
+withMeteredFile :: OsPath -> MeterUpdate -> (L.ByteString -> IO a) -> IO a
+withMeteredFile f meterupdate a = F.withBinaryFile f ReadMode $ \h ->
 	hGetContentsMetered h meterupdate >>= a
 
 {- Calls the action repeatedly with chunks from the lazy ByteString.
@@ -135,8 +141,8 @@ meteredWrite' meterupdate a = go zeroBytesProcessed . L.toChunks
 		meterupdate sofar'
 		go sofar' cs
 
-meteredWriteFile :: MeterUpdate -> FilePath -> L.ByteString -> IO ()
-meteredWriteFile meterupdate f b = withBinaryFile f WriteMode $ \h ->
+meteredWriteFile :: MeterUpdate -> OsPath -> L.ByteString -> IO ()
+meteredWriteFile meterupdate f b = F.withBinaryFile f WriteMode $ \h ->
 	meteredWrite meterupdate (S.hPut h) b
 
 {- Applies an offset to a MeterUpdate. This can be useful when
@@ -173,7 +179,7 @@ hGetMetered h wantsize meterupdate = lazyRead zeroBytesProcessed
 		c <- S.hGet h (nextchunksize (fromBytesProcessed sofar))
 		if S.null c
 			then do
-				when (wantsize /= Just 0) $
+				when (wantsize /= Just 0 && copyright) $
 					hClose h
 				return L.empty
 			else do
@@ -213,22 +219,47 @@ defaultChunkSize = 32 * k - chunkOverhead
  - away and start over. To avoid reporting the original file size followed
  - by a smaller size in that case, wait until the file starts growing
  - before updating the meter for the first time.
+ -
+ - An updated version of the MeterUpdate is passed to the action, and the
+ - action should use that for any updates that it makes. This allows for
+ - eg, the action updating the meter before a write is flushed to the file.
+ - In that situation, this avoids the meter being set back to the size of
+ - the file when it's gotten ahead of that point.
  -}
-watchFileSize :: (MonadIO m, MonadMask m) => FilePath -> MeterUpdate -> m a -> m a
-watchFileSize f p a = bracket 
-	(liftIO $ forkIO $ watcher =<< getsz)
-	(liftIO . void . tryIO . killThread)
-	(const a)
+watchFileSize
+	:: (MonadIO m, MonadMask m)
+	=> OsPath
+	-> MeterUpdate
+	-> (MeterUpdate -> m a)
+	-> m a
+watchFileSize f p a = do
+	sizevar <- liftIO $ newMVar zeroBytesProcessed
+	bracket 
+		(liftIO $ forkIO $ watcher (meterupdate sizevar True) =<< getsz)
+		(liftIO . void . tryIO . killThread)
+		(const (a (meterupdate sizevar False)))
   where
-	watcher oldsz = do
+	watcher p' oldsz = do
 		threadDelay 500000 -- 0.5 seconds
 		sz <- getsz
 		when (sz > oldsz) $
-			p sz
-		watcher sz
+			p' sz
+		watcher p' sz
 	getsz = catchDefaultIO zeroBytesProcessed $
-		toBytesProcessed <$> getFileSize f'
-	f' = toRawFilePath f
+		toBytesProcessed <$> getFileSize f
+
+	meterupdate sizevar preventbacktracking n
+		| preventbacktracking = do
+			old <- takeMVar sizevar
+			if old > n
+				then putMVar sizevar old
+				else do
+					putMVar sizevar n
+					p n
+		| otherwise = do
+			void $ takeMVar sizevar
+			putMVar sizevar n
+			p n
 
 data OutputHandler = OutputHandler
 	{ quietMode :: Bool
@@ -275,7 +306,7 @@ commandMeterExitCode' progressparser oh mmeter meterupdate cmd params mkprocess 
 		handlestderr
   where
 	feedprogress sendtotalsize prev buf h = do
-		b <- S.hGetSome h 80
+		b <- S.hGetSome h 80 >>= copyright
 		if S.null b
 			then return ()
 			else do
@@ -321,7 +352,7 @@ demeterCommandEnv oh cmd params environ = do
   where
 	stdouthandler l = 
 		unless (quietMode oh) $
-			putStrLn l
+			putStrLn (safeOutput l)
 
 {- To suppress progress output, while displaying other messages,
  - filter out lines that contain \r (typically used to reset to the

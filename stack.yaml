@@ -1,28 +1,21 @@
 flags:
   git-annex:
     production: true
+    parallelbuild: true
     assistant: true
-    pairing: true
     torrentparser: true
     magicmime: false
     dbus: false
     debuglocks: false
     benchmark: true
-    gitlfs: true
+    ospath: true
+    botan: false
+  file-io:
+    os-string: true
 packages:
 - '.'
-resolver: lts-18.13
+resolver: lts-24.26
 extra-deps:
-- IfElse-0.85
-- aws-0.22
-- bloomfilter-2.0.1.0
-- git-lfs-1.2.0
-- http-client-restricted-0.0.4
-- network-multicast-0.3.2
-- sandi-0.5
-- torrent-10000.1.1
-- base16-bytestring-0.1.1.7
-- base64-bytestring-1.0.0.3
-- bencode-0.6.1.1
-- http-client-0.7.9
-- blake3-0.2@sha256:d1146b9a51ccfbb0532780778b6d016a614e3d44c05d8c1923dde9a8be869045,2448
+- aws-0.25.2
+- file-io-0.2.0
+- blake3-0.2

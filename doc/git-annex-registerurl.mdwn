@@ -15,9 +15,20 @@ No verification is performed of the url's contents.
 
 Normally the key is a git-annex formatted key. However, to make it easier
 to use this to add urls, if the key cannot be parsed as a key, and is a
-valid url, an URL key is constructed from the url.
+valid url, a VURL key is constructed from the url.
+
+Registering an url also makes git-annex treat the key as present in the
+special remote that claims it. (Usually the web special remote.)
 
 # OPTIONS
+
+* `--remote=name|uuid`
+
+  Indicate that the url is expected to be claimed by the specified remote.
+  If some other remote claims the url instead, registering it will fail.
+
+  Note that `--remote=web` will prevent any other remote from claiming
+  the url.
 
 * `--batch`
 
@@ -45,7 +56,7 @@ valid url, an URL key is constructed from the url.
 * `--json-error-messages`
 
   Messages that would normally be output to standard error are included in
-  the json instead.
+  the JSON instead.
 
 * Also the [[git-annex-common-options]](1) can be used.
 
@@ -56,6 +67,8 @@ valid url, an URL key is constructed from the url.
 [[git-annex-addurl]](1)
 
 [[git-annex-unregisterurl]](1)
+
+[[git-annex-reregisterurl]](1)
 
 # AUTHOR
 

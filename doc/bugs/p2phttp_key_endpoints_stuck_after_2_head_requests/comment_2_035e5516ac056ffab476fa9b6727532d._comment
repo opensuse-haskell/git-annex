@@ -1,0 +1,22 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 2"""
+ date="2026-05-25T19:11:06Z"
+ content="""
+Fixed this. 
+
+(I do think it could have also happened without HEAD with just the right
+timing of the client hanging up on GET, still have not verified that.
+Of course, we had a whole bug about
+[[bugs/p2phttp_can_get_stuck_with_interrupted_clients]] that was dealt with
+previously, but maybe we missed it back then.)
+
+I've also documented `HEAD /git-annex/$uuid/key/$key` as supported by
+p2phttp because if you give a HTTP client an URL, I suppose it may try
+HEAD.
+
+I would rather that the versioned GET endpoints not also support HEAD,
+just because it's not part of the interface git-annex uses. If I find a way
+to prevent `servant` from automatically supporting HEAD for those, I will
+use it.
+"""]]

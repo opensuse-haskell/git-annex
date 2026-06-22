@@ -31,6 +31,7 @@ import Logs.Transfer
 import Types.Remote
 import qualified Remote
 import qualified Types.Remote as Remote
+import qualified Annex
 import Annex.Wanted
 import Utility.TList
 
@@ -59,7 +60,7 @@ queueTransfers = queueTransfersMatching (const True)
  - condition. Honors preferred content settings. -}
 queueTransfersMatching :: (UUID -> Bool) -> Reason -> Schedule -> Key -> AssociatedFile -> Direction -> Assistant Bool
 queueTransfersMatching matching reason schedule k f direction
-	| direction == Download = ifM (liftAnnex $ wantGet True (Just k) f)
+	| direction == Download = ifM (liftAnnex $ wantGet NoLiveUpdate True (Just k) f)
 		( go
 		, return False
 		)
@@ -88,11 +89,11 @@ queueTransfersMatching matching reason schedule k f direction
 		 - already have it. -}
 		| otherwise = do
 			s <- locs
-			filterM (wantGetBy True (Just k) f . Remote.uuid) $
+			filterM (wantGetBy NoLiveUpdate True (Just k) f . Remote.uuid) $
 				filter (\r -> not (inset s r || Remote.readonly r))
 					(syncDataRemotes st)
 	  where
-		locs = S.fromList . map Remote.uuid <$> Remote.keyPossibilities k
+		locs = S.fromList . map Remote.uuid <$> Remote.keyPossibilities (Remote.IncludeIgnored False) k
 		inset s r = S.member (Remote.uuid r) s
 	gentransfer r = Transfer
 		{ transferDirection = direction
@@ -139,7 +140,8 @@ enqueue reason schedule t info
 	| otherwise = go snocTList
   where
 	go modlist = whenM (add modlist) $ do
-		debug [ "queued", describeTransfer t info, ": " ++ reason ]
+		qp <- liftAnnex $ coreQuotePath <$> Annex.getGitConfig
+		debug [ "queued", describeTransfer qp t info, ": " ++ reason ]
 		notifyTransfer
 	add modlist = do
 		q <- getAssistant transferQueue

@@ -1,0 +1,21 @@
+An exporttree=yes remote cannot be initremoted with encryption enabled.
+However, it is possible to use enableremote after the fact to enable
+encryption for such a remote:
+
+	# git-annex initremote d type=directory exporttree=yes importtree=yes encryption=none directory=../d
+	# git-annex enableremote d  directory=../d encryption=shared
+	enableremote d (encryption setup) (encryption key stored in git repository) ok
+	(recording state in git...)
+
+This config change should not be allowed.
+
+Indeed, changing encryption type of an existing special remote should never
+be allowed, whether or not it uses exporttree. This is a reversion, 
+probably introduced around
+[[!commit 71f78fe45dc91dbef0bedd79b33d6a9fed85704d]]
+
+Also, the new onlyencryptcreds=yes setting can passed to enableremote,
+which changes a previously encrypted remote to not use encryption for the
+data stored on it. That should also not be allowed. --[[Joey]]
+
+> [[fixed|done]] --[[Joey]]

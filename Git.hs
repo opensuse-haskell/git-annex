@@ -1,6 +1,6 @@
 {- git repository handling 
  -
- - This is written to be completely independant of git-annex and should be
+ - This is written to be completely independent of git-annex and should be
  - suitable for other uses.
  -
  - Copyright 2010-2021 Joey Hess <id@joeyh.name>
@@ -27,6 +27,7 @@ module Git (
 	repoIsLocalUnknown,
 	repoDescribe,
 	repoLocation,
+	repoLocationUserVisible,
 	repoPath,
 	repoWorkTree,
 	localGitDir,
@@ -38,15 +39,14 @@ module Git (
 	relPath,
 ) where
 
-import qualified Data.ByteString as B
-import Network.URI (uriPath, uriScheme, unEscapeString)
+import Network.URI (uriPath, uriScheme, uriQuery, uriFragment, uriToString, unEscapeString)
 #ifndef mingw32_HOST_OS
 import System.Posix.Files
 #endif
-import qualified System.FilePath.ByteString as P
 
 import Common
 import Git.Types
+import qualified Utility.OsString as OS
 #ifndef mingw32_HOST_OS
 import Utility.FileMode
 #endif
@@ -54,44 +54,45 @@ import Utility.FileMode
 {- User-visible description of a git repo. -}
 repoDescribe :: Repo -> String
 repoDescribe Repo { remoteName = Just name } = name
-repoDescribe Repo { location = Url url } = show url
-repoDescribe Repo { location = UnparseableUrl url } = url
-repoDescribe Repo { location = Local { worktree = Just dir } } = fromRawFilePath dir
-repoDescribe Repo { location = Local { gitdir = dir } } = fromRawFilePath dir
-repoDescribe Repo { location = LocalUnknown dir } = fromRawFilePath dir
-repoDescribe Repo { location = Unknown } = "UNKNOWN"
+repoDescribe r = repoLocationUserVisible r
 
 {- Location of the repo, either as a path or url. -}
 repoLocation :: Repo -> String
-repoLocation Repo { location = Url url } = show url
+repoLocation Repo { location = Url url } = uriToString id url ""
 repoLocation Repo { location = UnparseableUrl url } = url
-repoLocation Repo { location = Local { worktree = Just dir } } = fromRawFilePath dir
-repoLocation Repo { location = Local { gitdir = dir } } = fromRawFilePath dir
-repoLocation Repo { location = LocalUnknown dir } = fromRawFilePath dir
-repoLocation Repo { location = Unknown } = error "unknown repoLocation"
+repoLocation Repo { location = Local { worktree = Just dir } } = fromOsPath dir
+repoLocation Repo { location = Local { gitdir = dir } } = fromOsPath dir
+repoLocation Repo { location = LocalUnknown dir } = fromOsPath dir
+repoLocation Repo { location = Unknown } = giveup "UNKNOWN"
+
+{- Like repoLocation, but obscures any password in a repo url. -}
+repoLocationUserVisible :: Repo -> String
+repoLocationUserVisible Repo { location = Url url } = show url
+repoLocationUserVisible r = repoLocation r
 
 {- Path to a repository. For non-bare, this is the worktree, for bare, 
  - it's the gitdir, and for URL repositories, is the path on the remote
  - host. -}
-repoPath :: Repo -> RawFilePath
-repoPath Repo { location = Url u } = toRawFilePath $ unEscapeString $ uriPath u
+repoPath :: Repo -> OsPath
+repoPath Repo { location = Url u } = toOsPath $ unEscapeString $
+	-- git allows the path of a ssh url to include both '?' and '#',
+	-- and treats them as part of the path
+	uriPath u ++ uriQuery u ++ uriFragment u
 repoPath Repo { location = Local { worktree = Just d } } = d
 repoPath Repo { location = Local { gitdir = d } } = d
 repoPath Repo { location = LocalUnknown dir } = dir
-repoPath Repo { location = Unknown } = error "unknown repoPath"
-repoPath Repo { location = UnparseableUrl _u } = error "unknwon repoPath"
+repoPath Repo { location = Unknown } = giveup "unknown repoPath"
+repoPath Repo { location = UnparseableUrl _u } = giveup "unknown repoPath"
 
-repoWorkTree :: Repo -> Maybe RawFilePath
+repoWorkTree :: Repo -> Maybe OsPath
 repoWorkTree Repo { location = Local { worktree = Just d } } = Just d
 repoWorkTree _ = Nothing
 
 {- Path to a local repository's .git directory. -}
-localGitDir :: Repo -> RawFilePath
+localGitDir :: Repo -> OsPath
 localGitDir Repo { location = Local { gitdir = d } } = d
-localGitDir _ = error "unknown localGitDir"
+localGitDir _ = giveup "unknown localGitDir"
 
-{- Some code needs to vary between URL and normal repos,
- - or bare and non-bare, these functions help with that. -}
 repoIsUrl :: Repo -> Bool
 repoIsUrl Repo { location = Url _ } = True
 repoIsUrl Repo { location = UnparseableUrl _ } = True
@@ -129,7 +130,7 @@ repoIsLocalUnknown _ = False
 
 assertLocal :: Repo -> a -> a
 assertLocal repo action
-	| repoIsUrl repo = error $ unwords
+	| repoIsUrl repo = giveup $ unwords
 		[ "acting on non-local git repo"
 		, repoDescribe repo
 		, "not supported"
@@ -137,26 +138,27 @@ assertLocal repo action
 	| otherwise = action
 
 {- Path to a repository's gitattributes file. -}
-attributes :: Repo -> RawFilePath
+attributes :: Repo -> OsPath
 attributes repo
 	| repoIsLocalBare repo = attributesLocal repo
-	| otherwise = repoPath repo P.</> ".gitattributes"
+	| otherwise = repoPath repo </> literalOsPath ".gitattributes"
 
-attributesLocal :: Repo -> RawFilePath
-attributesLocal repo = localGitDir repo P.</> "info" P.</> "attributes"
+attributesLocal :: Repo -> OsPath
+attributesLocal repo = localGitDir repo </> literalOsPath "info" </> literalOsPath "attributes"
 
 {- Path to a given hook script in a repository, only if the hook exists
  - and is executable. -}
-hookPath :: String -> Repo -> IO (Maybe FilePath)
+hookPath :: String -> Repo -> IO (Maybe OsPath)
 hookPath script repo = do
-	let hook = fromRawFilePath (localGitDir repo) </> "hooks" </> script
+	let hook = localGitDir repo </> literalOsPath "hooks" </> toOsPath script
 	ifM (catchBoolIO $ isexecutable hook)
 		( return $ Just hook , return Nothing )
   where
 #if mingw32_HOST_OS
 	isexecutable f = doesFileExist f
 #else
-	isexecutable f = isExecutable . fileMode <$> getSymbolicLinkStatus f
+	isexecutable f = isExecutable . fileMode
+		<$> getSymbolicLinkStatus (fromOsPath f)
 #endif
 
 {- Makes the path to a local Repo be relative to the cwd. -}
@@ -165,10 +167,12 @@ relPath = adjustPath torel
   where
 	torel p = do
 		p' <- relPathCwdToFile p
-		return $ if B.null p' then "." else p'
+		return $ if OS.null p'
+			then literalOsPath "."
+			else p'
 
-{- Adusts the path to a local Repo using the provided function. -}
-adjustPath :: (RawFilePath -> IO RawFilePath) -> Repo -> IO Repo
+{- Adjusts the path to a local Repo using the provided function. -}
+adjustPath :: (OsPath -> IO OsPath) -> Repo -> IO Repo
 adjustPath f r@(Repo { location = l@(Local { gitdir = d, worktree = w }) }) = do
 	d' <- f d
 	w' <- maybe (pure Nothing) (Just <$$> f) w

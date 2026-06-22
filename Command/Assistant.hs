@@ -17,6 +17,7 @@ import qualified BuildInfo
 import Utility.HumanTime
 import Assistant.Install
 import Remote.List
+import Annex.Startup
 
 import Control.Concurrent.Async
 
@@ -24,7 +25,7 @@ cmd :: Command
 cmd = dontCheck repoExists $ notBareRepo $
 	noRepo (startNoRepo <$$> optParser) $
 		command "assistant" SectionCommon
-			"automatically sync changes"
+			"daemon to add files and automatically sync changes"
 			paramNothing (seek <$$> optParser)
 
 data AssistantOptions = AssistantOptions
@@ -63,7 +64,7 @@ start o
 		stop
 	| otherwise = do
 		liftIO ensureInstalled
-		ensureInitialized remoteList
+		ensureInitialized startupAnnex remoteList
 		Command.Watch.start True (daemonOptions o) (startDelayOption o)
 
 startNoRepo :: AssistantOptions -> IO ()
@@ -78,11 +79,11 @@ autoStart o = do
 	dirs <- liftIO readAutoStartFile
 	when (null dirs) $ do
 		f <- autoStartFile
-		giveup $ "Nothing listed in " ++ f
-	program <- programPath
+		giveup $ "Nothing listed in " ++ fromOsPath f
+	program <- fromOsPath <$> programPath
 	haveionice <- pure BuildInfo.ionice <&&> inSearchPath "ionice"
 	pids <- forM dirs $ \d -> do
-		putStrLn $ "git-annex autostart in " ++ d
+		putStrLn $ "git-annex autostart in " ++ fromOsPath d
 		mpid <- catchMaybeIO $ go haveionice program d
 		if foregroundDaemonOption (daemonOptions o)
 			then return mpid
@@ -94,7 +95,7 @@ autoStart o = do
 						, putStrLn "failed"
 						)
 				return Nothing
-	-- Wait for any foreground jobs to finish and propigate exit status.
+	-- Wait for any foreground jobs to finish and propagate exit status.
 	ifM (all (== True) <$> mapConcurrently checkSuccessProcess (catMaybes pids))
 		( exitSuccess
 		, exitFailure
@@ -127,11 +128,14 @@ autoStart o = do
 autoStop :: IO ()
 autoStop = do
 	dirs <- liftIO readAutoStartFile
-	program <- programPath
+	program <- fromOsPath <$> programPath
 	forM_ dirs $ \d -> do
-		putStrLn $ "git-annex autostop in " ++ d
-		setCurrentDirectory d
-		ifM (boolSystem program [Param "assistant", Param "--stop"])
-			( putStrLn "ok"
-			, putStrLn "failed"
-			)
+		putStrLn $ "git-annex autostop in " ++ fromOsPath d
+		tryIO (setCurrentDirectory d) >>= \case
+			Right () -> ifM (boolSystem program [Param "assistant", Param "--stop"])
+				( putStrLn "ok"
+				, putStrLn "failed"
+				)
+			Left e -> do
+				putStrLn (show e)
+				putStrLn "failed"

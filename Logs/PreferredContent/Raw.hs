@@ -23,12 +23,16 @@ import Data.ByteString.Builder
 
 {- Changes the preferred content configuration of a remote. -}
 preferredContentSet :: UUID -> PreferredContentExpression -> Annex ()
-preferredContentSet = setLog preferredContentLog
+preferredContentSet u expr = do
+	setLog preferredContentLog u expr
+	Annex.changeState $ \st -> st { Annex.preferredcontentmap = Nothing }
 
 requiredContentSet :: UUID -> PreferredContentExpression -> Annex ()
-requiredContentSet = setLog requiredContentLog
+requiredContentSet u expr = do
+	setLog requiredContentLog u expr
+	Annex.changeState $ \st -> st { Annex.requiredcontentmap = Nothing }
 
-setLog :: RawFilePath -> UUID -> PreferredContentExpression -> Annex ()
+setLog :: OsPath -> UUID -> PreferredContentExpression -> Annex ()
 setLog logfile uuid@(UUID _) val = do
 	c <- currentVectorClock
 	Annex.Branch.change (Annex.Branch.RegardingUUID [uuid]) logfile $

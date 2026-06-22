@@ -1,6 +1,6 @@
 {- git-annex command
  -
- - Copyright 2016 Joey Hess <id@joeyh.name>
+ - Copyright 2016-2025 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -13,6 +13,7 @@ import Command
 import P2P.Address
 import P2P.Auth
 import P2P.IO
+import P2P.Generic
 import qualified P2P.Protocol as P2P
 import Git.Types
 import qualified Git.Remote
@@ -24,8 +25,10 @@ import Utility.AuthToken
 import Utility.Tmp.Dir
 import Utility.FileMode
 import Utility.ThreadScheduler
-import qualified Utility.RawFilePath as R
+import Utility.SafeOutput
+import qualified Utility.FileIO as F
 import qualified Utility.MagicWormhole as Wormhole
+import qualified Command.EnableTor as EnableTor
 
 import Control.Concurrent.Async
 import qualified Data.Text as T
@@ -39,10 +42,11 @@ data P2POpts
 	= GenAddresses
 	| LinkRemote
 	| Pair
+	| Enable P2PNetName
 
 optParser :: CmdParamsDesc -> Parser (P2POpts, Maybe RemoteName)
 optParser _ = (,)
-	<$> (pair <|> linkremote <|> genaddresses)
+	<$> (pair <|> linkremote <|> genaddresses <|> enable)
 	<*> optional name
   where
 	genaddresses = flag' GenAddresses
@@ -57,6 +61,10 @@ optParser _ = (,)
 		( long "pair"
 		<> help "pair with another repository"
 		)
+	enable = Enable . P2PNetName <$> strOption
+                ( long "enable" <> metavar paramName
+                <> help "enable using a P2P network"
+                )
 	name = Git.Remote.makeLegalName <$> strOption
 		( long "name"
 		<> metavar paramName
@@ -74,6 +82,8 @@ seek (Pair, Just name) = commandAction $
 seek (Pair, Nothing) = commandAction $ do
 	name <- unusedPeerRemoteName
 	startPairing name =<< loadP2PAddresses
+seek (Enable netname, _) = commandAction $
+	enableNetwork netname
 
 unusedPeerRemoteName :: Annex RemoteName
 unusedPeerRemoteName = go (1 :: Integer) =<< usednames
@@ -87,21 +97,25 @@ unusedPeerRemoteName = go (1 :: Integer) =<< usednames
 
 -- Only addresses are output to stdout, to allow scripting.
 genAddresses :: [P2PAddress] -> Annex ()
-genAddresses [] = giveup "No P2P networks are currrently available."
+genAddresses [] = giveup "No P2P networks are currently available."
 genAddresses addrs = do
-	authtoken <- liftIO $ genAuthToken 128
-	storeP2PAuthToken authtoken
+	addrauths <- forM addrs go
 	earlyWarning "These addresses allow access to this git-annex repository. Only share them with people you trust with that access, using trusted communication channels!"
-	liftIO $ putStr $ unlines $
-		map formatP2PAddress $
-			map (`P2PAddressAuth` authtoken) addrs
+	liftIO $ putStr $ safeOutput $ unlines $
+		map formatP2PAddress addrauths
+	
+  where
+	go addr = do
+		authtoken <- liftIO $ genAuthToken 128
+		storeP2PAuthToken addr authtoken
+		return $ P2PAddressAuth addr authtoken
 
 -- Address is read from stdin, to avoid leaking it in shell history.
 linkRemote :: RemoteName -> CommandStart
 linkRemote remotename = starting "p2p link" ai si $
 	next promptaddr
   where
-	ai = ActionItemOther (Just remotename)
+	ai = ActionItemOther (Just (UnquotedString remotename))
 	si = SeekInput []
 	promptaddr = do
 		liftIO $ putStrLn ""
@@ -124,14 +138,14 @@ linkRemote remotename = starting "p2p link" ai si $
 						AuthenticationError e -> giveup e
 
 startPairing :: RemoteName -> [P2PAddress] -> CommandStart
-startPairing _ [] = giveup "No P2P networks are currrently available."
+startPairing _ [] = giveup "No P2P networks are currently available."
 startPairing remotename addrs = ifM (liftIO Wormhole.isInstalled)
 	( starting "p2p pair" ai si $
 		performPairing remotename addrs
 	, giveup "Magic Wormhole is not installed, and is needed for pairing. Install it from your distribution or from https://github.com/warner/magic-wormhole/"
 	)
   where
-	ai = ActionItemOther (Just remotename)
+	ai = ActionItemOther (Just (UnquotedString remotename))
 	si = SeekInput []
 
 performPairing :: RemoteName -> [P2PAddress] -> CommandPerform
@@ -152,7 +166,7 @@ performPairing remotename addrs = do
 				warning "Failed receiving data from pair."
 				return False
 			LinkFailed e -> do
-				warning $ "Failed linking to pair: " ++ e
+				warning $ UnquotedString $ "Failed linking to pair: " ++ e
 				return False
   where
 	ui observer producer = do
@@ -192,12 +206,11 @@ serializePairData :: PairData -> String
 serializePairData (PairData (HalfAuthToken ha) addrs) = unlines $
 	T.unpack ha : map formatP2PAddress addrs
 
-deserializePairData :: String -> Maybe PairData
-deserializePairData s = case lines s of
-	[] -> Nothing
-	(ha:l) -> do
-		addrs <- mapM unformatP2PAddress l
-		return (PairData (HalfAuthToken (T.pack ha)) addrs)
+deserializePairData :: [String] -> Maybe PairData
+deserializePairData [] = Nothing
+deserializePairData (ha:l) = do
+	addrs <- mapM unformatP2PAddress l
+	return (PairData (HalfAuthToken (T.pack ha)) addrs)
 
 data PairingResult
 	= PairSuccess
@@ -219,12 +232,12 @@ wormholePairing remotename ouraddrs ui = do
 	-- files. Permissions of received files may allow others
 	-- to read them. So, set up a temp directory that only
 	-- we can read.
-	withTmpDir "pair" $ \tmp -> do
-		liftIO $ void $ tryIO $ modifyFileMode (toRawFilePath tmp) $ 
+	withTmpDir (literalOsPath "pair") $ \tmp -> do
+		liftIO $ void $ tryIO $ modifyFileMode tmp $ 
 			removeModes otherGroupModes
-		let sendf = tmp </> "send"
-		let recvf = tmp </> "recv"
-		liftIO $ writeFileProtected (toRawFilePath sendf) $
+		let sendf = tmp </> literalOsPath "send"
+		let recvf = tmp </> literalOsPath "recv"
+		liftIO $ writeFileProtected sendf $
 			serializePairData ourpairdata
 
 		observer <- liftIO Wormhole.mkCodeObserver
@@ -234,23 +247,24 @@ wormholePairing remotename ouraddrs ui = do
 		-- the same channels that other wormhole users use.
 		let appid = Wormhole.appId "git-annex.branchable.com/p2p-setup"
 		(sendres, recvres) <- liftIO $
-			Wormhole.sendFile sendf observer appid
+			Wormhole.sendFile (fromOsPath sendf) observer appid
 				`concurrently`
-			Wormhole.receiveFile recvf producer appid
-		liftIO $ removeWhenExistsWith R.removeLink (toRawFilePath sendf)
+			Wormhole.receiveFile (fromOsPath recvf) producer appid
+		liftIO $ removeWhenExistsWith removeFile sendf
 		if sendres /= True
 			then return SendFailed
 			else if recvres /= True
 				then return ReceiveFailed
 				else do
 					r <- liftIO $ tryIO $
-						readFileStrict recvf
+						map decodeBS . fileLines'
+							<$> F.readFile' recvf
 					case r of
 						Left _e -> return ReceiveFailed
-						Right s -> maybe 
+						Right ls -> maybe 
 							(return ReceiveFailed)
-							(finishPairing 100 remotename ourhalf)
-							(deserializePairData s)
+							(finishPairing 100 remotename ourhalf ouraddrs)
+							(deserializePairData ls)
 
 -- | Allow the peer we're pairing with to authenticate to us,
 -- using an authtoken constructed from the two HalfAuthTokens.
@@ -262,25 +276,25 @@ wormholePairing remotename ouraddrs ui = do
 -- Since we're racing the peer as they do the same, the first try is likely
 -- to fail to authenticate. Can retry any number of times, to avoid the
 -- users needing to redo the whole process.
-finishPairing :: Int -> RemoteName -> HalfAuthToken -> PairData -> Annex PairingResult
-finishPairing retries remotename (HalfAuthToken ourhalf) (PairData (HalfAuthToken theirhalf) theiraddrs) = do
+finishPairing :: Int -> RemoteName -> HalfAuthToken -> [P2PAddress] -> PairData -> Annex PairingResult
+finishPairing retries remotename (HalfAuthToken ourhalf) ouraddrs (PairData (HalfAuthToken theirhalf) theiraddrs) = do
 	case (toAuthToken (ourhalf <> theirhalf), toAuthToken (theirhalf <> ourhalf)) of
 		(Just ourauthtoken, Just theirauthtoken) -> do
 			liftIO $ putStrLn $ "Successfully exchanged pairing data. Connecting to " ++ remotename ++  "..."
-			storeP2PAuthToken ourauthtoken
-			go retries theiraddrs theirauthtoken
+			go retries theiraddrs theirauthtoken ourauthtoken
 		_ -> return ReceiveFailed
   where
-	go 0 [] _ = return $ LinkFailed $ "Unable to connect to " ++ remotename ++ "."
-	go n [] theirauthtoken = do
+	go 0 [] _ _ = return $ LinkFailed $ "Unable to connect to " ++ remotename ++ "."
+	go n [] theirauthtoken ourauthtoken = do
 		liftIO $ threadDelaySeconds (Seconds 2)
 		liftIO $ putStrLn $ "Unable to connect to " ++ remotename ++ ". Retrying..."
-		go (n-1) theiraddrs theirauthtoken
-	go n (addr:rest) theirauthtoken = do
-		r <- setupLink remotename (P2PAddressAuth addr theirauthtoken)
+		go (n-1) theiraddrs theirauthtoken ourauthtoken
+	go n (theiraddr:rest) theirauthtoken ourauthtoken = do
+		forM_ ouraddrs $ \ouraddr -> storeP2PAuthToken ouraddr ourauthtoken
+		r <- setupLink remotename (P2PAddressAuth theiraddr theirauthtoken)
 		case r of
 			LinkSuccess -> return PairSuccess
-			_ -> go n rest theirauthtoken
+			_ -> go n rest theirauthtoken ourauthtoken
 
 data LinkResult
 	= LinkSuccess
@@ -290,7 +304,7 @@ data LinkResult
 setupLink :: RemoteName -> P2PAddressAuth -> Annex LinkResult
 setupLink remotename (P2PAddressAuth addr authtoken) = do
 	g <- Annex.gitRepo
-	cv <- liftIO $ tryNonAsync $ connectPeer g addr
+	cv <- liftIO $ tryNonAsync $ connectPeer (Just g) addr
 	case cv of
 		Left e -> return $ ConnectionError $ "Unable to connect with peer. Please check that the peer is connected to the network, and try again. ("  ++ show e ++ ")"
 		Right conn -> do
@@ -311,3 +325,16 @@ setupLink remotename (P2PAddressAuth addr authtoken) = do
 		return LinkSuccess
 	go (Right Nothing) = return $ AuthenticationError "Unable to authenticate with peer. Please check the address and try again."
 	go (Left e) = return $ AuthenticationError $ "Unable to authenticate with peer: " ++ describeProtoFailure e
+
+enableNetwork :: P2PNetName -> CommandStart
+enableNetwork netname@(P2PNetName name)
+	| name == "tor" = EnableTor.start Nothing
+	| otherwise = starting "p2p enable" ai si $ next $ do
+		addrs <- liftIO $ getAddressGenericP2P netname
+		when (null addrs) $
+			giveup $ genericP2PCommand netname ++ " did not output any P2P addresses" 
+		mapM_ storeP2PAddress addrs
+		return True
+  where
+	ai = ActionItemOther (Just (UnquotedString name))
+	si = SeekInput []

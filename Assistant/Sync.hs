@@ -59,11 +59,11 @@ import Control.Concurrent.Async
 reconnectRemotes :: [Remote] -> Assistant ()
 reconnectRemotes [] = recordExportCommit
 reconnectRemotes rs = void $ do
-	rs' <- liftIO $ filterM (Remote.checkAvailable True) rs
+	rs' <- liftAnnex $ filterM (Remote.checkAvailable True) rs
 	unless (null rs') $ do
 		failedrs <- syncAction rs' (const go)
 		forM_ failedrs $ \r ->
-			whenM (liftIO $ Remote.checkAvailable False r) $
+			whenM (liftAnnex $ Remote.checkAvailable False r) $
 				repoHasProblem (Remote.uuid r) (syncRemote r)
 		mapM_ signal $ filter (`notElem` failedrs) rs'
 	recordExportCommit
@@ -75,15 +75,15 @@ reconnectRemotes rs = void $ do
 		| Git.repoIsLocal r = True
 		| Git.repoIsLocalUnknown r = True
 		| otherwise = False
-	sync currentbranch@(Just _, _) = do
+	syncbranch currentbranch@(Just _, _) = do
 		(failedpull, diverged) <- manualPull currentbranch =<< gitremotes
 		now <- liftIO getCurrentTime
 		failedpush <- pushToRemotes' now =<< gitremotes
 		return (nub $ failedpull ++ failedpush, diverged)
 	{- No local branch exists yet, but we can try pulling. -}
-	sync (Nothing, _) = manualPull (Nothing, Nothing) =<< gitremotes
+	syncbranch (Nothing, _) = manualPull (Nothing, Nothing) =<< gitremotes
 	go = do
-		(failed, diverged) <- sync =<< liftAnnex getCurrentBranch
+		(failed, diverged) <- syncbranch =<< liftAnnex getCurrentBranch
 		addScanRemotes diverged =<<
 			filterM (not <$$> liftIO . getDynamicConfig . remoteAnnexIgnore . Remote.gitconfig) rs
 		return failed
@@ -107,7 +107,7 @@ reconnectRemotes rs = void $ do
  - When there's a lot of activity, we may fail more than once.
  - On the other hand, we may fail because the remote is not available.
  - Rather than retrying indefinitely, after the first retry we enter a
- - fallback mode, where our push is guarenteed to succeed if the remote is
+ - fallback mode, where our push is guaranteed to succeed if the remote is
  - reachable. If the fallback fails, the push is queued to be retried
  - later.
  -

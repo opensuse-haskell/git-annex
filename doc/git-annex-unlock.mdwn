@@ -39,9 +39,10 @@ repository. So, enable annex.thin with care.
 
 	# git annex unlock photo.jpg
 	# gimp photo.jpg
-	# git annex add photo.jpg
-	# git annex lock photo.jpg
-	# git commit -m "redeye removal"
+	# git commit photo.jpg -m "redeye removal"
+	# gimp photo.jpg
+	# git commit photo.jpg -m "fix oversaturation"
+    # git annex lock photo.jpg
 
 # OPTIONS
 
@@ -58,7 +59,7 @@ repository. So, enable annex.thin with care.
 * `--json-error-messages`
 
   Messages that would normally be output to standard error are included in
-  the json instead.
+  the JSON instead.
 
 * Also the [[git-annex-common-options]](1) can be used.
 

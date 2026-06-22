@@ -1,6 +1,6 @@
 {- git-annex command
  -
- - Copyright 2011-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -8,8 +8,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Command.InitRemote where
-
-import qualified Data.Map as M
 
 import Command
 import Annex.SpecialRemote
@@ -22,17 +20,23 @@ import Logs.Remote
 import Types.GitConfig
 import Types.ProposedAccepted
 import Config
-import Git.Config
+import Git.Types
+import Annex.Init
+
+import qualified Data.Map as M
+import qualified Data.Text as T
 
 cmd :: Command
-cmd = command "initremote" SectionSetup
-	"creates a special (non-git) remote"
-	(paramPair paramName $ paramOptional $ paramRepeating paramParamValue)
-	(seek <$$> optParser)
+cmd = withAnnexOptions [jsonOptions] $
+	command "initremote" SectionSetup
+		"creates a special (non-git) remote"
+		(paramPair paramName $ paramOptional $ paramRepeating paramParamValue)
+		(seek <$$> optParser)
 
 data InitRemoteOptions = InitRemoteOptions
 	{ cmdparams :: CmdParams
 	, sameas :: Maybe (DeferredParse UUID)
+	, withUrl :: Bool
 	, whatElse :: Bool
 	, privateRemote :: Bool
 	}
@@ -41,6 +45,11 @@ optParser :: CmdParamsDesc -> Parser InitRemoteOptions
 optParser desc = InitRemoteOptions
 	<$> cmdParams desc
 	<*> optional parseSameasOption
+	<*> switch
+		( long "with-url"
+		<> short 'u'
+		<> help "configure remote with an annex:: url"
+		)
 	<*> switch
 		( long "whatelse"
 		<> short 'w'
@@ -64,37 +73,43 @@ seek o = withWords (commandAction . (start o)) (cmdparams o)
 
 start :: InitRemoteOptions -> [String] -> CommandStart
 start _ [] = giveup "Specify a name for the remote."
-start o (name:ws) = ifM (not . null <$> findExisting name)
-	( giveup $ "There is already a special remote named \"" ++ name ++
-		"\". (Use enableremote to enable an existing special remote.)"
-	, ifM (isJust <$> Remote.byNameOnly name)
-		( giveup $ "There is already a remote named \"" ++ name ++ "\""
-		, do
-			sameasuuid <- maybe
-				(pure Nothing)
-				(Just . Sameas <$$> getParsed)
-				(sameas o) 
-			c <- newConfig name sameasuuid
-				(Logs.Remote.keyValToConfig Proposed ws)
-				<$> remoteConfigMap
-			t <- either giveup return (findType c)
-			if whatElse o
-				then startingCustomOutput (ActionItemOther Nothing) $
-					describeOtherParamsFor c t
-				else starting "initremote" (ActionItemOther (Just name)) si $
-					perform t name c o
-		)
-	)
+start o (name:ws) = do
+	if whatElse o
+		then ifM jsonOutputEnabled
+			( starting "initremote" ai si $ prep $ \c t ->
+				describeOtherParamsFor c t
+			, startingCustomOutput (ActionItemOther Nothing) $ prep $ \c t ->
+				describeOtherParamsFor c t
+			)
+		else starting "initremote" ai si $ prep $ \c t ->
+			perform t name c o
   where
-	si = SeekInput [name]
+	prep a = do
+		whenM (not . null <$> findExisting name) $
+			giveup $ "There is already a special remote named \"" ++ name ++
+				"\". (Use enableremote to enable an existing special remote.)"
+		whenM (isJust <$> Remote.byNameOnly name) $
+			giveup $ "There is already a remote named \"" ++ name ++ "\""
+		sameasuuid <- maybe
+			(pure Nothing)
+			(Just . Sameas <$$> getParsed)
+			(sameas o) 
+		c <- newConfig name sameasuuid
+			(Logs.Remote.keyValToConfig Proposed ws)
+			<$> remoteConfigMap
+		t <- either giveup return (findType c)
+		a c t
+	
+	si = SeekInput (name:ws)
+	ai = ActionItemOther (Just (UnquotedString name))
 
-perform :: RemoteType -> String -> R.RemoteConfig -> InitRemoteOptions -> CommandPerform
+perform :: RemoteType -> RemoteName -> R.RemoteConfig -> InitRemoteOptions -> CommandPerform
 perform t name c o = do
 	when (privateRemote o) $
-		setConfig (remoteAnnexConfig c "private") (boolConfig True)
+		setRemotePrivate c True
 	dummycfg <- liftIO dummyRemoteGitConfig
 	let c' = M.delete uuidField c
-	(c'', u) <- R.setup t R.Init (sameasu <|> uuidfromuser) Nothing c' dummycfg
+	(c'', u) <- R.setup t R.Init (sameasu <|> uuidfromuser) name Nothing c' dummycfg
 	next $ cleanup t u name c'' o
   where
 	uuidfromuser = case fromProposedAccepted <$> M.lookup uuidField c of
@@ -107,37 +122,70 @@ perform t name c o = do
 uuidField :: R.RemoteConfigField
 uuidField = Accepted "uuid"
 
-cleanup :: RemoteType -> UUID -> String -> R.RemoteConfig -> InitRemoteOptions -> CommandCleanup
+cleanup :: RemoteType -> UUID -> RemoteName -> R.RemoteConfig -> InitRemoteOptions -> CommandCleanup
 cleanup t u name c o = do
 	case sameas o of
 		Nothing -> do
 			describeUUID u (toUUIDDesc name)
+			propigateInitGitConfigs u
 			Logs.Remote.configSet u c
 		Just _ -> do
 			cu <- liftIO genUUID
-			setConfig (remoteAnnexConfig c "config-uuid") (fromUUID cu)
+			setRemoteConfigUUID c cu
 			Logs.Remote.configSet cu c
-	unless (Remote.gitSyncableRemoteType t) $
-		setConfig (remoteConfig c "skipFetchAll") (boolConfig True)
+	when (withUrl o) $
+		setAnnexUrl c
+	unless (Remote.gitSyncableRemoteType t || withUrl o) $
+		setRemoteSkipFetchAll c True
 	return True
+
+setAnnexUrl :: R.RemoteConfig -> Annex ()
+setAnnexUrl c =
+	getConfigMaybe (remoteConfig c "url") >>= \case
+		Just (ConfigValue _) -> noop
+		_ -> do
+			setConfig (remoteConfig c "url") "annex::"
+			setConfig (remoteConfig c "fetch") $
+				"+refs/heads/*:refs/remotes/" ++
+				getRemoteName c ++ "/*"
 
 describeOtherParamsFor :: RemoteConfig -> RemoteType -> CommandPerform
 describeOtherParamsFor c t = do
 	cp <- R.configParser t c
 	let l = map mk (filter notinconfig $ remoteConfigFieldParsers cp)
 		++ map mk' (maybe [] snd (remoteConfigRestPassthrough cp))
-	liftIO $ forM_ l $ \(p, fd, vd) -> case fd of
-		HiddenField -> return ()
-		FieldDesc d -> do
-			putStrLn p
-			putStrLn ("\t" ++ d)
-			case vd of
-				Nothing -> return ()
-				Just (ValueDesc d') ->
-					putStrLn $ "\t(" ++ d' ++ ")"
+	ifM jsonOutputEnabled
+		( maybeAddJSONField "whatelse" $ M.fromList $ mkjson l
+		, liftIO $ forM_ l $ \(p, fd, vd) -> case fd of
+			HiddenField -> return ()
+			DeprecatedField -> return ()
+			FieldDesc d -> do
+				putStrLn p
+				putStrLn ("\t" ++ d)
+				case vd of
+					Nothing -> return ()
+					Just (ValueDesc d') ->
+						putStrLn $ "\t(" ++ d' ++ ")"
+		
+		)
 	next $ return True
   where
+	mkjson = mapMaybe $ \(p, fd, vd) ->
+		case fd of
+			HiddenField -> Nothing
+			DeprecatedField -> Nothing
+			FieldDesc d -> Just 
+				( T.pack p
+				, M.fromList
+					[ ("description" :: T.Text, d)
+					, ("valuedescription", case vd of
+						Nothing -> ""
+						Just (ValueDesc d') -> d')
+					]
+				)
+
 	notinconfig fp = not (M.member (parserForField fp) c)
+
 	mk fp = ( fromProposedAccepted (parserForField fp)
 		, fieldDesc fp
 		, valueDesc fp

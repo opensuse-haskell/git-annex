@@ -1,9 +1,11 @@
 {- git-annex command
  -
- - Copyright 2010,2012,2018 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2025 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
+
+{-# LANGUAGE OverloadedStrings #-}
 
 module Command.DropUnused where
 
@@ -15,12 +17,13 @@ import qualified Git
 import Command.Unused (withUnusedMaps, UnusedMaps(..), startUnused)
 import Annex.NumCopies
 import Annex.Content
-import qualified Utility.RawFilePath as R
+import Annex.Content.LowLevel
 
 cmd :: Command
-cmd = command "dropunused" SectionMaintenance
-	"drop unused file content"
-	(paramRepeating paramNumRange) (seek <$$> optParser)
+cmd = withAnnexOptions [jobsOption, jsonOptions] $
+	command "dropunused" SectionMaintenance
+		"drop unused file content"
+		(paramRepeating paramNumRange) (seek <$$> optParser)
 
 data DropUnusedOptions = DropUnusedOptions
 	{ rangesToDrop :: CmdParams
@@ -33,23 +36,29 @@ optParser desc = DropUnusedOptions
 	<*> optional (Command.Drop.parseDropFromOption)
 
 seek :: DropUnusedOptions -> CommandSeek
-seek o = do
+seek o = startConcurrency commandStages $ do
 	numcopies <- getNumCopies
 	mincopies <- getMinCopies
 	from <- maybe (pure Nothing) (Just <$$> getParsed) (dropFrom o)
 	withUnusedMaps (start from numcopies mincopies) (rangesToDrop o)
 
 start :: Maybe Remote -> NumCopies -> MinCopies -> UnusedMaps -> Int -> CommandStart
-start from numcopies mincopies = startUnused "dropunused"
-	(perform from numcopies mincopies)
-	(performOther gitAnnexBadLocation)
-	(performOther gitAnnexTmpObjectLocation)
+start from numcopies mincopies = startUnused
+	(go (perform from numcopies mincopies))
+	(go (performOther gitAnnexBadLocation))
+	(go (performOther gitAnnexTmpObjectLocation))
+  where
+	go a n key = starting "dropunused" 
+		(ActionItemOther $ Just $ UnquotedString $ show n)
+		(SeekInput [show n])
+		(a key)
 
 perform :: Maybe Remote -> NumCopies -> MinCopies -> Key -> CommandPerform
 perform from numcopies mincopies key = case from of
 	Just r -> do
-		showAction $ "from " ++ Remote.name r
-		Command.Drop.performRemote pcc key (AssociatedFile Nothing) numcopies mincopies r ud
+		showAction $ UnquotedString $ "from " ++ Remote.name r
+		Command.Drop.performRemote NoLiveUpdate pcc key
+			(AssociatedFile Nothing) numcopies mincopies r ud
 	Nothing -> ifM (inAnnex key)
 		( droplocal
 		, ifM (objectFileExists key)
@@ -63,12 +72,15 @@ perform from numcopies mincopies key = case from of
 			)
 		)
   where
-	droplocal = Command.Drop.performLocal pcc key (AssociatedFile Nothing) numcopies mincopies [] ud
+	droplocal = Command.Drop.performLocal NoLiveUpdate pcc 
+		key (AssociatedFile Nothing) numcopies mincopies [] ud
 	pcc = Command.Drop.PreferredContentChecked False
 	ud = Command.Drop.DroppingUnused True
 
-performOther :: (Key -> Git.Repo -> RawFilePath) -> Key -> CommandPerform
+performOther :: (Key -> Git.Repo -> OsPath) -> Key -> CommandPerform
 performOther filespec key = do
 	f <- fromRepo $ filespec key
-	pruneTmpWorkDirBefore f (liftIO . removeWhenExistsWith R.removeLink)
+	pruneTmpWorkDirBefore f $ \f' -> do
+		secureErase f'
+		liftIO $ removeWhenExistsWith removeFile f'
 	next $ return True

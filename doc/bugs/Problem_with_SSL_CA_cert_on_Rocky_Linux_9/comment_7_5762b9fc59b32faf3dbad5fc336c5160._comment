@@ -1,0 +1,16 @@
+[[!comment format=mdwn
+ username="matrss"
+ avatar="http://cdn.libravatar.org/avatar/cd1c0b3be1af288012e49197918395f0"
+ subject="comment 7"
+ date="2026-05-12T08:46:43Z"
+ content="""
+> Are you sure the image you checked has a new enough version of the package?
+
+Yes. I've used a freshly pulled docker.io/rockylinux/rockylinux:9 and docker.io/rockylinux/rockylinux:10 respectively and then ran `dnf update` too. dnf lists the installed version as `2025.2.80_v9.0.305-102.el10`. I've even checked AlmaLinux (docker.io/library/almalinux:10) too now, and it is the same thing there.
+
+But now I've read this in the Changelog, and I could swear it wasn't there 2 days ago: <https://rockylinux.pkgs.org/10/rockylinux-baseos-x86_64/ca-certificates-2025.2.80_v9.0.305-102.el10.noarch.rpm.html#:~:text=%2D%20Remove%20%2Fetc%2Fpki%2Ftls%2Fcerts%2Fca%2Dcertificates%2Ecrt%20symlink%20which%20was%20included%20by%20mistake>. So it seems the file is not intended to be there.
+
+> That happens to read every cert file in /etc/ssl/certs/ (amoung some other places for other OS's, including /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem for fedora), which would include /etc/ssl/certs/ca-bundle.crt.
+
+That's good to know! Then I think it should be enough to set `GIT_SSL_CAINFO` to get things working. Maybe git-annex-standalone's runshell could try to discover the certificate location and set `GIT_SSL_CAINFO` if necessary? I.e. if `GIT_SSL_CAINFO` is unset check that `/etc/ssl/certs/ca-certificates.crt` exists, if it doesn't check for ca-bundle.crt, if that does exist set `GIT_SSL_CAINFO=/etc/ssl/certs/ca-bundle.crt`, otherwise log a warning.
+"""]]

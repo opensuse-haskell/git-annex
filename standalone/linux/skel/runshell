@@ -206,12 +206,12 @@ case "$os" in
 			# The bundled git does not work well on sdcard, so delete
 			# it and use termux's git which works better.
 			cd "$base"
-			find . | grep git | grep -v git-annex | grep -v git-remote-tor-annex | grep -v git-remote-gcrypt | xargs rm -rf
+			find . | grep git | grep -v git-annex | grep -v git-remote-annex | grep -v git-remote-p2p-annex | grep -v git-remote-tor-annex | grep -v git-remote-gcrypt | xargs rm -rf
 			# Use termux's uname, which knows it's on android,
 			# not the bundled one.
 			rm -f bin/uname
 			# Fix shell scripts to work when run inside proot.
-			termux-fix-shebang bin/* runshell git-annex git-annex-shell git-annex-webapp 
+			termux-fix-shebang bin/* runshell git-annex git-annex-shell git-annex-webapp git-remote-annex
 			cd "$orig"
 			# Save the poor Android user the typing.
 			if echo "$SHELL" | grep -q '/bash'; then
@@ -240,6 +240,23 @@ case "$os" in
 		# when running non-bundled programs.
 		GIT_ANNEX_STANDLONE_ENV="PATH GCONV_PATH GIT_EXEC_PATH GIT_TEMPLATE_DIR MANPATH LOCPATH"
 		export GIT_ANNEX_STANDLONE_ENV
+
+		# Use system's SSL CA certs if present; fall back to
+		# bundled certs. This is the same list of locations
+		# as in crypton-x509-system System.X509.Unix,
+		# limited to only the Linux ones.
+		if [ -z "$GIT_SSL_CAINFO" ] && [ -z "$GIT_SSL_CAPATH" ]; then
+			if [ -e /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem ]; then
+				GIT_SSL_CAINFO=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+				export GIT_SSL_CAINFO
+			else
+				if [ ! -e /etc/ssl/certs/ca-certificates.crt ]; then
+					GIT_SSL_CAINFO="$base/ca-certificates.crt"
+					export GIT_SSL_CAINFO
+				fi
+			fi
+		fi
+
 		;;
 esac
 

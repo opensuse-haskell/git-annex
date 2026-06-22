@@ -10,14 +10,15 @@
 module Types.StoreRetrieve where
 
 import Annex.Common
+import Types.NumCopies
 import Utility.Metered
-import Utility.Hash (IncrementalVerifier)
+import Utility.Hash.Incremental
 
 import qualified Data.ByteString.Lazy as L
 
 -- A source of a Key's content.
 data ContentSource
-	= FileContent FilePath
+	= FileContent OsPath
 	| ByteContent L.ByteString
 
 isByteContent :: ContentSource -> Bool
@@ -34,18 +35,22 @@ type Storer = Key -> ContentSource -> MeterUpdate -> Annex ()
 -- Throws exception if key is not present, or remote is not accessible.
 --
 -- When it retrieves FileContent, it is responsible for updating the
--- MeterUpdate. And when the IncrementalVerifier is passed to it,
+-- MeterUpdate, and the provided FilePath can be used to store the file
+-- it retrieves. 
+--
+-- When the IncrementalVerifier is passed to it,
 -- and it retrieves FileContent, it can feed some or all of the file's
 -- content to the verifier before running the callback.
 -- This should not be done when it retrieves ByteContent.
 type Retriever = forall a.
-	Key -> MeterUpdate -> Maybe IncrementalVerifier
+	Key -> MeterUpdate -> OsPath -> Maybe IncrementalVerifier
 		-> (ContentSource -> Annex a) -> Annex a
 
 -- Action that removes a Key's content from a remote.
 -- Succeeds if key is already not present.
--- Throws an exception if the remote is not accessible.
-type Remover = Key -> Annex ()
+-- Throws an exception if the remote is not accessible
+-- or the proof has expired.
+type Remover = Maybe SafeDropProof -> Key -> Annex ()
 
 -- Checks if a Key's content is present on a remote.
 -- Throws an exception if the remote is not accessible.

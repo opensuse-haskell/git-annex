@@ -5,6 +5,8 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE OverloadedStrings #-}
+
 module Remote.P2P (
 	remote,
 	chainGen
@@ -38,7 +40,7 @@ remote = RemoteType
 	, enumerate = const (return [])
 	, generate = \_ _ _ _ _ -> return Nothing
 	, configParser = mkRemoteConfigParser []
-	, setup = error "P2P remotes are set up using git-annex p2p"
+	, setup = giveup "P2P remotes are set up using git-annex p2p"
 	, exportSupported = exportUnsupported
 	, importSupported = importUnsupported
 	, thirdPartyPopulated = False
@@ -48,18 +50,19 @@ chainGen :: P2PAddress -> Git.Repo -> UUID -> RemoteConfig -> RemoteGitConfig ->
 chainGen addr r u rc gc rs = do
 	c <- parsedRemoteConfig remote rc
 	connpool <- mkConnectionPool
-	cst <- remoteCost gc veryExpensiveRemoteCost
+	cst <- remoteCost gc c veryExpensiveRemoteCost
 	let protorunner = runProto u addr connpool
 	let withconn = withConnection u addr connpool
 	let this = Remote 
 		{ uuid = u
 		, cost = cst
 		, name = Git.repoDescribe r
-		, storeKey = store gc protorunner
+		, storeKey = store u gc protorunner
 		, retrieveKeyFile = retrieve gc protorunner
+		, retrieveKeyFileInOrder = pure True
 		, retrieveKeyFileCheap = Nothing
 		, retrievalSecurityPolicy = RetrievalAllKeysSecure
-		, removeKey = remove protorunner
+		, removeKey = remove u protorunner
 		, lockContent = Just $ lock withconn runProtoConn u 
 		, checkPresent = checkpresent protorunner
 		, checkPresentCheap = False
@@ -67,6 +70,7 @@ chainGen addr r u rc gc rs = do
 		, importActions = importUnsupported
 		, whereisKey = Nothing
 		, remoteFsck = Nothing
+		, repairKey = Nothing
 		, repairRepo = Nothing
 		, config = c
 		, localpath = Nothing
@@ -75,7 +79,7 @@ chainGen addr r u rc gc rs = do
 		, readonly = False
 		, appendonly = False
 		, untrustworthy = False
-		, availability = GloballyAvailable
+		, availability = pure GloballyAvailable
 		, remotetype = remote
 		, mkUnavailable = return Nothing
 		, getInfo = gitRepoInfo this
@@ -100,12 +104,12 @@ runProto u addr connpool a = withConnection u addr connpool (runProtoConn a)
 runProtoConn :: P2P.Proto a -> Connection -> Annex (Connection, Maybe a)
 runProtoConn _ ClosedConnection = return (ClosedConnection, Nothing)
 runProtoConn a c@(OpenConnection (runst, conn)) = do
-	v <- runFullProto runst conn a
+	v <- runFullProto runst (Annex.getState Annex.remotes) conn a
 	-- When runFullProto fails, the connection is no longer usable,
 	-- so close it.
 	case v of
 		Left e -> do
-			warning $ "Lost connection to peer (" ++ describeProtoFailure e ++ ")"
+			warning $ UnquotedString $ "Lost connection to peer (" ++ describeProtoFailure e ++ ")"
 			liftIO $ closeConnection conn
 			return (ClosedConnection, Nothing)
 		Right r -> return (c, Just r)
@@ -141,7 +145,7 @@ withConnection u addr connpool a = bracketOnError get cache go
 openConnection :: UUID -> P2PAddress -> Annex Connection
 openConnection u addr = do
 	g <- Annex.gitRepo
-	v <- liftIO $ tryNonAsync $ connectPeer g addr
+	v <- liftIO $ tryNonAsync $ connectPeer (Just g) addr
 	case v of
 		Right conn -> do
 			myuuid <- getUUID
@@ -163,9 +167,9 @@ openConnection u addr = do
 					liftIO $ closeConnection conn
 					return ClosedConnection
 				Left e -> do
-					warning $ "Problem communicating with peer. (" ++ describeProtoFailure e ++ ")"
+					warning $ UnquotedString $ "Problem communicating with peer. (" ++ describeProtoFailure e ++ ")"
 					liftIO $ closeConnection conn
 					return ClosedConnection
 		Left e -> do
-			warning $ "Unable to connect to peer. (" ++ show e ++ ")"
+			warning $ UnquotedString $ "Unable to connect to peer. (" ++ show e ++ ")"
 			return ClosedConnection

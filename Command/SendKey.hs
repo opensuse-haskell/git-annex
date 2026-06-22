@@ -32,14 +32,17 @@ start (_, key) = do
 		<$> getField "RsyncOptions"
 	ifM (inAnnex key)
 		( fieldTransfer Upload key $ \_p ->
-			sendAnnex key rollback $ liftIO . rsyncServerSend (map Param opts)
+			sendAnnex key Nothing rollback $ \f _sz -> 
+				liftIO $ rsyncServerSend
+					(map Param opts)
+					(fromOsPath f)
 		, do
 			warning "requested key is not present"
 			liftIO exitFailure
 		)
   where
 	{- No need to do any rollback; when sendAnnex fails, a nonzero
-	 - exit will be propigated, and the remote will know the transfer
+	 - exit will be propagated, and the remote will know the transfer
 	 - failed. -}
 	rollback = noop
 
@@ -49,7 +52,7 @@ fieldTransfer direction key a = do
 	let afile = AssociatedFile Nothing
 	ok <- maybe (a $ const noop)
 		-- Using noRetry here because we're the sender.
-		(\u -> runner (Transfer direction (toUUID u) (fromKey id key)) afile Nothing noRetry a)
+		(\u -> runner (Transfer direction (toUUID u) (fromKey id key)) Nothing afile Nothing noRetry a)
 		=<< Fields.getField Fields.remoteUUID
 	fastDebug "Command.SendKey" "transfer done"
 	liftIO $ exitBool ok

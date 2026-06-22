@@ -40,9 +40,6 @@ import Assistant.Threads.Glacier
 #ifdef WITH_WEBAPP
 import Assistant.WebApp
 import Assistant.Threads.WebApp
-#ifdef WITH_PAIRING
-import Assistant.Threads.PairListener
-#endif
 #else
 import Assistant.Types.UrlRenderer
 #endif
@@ -56,46 +53,52 @@ import Annex.Path
 #ifdef mingw32_HOST_OS
 import Utility.Env
 import System.Environment (getArgs)
+#else
+import GHC.IO.Encoding (getLocaleEncoding)
 #endif
 import qualified Utility.Debug as Debug
 
-import Network.Socket (HostName)
+import Network.Socket (HostName, PortNumber)
 
 stopDaemon :: Annex ()
-stopDaemon = liftIO . Utility.Daemon.stopDaemon . fromRawFilePath
-	=<< fromRepo gitAnnexPidFile
+stopDaemon = liftIO . Utility.Daemon.stopDaemon =<< fromRepo gitAnnexPidFile
 
 {- Starts the daemon. If the daemon is run in the foreground, once it's
  - running, can start the browser.
  -
  - startbrowser is passed the url and html shim file, as well as the original
  - stdout and stderr descriptors. -}
-startDaemon :: Bool -> Bool -> Maybe Duration -> Maybe String -> Maybe HostName ->  Maybe (Maybe Handle -> Maybe Handle -> String -> FilePath -> IO ()) -> Annex ()
-startDaemon assistant foreground startdelay cannotrun listenhost startbrowser = do
+startDaemon :: Bool -> Bool -> Maybe Duration -> Maybe String -> Maybe HostName -> Maybe PortNumber ->  Maybe (Maybe Handle -> Maybe Handle -> String -> OsPath -> IO ()) -> Annex ()
+startDaemon assistant foreground startdelay cannotrun listenhost listenport startbrowser = do
 	Annex.changeState $ \s -> s { Annex.daemon = True }
 	enableInteractiveBranchAccess
 	pidfile <- fromRepo gitAnnexPidFile
 	logfile <- fromRepo gitAnnexDaemonLogFile
-	liftIO $ Debug.debug "Assistant" $ "logging to " ++ fromRawFilePath logfile
+	liftIO $ Debug.debug "Assistant" $ "logging to " ++ fromOsPath logfile
 	createAnnexDirectory (parentDir pidfile)
 #ifndef mingw32_HOST_OS
 	createAnnexDirectory (parentDir logfile)
-	let logfd = handleToFd =<< openLog (fromRawFilePath logfile)
+	let logfd = handleToFd =<< openLog (fromOsPath logfile)
 	if foreground
 		then do
-			origout <- liftIO $ catchMaybeIO $ 
-				fdToHandle =<< dup stdOutput
-			origerr <- liftIO $ catchMaybeIO $ 
-				fdToHandle =<< dup stdError
-			let undaemonize = Utility.Daemon.foreground logfd (Just (fromRawFilePath pidfile))
+			enc <- liftIO getLocaleEncoding
+			origout <- liftIO $ catchMaybeIO $ do
+				h <- fdToHandle =<< dup stdOutput
+				hSetEncoding h enc
+				return h
+			origerr <- liftIO $ catchMaybeIO $ do
+				h <- fdToHandle =<< dup stdError
+				hSetEncoding h enc
+				return h
+			let undaemonize = Utility.Daemon.foreground logfd (Just pidfile)
 			start undaemonize $ 
 				case startbrowser of
 					Nothing -> Nothing
 					Just a -> Just $ a origout origerr
 		else do
-			git_annex <- liftIO programPath
+			git_annex <- fromOsPath <$> liftIO programPath
 			ps <- gitAnnexDaemonizeParams
-			start (Utility.Daemon.daemonize git_annex ps logfd (Just (fromRawFilePath pidfile)) False) Nothing
+			start (Utility.Daemon.daemonize git_annex ps (Just logfd) (Just pidfile) False) Nothing
 #else
 	-- Windows doesn't daemonize, but does redirect output to the
 	-- log file. The only way to do so is to restart the program.
@@ -104,9 +107,9 @@ startDaemon assistant foreground startdelay cannotrun listenhost startbrowser = 
 		createAnnexDirectory (parentDir logfile)
 		ifM (liftIO $ isNothing <$> getEnv flag)
 			( liftIO $ withNullHandle $ \nullh -> do
-				loghandle <- openLog (fromRawFilePath logfile)
+				loghandle <- openLog (fromOsPath logfile)
 				e <- getEnvironment
-				cmd <- programPath
+				cmd <- fromOsPath <$> programPath
 				ps <- getArgs
 				let p = (proc cmd ps)
 					{ env = Just (addEntry flag "1" e)
@@ -117,7 +120,7 @@ startDaemon assistant foreground startdelay cannotrun listenhost startbrowser = 
 				exitcode <- withCreateProcess p $ \_ _ _ pid ->
 					waitForProcess pid
 				exitWith exitcode
-			, start (Utility.Daemon.foreground (Just (fromRawFilePath pidfile))) $
+			, start (Utility.Daemon.foreground (Just pidfile)) $
 				case startbrowser of
 					Nothing -> Nothing
 					Just a -> Just $ a Nothing Nothing
@@ -128,7 +131,7 @@ startDaemon assistant foreground startdelay cannotrun listenhost startbrowser = 
 		checkCanWatch
 		dstatus <- startDaemonStatus
 		logfile <- fromRepo gitAnnexDaemonLogFile
-		liftIO $ Debug.debug "Assistant" $ "logging to " ++ fromRawFilePath logfile
+		liftIO $ Debug.debug "Assistant" $ "logging to " ++ fromOsPath logfile
 		liftIO $ daemonize $
 			flip runAssistant (go webappwaiter) 
 				=<< newAssistantData st dstatus
@@ -141,7 +144,7 @@ startDaemon assistant foreground startdelay cannotrun listenhost startbrowser = 
 #endif
 		urlrenderer <- liftIO newUrlRenderer
 #ifdef WITH_WEBAPP
-		let webappthread = [ assist $ webAppThread d urlrenderer False cannotrun Nothing listenhost webappwaiter ]
+		let webappthread = [ assist $ webAppThread d urlrenderer False cannotrun Nothing listenhost listenport webappwaiter ]
 #else
 		let webappthread = []
 #endif
@@ -149,11 +152,6 @@ startDaemon assistant foreground startdelay cannotrun listenhost startbrowser = 
 			then webappthread
 			else webappthread ++
 				[ watch commitThread
-#ifdef WITH_WEBAPP
-#ifdef WITH_PAIRING
-				, assist $ pairListenerThread urlrenderer
-#endif
-#endif
 				, assist pushThread
 				, assist pushRetryThread
 				, assist exportThread

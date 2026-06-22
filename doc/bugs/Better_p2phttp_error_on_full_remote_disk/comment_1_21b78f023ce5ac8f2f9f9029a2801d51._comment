@@ -1,0 +1,46 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 1"""
+ date="2026-05-25T14:35:11Z"
+ content="""
+Note that the transcripts are not quite what git-annex usually
+outputs, due to [[this bug|bugs/SIGPIPE_behavior_change]], which has now
+been fixed.
+
+I have long disliked how this is displayed in the ssh case too.
+
+---
+
+At the level of the P2P protocol, a solution to this could be for the
+server to send an ERROR message back while the client is still in the
+process of sending the file with DATA. The P2P protocol allows ERROR to be
+sent at any time.
+
+This would look something like P2P.IO.runNet in SendBytes on error,
+trying to getProtocolLine, and when it gets an ERROR returning
+the error message as the `Left ProtoFailureMessage` rather than the current
+exception.
+
+(Something would need to be done in the P2PHandleTMVar to handle proxying
+too.)
+
+For the P2P protocol over http, the `/put` response would 
+look something like:
+
+	{"stored": false, "error-message": "not enough free space, need 1.05 GB more}"}
+
+Currently p2phttp actually replies with `500 Internal Server Error`,
+which git-annex does display to the user. 
+
+----
+
+The other side of the problem though is that the disk space message is displayed
+as a warning. So how would git-annex-shell, or p2phttp intercept it to send
+it along to the client? There would need to be quite a lot of restructuring
+to make that an exception.
+
+There are other warnings as well that it would be good to send to the
+client. One that comes to mind is 
+"transfer already in progress, or unable to take transfer lock".
+So this is a more general problem.
+"""]]

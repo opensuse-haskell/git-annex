@@ -12,16 +12,16 @@ import Types.TrustLevel
 import Command.Trust (trustCommand)
 import Logs.Location
 import Remote (keyLocations)
-import Git.Types
 
 cmd :: Command
-cmd = command "dead" SectionSetup "hide a lost repository or key"
-	(paramRepeating paramRepository) (seek <$$> optParser)
+cmd = withAnnexOptions [jsonOptions] $
+	command "dead" SectionSetup "hide a lost repository or key"
+		(paramRepeating paramRepository) (seek <$$> optParser)
 
 data DeadOptions = DeadRemotes [RemoteName] | DeadKeys [Key]
 
 optParser :: CmdParamsDesc -> Parser DeadOptions
-optParser desc = (DeadRemotes <$> cmdParams desc)
+optParser desc = (DeadRemotes <$> cmdParamsWithCompleter desc completeRemotes)
 	<|> (DeadKeys <$> many (option (str >>= parseKey)
 		( long "key" <> metavar paramKey
 		<> help "keys whose content has been irretrievably lost"

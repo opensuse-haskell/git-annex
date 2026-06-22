@@ -23,11 +23,9 @@ import Control.Monad
 #ifndef mingw32_HOST_OS
 import Control.Exception
 import qualified System.Posix.IO
-#else
-import Control.Applicative
+import GHC.IO.Encoding (getLocaleEncoding)
 #endif
 import Data.Maybe
-import Prelude
 
 -- | Runs a process and returns a transcript combining its stdout and
 -- stderr, and whether it succeeded or failed.
@@ -45,12 +43,15 @@ processTranscript'' cp input = do
 #ifndef mingw32_HOST_OS
 {- This implementation interleves stdout and stderr in exactly the order
  - the process writes them. -}
- 	let setup = do
+ 	let setup = noCreateProcessWhile $ do
 		(readf, writef) <- System.Posix.IO.createPipe
 		System.Posix.IO.setFdOption readf System.Posix.IO.CloseOnExec True
 		System.Posix.IO.setFdOption writef System.Posix.IO.CloseOnExec True
 		readh <- System.Posix.IO.fdToHandle readf
 		writeh <- System.Posix.IO.fdToHandle writef
+		enc <- getLocaleEncoding
+		hSetEncoding readh enc
+		hSetEncoding writeh enc
 		return (readh, writeh)
 	let cleanup (readh, writeh) = do
 		hClose readh

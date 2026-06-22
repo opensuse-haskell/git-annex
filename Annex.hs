@@ -1,6 +1,6 @@
 {- git-annex monad
  -
- - Copyright 2010-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -12,6 +12,7 @@ module Annex (
 	AnnexState(..),
 	AnnexRead(..),
 	new,
+	new',
 	run,
 	eval,
 	makeRunner,
@@ -74,9 +75,12 @@ import Types.CatFileHandles
 import Types.RemoteConfig
 import Types.TransferrerPool
 import Types.VectorClock
+import Types.Cluster
+import Types.RepoSize
 import Annex.VectorClock.Utility
 import Annex.Debug.Utility
 import qualified Database.Keys.Handle as Keys
+import Database.RepoSize.Handle
 import Utility.InodeCache
 import Utility.Url
 import Utility.ResourcePool
@@ -114,7 +118,8 @@ newtype Annex a = Annex { runAnnex :: ReaderT (MVar AnnexState, AnnexRead) IO a 
 
 -- Values that can be read, but not modified by an Annex action.
 data AnnexRead = AnnexRead
-	{ activekeys :: TVar (M.Map Key ThreadId)
+	{ branchstate :: MVar BranchState
+	, activekeys :: TVar (M.Map Key ThreadId)
 	, activeremotes :: MVar (M.Map (Types.Remote.RemoteA Annex) Integer)
 	, keysdbhandle :: Keys.DbHandle
 	, sshstalecleaned :: TMVar Bool
@@ -122,12 +127,15 @@ data AnnexRead = AnnexRead
 	, transferrerpool :: TransferrerPool
 	, debugenabled :: Bool
 	, debugselector :: DebugSelector
+	, explainenabled :: Bool
 	, ciphers :: TMVar (M.Map StorableCipher Cipher)
 	, fast :: Bool
 	, force :: Bool
 	, forcenumcopies :: Maybe NumCopies
 	, forcemincopies :: Maybe MinCopies
 	, forcebackend :: Maybe String
+	, reposizes :: MVar (Maybe (M.Map UUID (RepoSize, SizeOffset)))
+	, rebalance :: Bool
 	, useragent :: Maybe String
 	, desktopnotify :: DesktopNotify
 	, gitcredentialcache :: TMVar CredentialCache
@@ -135,6 +143,7 @@ data AnnexRead = AnnexRead
 
 newAnnexRead :: GitConfig -> IO AnnexRead
 newAnnexRead c = do
+	bs <- newMVar startBranchState
 	emptyactivekeys <- newTVarIO M.empty
 	emptyactiveremotes <- newMVar M.empty
 	kh <- Keys.newDbHandle
@@ -143,8 +152,10 @@ newAnnexRead c = do
 	tp <- newTransferrerPool
 	cm <- newTMVarIO M.empty
 	cc <- newTMVarIO (CredentialCache M.empty)
+	rs <- newMVar Nothing
 	return $ AnnexRead
-		{ activekeys = emptyactivekeys
+		{ branchstate = bs
+		, activekeys = emptyactivekeys
 		, activeremotes = emptyactiveremotes
 		, keysdbhandle = kh
 		, sshstalecleaned = sc
@@ -152,12 +163,15 @@ newAnnexRead c = do
 		, transferrerpool = tp
 		, debugenabled = annexDebug c
 		, debugselector = debugSelectorFromGitConfig c
+		, explainenabled = False
 		, ciphers = cm
 		, fast = False
 		, force = False
 		, forcebackend = Nothing
 		, forcenumcopies = Nothing
 		, forcemincopies = Nothing
+		, reposizes = rs
+		, rebalance = False
 		, useragent = Nothing
 		, desktopnotify = mempty
 		, gitcredentialcache = cc
@@ -174,17 +188,19 @@ data AnnexState = AnnexState
 	, gitconfiginodecache :: Maybe InodeCache
 	, backend :: Maybe (BackendA Annex)
 	, remotes :: [Types.Remote.RemoteA Annex]
+	, remotetypes :: [Types.Remote.RemoteTypeA Annex]
 	, output :: MessageState
 	, concurrency :: ConcurrencySetting
+	, cpus :: Maybe Cpus
 	, daemon :: Bool
-	, branchstate :: BranchState
 	, repoqueue :: Maybe (Git.Queue.Queue Annex)
 	, catfilehandles :: CatFileHandles
 	, hashobjecthandle :: Maybe (ResourcePool HashObjectHandle)
 	, checkattrhandle :: Maybe (ResourcePool CheckAttrHandle)
 	, checkignorehandle :: Maybe (ResourcePool CheckIgnoreHandle)
-	, globalnumcopies :: Maybe NumCopies
-	, globalmincopies :: Maybe MinCopies
+	, globalnumcopies :: Maybe (Maybe NumCopies)
+	, globalmincopies :: Maybe (Maybe MinCopies)
+	, nummincopiesattrcache :: Maybe (OsPath, (Maybe NumCopies, Maybe MinCopies))
 	, limit :: ExpandableMatcher Annex
 	, timelimit :: Maybe (Duration, POSIXTime)
 	, sizelimit :: Maybe (TVar Integer)
@@ -192,6 +208,8 @@ data AnnexState = AnnexState
 	, preferredcontentmap :: Maybe (FileMatcherMap Annex)
 	, requiredcontentmap :: Maybe (FileMatcherMap Annex)
 	, remoteconfigmap :: Maybe (M.Map UUID RemoteConfig)
+	, clusters :: Maybe (Annex Clusters)
+	, maxsizes :: Maybe (M.Map UUID MaxSize)
 	, forcetrust :: TrustMap
 	, trustmap :: Maybe TrustMap
 	, groupmap :: Maybe GroupMap
@@ -207,10 +225,13 @@ data AnnexState = AnnexState
 	, existinghooks :: M.Map Git.Hook.Hook Bool
 	, workers :: Maybe (TMVar (WorkerPool (AnnexState, AnnexRead)))
 	, cachedcurrentbranch :: (Maybe (Maybe Git.Branch, Maybe Adjustment))
-	, cachedgitenv :: Maybe (AltIndexFile, FilePath, [(String, String)])
-	, urloptions :: Maybe UrlOptions
+	, cachedgitenv :: Maybe (AltIndexFile, OsPath, [(String, String)])
+	, urloptions :: Maybe (UrlOptions, Bool)
 	, insmudgecleanfilter :: Bool
+	, inreconcilestaged :: Bool
 	, getvectorclock :: IO CandidateVectorClock
+	, proxyremote :: Maybe (Either ClusterUUID (Types.Remote.RemoteA Annex))
+	, reposizehandle :: Maybe RepoSizeHandle
 	}
 
 newAnnexState :: GitConfig -> Git.Repo -> IO AnnexState
@@ -227,10 +248,11 @@ newAnnexState c r = do
 		, gitconfiginodecache = Nothing
 		, backend = Nothing
 		, remotes = []
+		, remotetypes = []
 		, output = o
 		, concurrency = ConcurrencyCmdLine NonConcurrent
+		, cpus = Nothing
 		, daemon = False
-		, branchstate = startBranchState
 		, repoqueue = Nothing
 		, catfilehandles = catFileHandlesNonConcurrent
 		, hashobjecthandle = Nothing
@@ -238,6 +260,7 @@ newAnnexState c r = do
 		, checkignorehandle = Nothing
 		, globalnumcopies = Nothing
 		, globalmincopies = Nothing
+		, nummincopiesattrcache = Nothing
 		, limit = BuildingMatcher []
 		, timelimit = Nothing
 		, sizelimit = Nothing
@@ -245,6 +268,8 @@ newAnnexState c r = do
 		, preferredcontentmap = Nothing
 		, requiredcontentmap = Nothing
 		, remoteconfigmap = Nothing
+		, clusters = Nothing
+		, maxsizes = Nothing
 		, forcetrust = M.empty
 		, trustmap = Nothing
 		, groupmap = Nothing
@@ -263,17 +288,23 @@ newAnnexState c r = do
 		, cachedgitenv = Nothing
 		, urloptions = Nothing
 		, insmudgecleanfilter = False
+		, inreconcilestaged = False
 		, getvectorclock = vc
+		, proxyremote = Nothing
+		, reposizehandle = Nothing
 		}
 
 {- Makes an Annex state object for the specified git repo.
  - Ensures the config is read, if it was not already, and performs
  - any necessary git repo fixups. -}
 new :: Git.Repo -> IO (AnnexState, AnnexRead)
-new r = do
+new = new' fixupRepo
+
+new' :: (Git.Repo -> GitConfig -> IO Git.Repo) -> Git.Repo -> IO (AnnexState, AnnexRead)
+new' f r = do
 	r' <- Git.Config.read r
 	let c = extractGitConfig FromGitConfig r'
-	st <- newAnnexState c =<< fixupRepo r' c
+	st <- newAnnexState c =<< f r' c
 	rd <- newAnnexRead c
 	return (st, rd)
 
@@ -400,7 +431,7 @@ addGitConfigOverride v = do
 			r { Git.gitGlobalOpts = go (Git.gitGlobalOpts r) }
 	changeState $ \st -> st { gitconfigoverride = v : gitconfigoverride st }
   where
-	-- Remove any prior occurrance of the setting to avoid
+	-- Remove any prior occurrence of the setting to avoid
 	-- building up many of them when the adjustment is run repeatedly,
 	-- and add the setting to the end.
 	go [] = [Param "-c", Param v]
@@ -421,6 +452,7 @@ changeGitRepo r = do
 		{ repo = r'
 		, gitconfig = gitconfigadjuster $
 			extractGitConfig FromGitConfig r'
+		, gitremotes = Nothing
 		}
 
 {- Gets the RemoteGitConfig from a remote, given the Git.Repo for that
@@ -445,7 +477,7 @@ withCurrentState a = do
  - because the git repo paths are stored relative.
  - Instead, use this.
  -}
-changeDirectory :: FilePath -> Annex ()
+changeDirectory :: OsPath -> Annex ()
 changeDirectory d = do
 	r <- liftIO . Git.adjustPath absPath =<< gitRepo
 	liftIO $ setCurrentDirectory d

@@ -1,6 +1,6 @@
 {- management of the git-annex branch
  -
- - Copyright 2011-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -13,13 +13,18 @@ module Annex.Branch (
 	hasOrigin,
 	hasSibling,
 	siblingBranches,
+	remoteTrackingBranch,
 	create,
+	getBranch,
 	UpdateMade(..),
 	update,
 	forceUpdate,
 	updateTo,
 	get,
+	getLocal,
+	getLocal',
 	getHistorical,
+	getRef,
 	getUnmergedRefs,
 	RegardingUUID(..),
 	change,
@@ -35,12 +40,16 @@ module Annex.Branch (
 	performTransitions,
 	withIndex,
 	precache,
+	UnmergedBranches(..),
+	FileContents,
 	overBranchFileContents,
+	overJournalFileContents,
+	combineStaleJournalWithBranch,
+	updatedFromTree,
 ) where
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
-import qualified Data.ByteString.Char8 as B8
 import qualified Data.Set as S
 import qualified Data.Map as M
 import Data.Function
@@ -48,9 +57,9 @@ import Data.Char
 import Data.ByteString.Builder
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar
-import qualified System.FilePath.ByteString as P
+import System.PosixCompat.Files (isRegularFile)
 
-import Annex.Common hiding (append)
+import Annex.Common
 import Types.BranchState
 import Annex.BranchState
 import Annex.Journal
@@ -89,6 +98,7 @@ import Annex.Hook
 import Utility.Directory.Stream
 import Utility.Tmp
 import qualified Utility.RawFilePath as R
+import qualified Utility.FileIO as F
 
 {- Name of the branch that is used to store git-annex's information. -}
 name :: Git.Ref
@@ -98,13 +108,18 @@ name = Git.Ref "git-annex"
 fullname :: Git.Ref
 fullname = Git.Ref $ "refs/heads/" <> fromRef' name
 
-{- Branch's name in origin. -}
-originname :: Git.Ref
-originname = Git.Ref $ "refs/remotes/origin/" <> fromRef' name
+{- The remote tracking branch for origin. -}
+originTrackingBranch :: Git.Ref
+originTrackingBranch = Git.Ref $ "refs/remotes/origin/" <> fromRef' name
+
+{- Name of the remote tracking branch for a remote. -}
+remoteTrackingBranch :: RemoteName -> Git.Ref
+remoteTrackingBranch remotename = Git.Ref $ 
+	"refs/remotes/" <> encodeBS remotename <> "/" <> fromRef' name
 
 {- Does origin/git-annex exist? -}
 hasOrigin :: Annex Bool
-hasOrigin = inRepo $ Git.Ref.exists originname
+hasOrigin = inRepo $ Git.Ref.exists originTrackingBranch
 
 {- Does the git-annex branch or a sibling foo/git-annex branch exist? -}
 hasSibling :: Annex Bool
@@ -119,8 +134,8 @@ siblingBranches = inRepo $ Git.Ref.matchingUniq [name]
 create :: Annex ()
 create = void getBranch
 
-{- Returns the ref of the branch, creating it first if necessary. -}
-getBranch :: Annex Git.Ref
+{- Returns the sha of the branch, creating it first if necessary. -}
+getBranch :: Annex Git.Sha
 getBranch = maybe (hasOrigin >>= go >>= use) return =<< branchsha
   where
 	go True = do
@@ -128,13 +143,13 @@ getBranch = maybe (hasOrigin >>= go >>= use) return =<< branchsha
 			[ Param "branch"
 			, Param "--no-track"
 			, Param $ fromRef name
-			, Param $ fromRef originname
+			, Param $ fromRef originTrackingBranch
 			]
-		fromMaybe (error $ "failed to create " ++ fromRef name)
+		fromMaybe (giveup $ "failed to create " ++ fromRef name)
 			<$> branchsha
 	go False = withIndex' True $ do
 		-- Create the index file. This is not necessary,
-		-- except to avoid a bug in git that causes
+		-- except to avoid a bug in git 2.37 that causes
 		-- git write-tree to segfault when the index file does not
 		-- exist.
 		inRepo $ flip Git.UpdateIndex.streamUpdateIndex []
@@ -183,23 +198,24 @@ updateTo' pairs = do
 	branchref <- getBranch
 	ignoredrefs <- getIgnoredRefs
 	let unignoredrefs = excludeset ignoredrefs pairs
-	tomerge <- if null unignoredrefs
-		then return []
+	(tomerge, notnewer) <- if null unignoredrefs
+		then return ([], [])
 		else do
 			mergedrefs <- getMergedRefs
-			filterM isnewer (excludeset mergedrefs unignoredrefs)
+			partitionM isnewer $
+				excludeset mergedrefs unignoredrefs
 	{- In a read-only repository, catching permission denied lets
 	 - query operations still work, although they will need to do
 	 - additional work since the refs are not merged. -}
 	catchPermissionDenied
 		(const (updatefailedperms tomerge))
-		(go branchref tomerge)
+		(go branchref tomerge notnewer)
   where
 	excludeset s = filter (\(r, _) -> S.notMember r s)
 
 	isnewer (r, _) = inRepo $ Git.Branch.changed fullname r
 
-	go branchref tomerge = do
+	go branchref tomerge notnewer = do
 		dirty <- journalDirty gitAnnexJournalDir
 		journalcleaned <- if null tomerge
 			{- Even when no refs need to be merged, the index
@@ -229,6 +245,7 @@ updateTo' pairs = do
 		journalclean <- if journalcleaned
 			then not <$> privateUUIDsKnown
 			else pure False
+		addMergedRefs notnewer
 		return $ UpdateMade
 			{ refsWereMerged = not (null tomerge)
 			, journalClean = journalclean 
@@ -243,12 +260,12 @@ updateTo' pairs = do
 				" into " ++ fromRef name
 		localtransitions <- getLocalTransitions
 		unless (null tomerge) $ do
-			showSideAction merge_desc
+			showSideAction (UnquotedString merge_desc)
 			mapM_ checkBranchDifferences refs
 			mergeIndex jl refs
 		let commitrefs = nub $ fullname:refs
 		ifM (handleTransitions jl localtransitions commitrefs)
-			( runAnnexHook postUpdateAnnexHook
+			( runAnnexHook postUpdateAnnexHook annexPostUpdateCommand
 			, do
 				ff <- if dirty
 					then return False
@@ -258,7 +275,7 @@ updateTo' pairs = do
 					else commitIndex jl branchref merge_desc commitrefs
 			)
 		addMergedRefs tomerge
-		invalidateCache
+		invalidateCacheAll
 	
 	stagejournalwhen dirty jl a
 		| dirty = stageJournal jl a
@@ -303,7 +320,7 @@ updateTo' pairs = do
  - transitions that have not been applied to all refs will be applied on
  - the fly.
  -}
-get :: RawFilePath -> Annex L.ByteString
+get :: OsPath -> Annex L.ByteString
 get file = do
 	st <- update
 	case getCache file st of
@@ -343,7 +360,7 @@ getUnmergedRefs = unmergedRefs <$> update
  - using some optimised method. The journal has to be checked, in case
  - it has a newer version of the file that has not reached the branch yet.
  -}
-precache :: RawFilePath -> L.ByteString -> Annex ()
+precache :: OsPath -> L.ByteString -> Annex ()
 precache file branchcontent = do
 	st <- getState
 	content <- if journalIgnorable st
@@ -359,12 +376,12 @@ precache file branchcontent = do
  - reflect changes in remotes.
  - (Changing the value this returns, and then merging is always the
  - same as using get, and then changing its value.) -}
-getLocal :: RawFilePath -> Annex L.ByteString
+getLocal :: OsPath -> Annex L.ByteString
 getLocal = getLocal' (GetPrivate True)
 
-getLocal' :: GetPrivate -> RawFilePath -> Annex L.ByteString
+getLocal' :: GetPrivate -> OsPath -> Annex L.ByteString
 getLocal' getprivate file = do
-	fastDebug "Annex.Branch" ("read " ++ fromRawFilePath file)
+	fastDebug "Annex.Branch" ("read " ++ fromOsPath file)
 	go =<< getJournalFileStale getprivate file
   where
 	go NoJournalledContent = getRef fullname file
@@ -374,14 +391,14 @@ getLocal' getprivate file = do
 		return (v <> journalcontent)
 
 {- Gets the content of a file as staged in the branch's index. -}
-getStaged :: RawFilePath -> Annex L.ByteString
+getStaged :: OsPath -> Annex L.ByteString
 getStaged = getRef indexref
   where
 	-- This makes git cat-file be run with ":file",
 	-- so it looks at the index.
 	indexref = Ref ""
 
-getHistorical :: RefDate -> RawFilePath -> Annex L.ByteString
+getHistorical :: RefDate -> OsPath -> Annex L.ByteString
 getHistorical date file =
 	-- This check avoids some ugly error messages when the reflog
 	-- is empty.
@@ -390,26 +407,35 @@ getHistorical date file =
 		, getRef (Git.Ref.dateRef fullname date) file
 		)
 
-getRef :: Ref -> RawFilePath -> Annex L.ByteString
+getRef :: Ref -> OsPath -> Annex L.ByteString
 getRef ref file = withIndex $ catFile ref file
 
 {- Applies a function to modify the content of a file.
  -
  - Note that this does not cause the branch to be merged, it only
- - modifes the current content of the file on the branch.
+ - modifies the current content of the file on the branch.
  -}
-change :: Journalable content => RegardingUUID -> RawFilePath -> (L.ByteString -> content) -> Annex ()
+change :: Journalable content => RegardingUUID -> OsPath -> (L.ByteString -> content) -> Annex ()
 change ru file f = lockJournal $ \jl -> f <$> getToChange ru file >>= set jl ru file
 
-{- Applies a function which can modify the content of a file, or not. -}
-maybeChange :: Journalable content => RegardingUUID -> RawFilePath -> (L.ByteString -> Maybe content) -> Annex ()
-maybeChange ru file f = lockJournal $ \jl -> do
+{- Applies a function which can modify the content of a file, or not.
+ -
+ - When the file was modified, runs the onchange action, and returns
+ - True. The action is run while the journal is still locked,
+ - so another concurrent call to this cannot happen while it is running. -}
+maybeChange :: Journalable content => RegardingUUID -> OsPath -> (L.ByteString -> Maybe content) -> Annex () -> Annex Bool
+maybeChange ru file f onchange = lockJournal $ \jl -> do
 	v <- getToChange ru file
 	case f v of
 		Just jv ->
 			let b = journalableByteString jv
-			in when (v /= b) $ set jl ru file b
-		_ -> noop
+			in if v /= b
+				then do
+					set jl ru file b
+					onchange
+					return True
+				else return False
+		_ -> return False
 
 data ChangeOrAppend t = Change t | Append t
 
@@ -422,7 +448,7 @@ data ChangeOrAppend t = Change t | Append t
  - value it provides is always appended to the journal file. That avoids
  - reading the journal file, and so can be faster when many lines are being
  - written to it. The information that is recorded will be effectively the
- - same, only obsolate log lines will not get compacted.
+ - same, only obsolete log lines will not get compacted.
  -
  - Currently, only appends when annex.alwayscompact=false. That is to
  - avoid appending when an older version of git-annex is also in use in the
@@ -430,7 +456,7 @@ data ChangeOrAppend t = Change t | Append t
  - state that would confuse the older version. This is planned to be
  - changed in a future repository version.
  -}
-changeOrAppend :: Journalable content => RegardingUUID -> RawFilePath -> (L.ByteString -> ChangeOrAppend content) -> Annex ()
+changeOrAppend :: Journalable content => RegardingUUID -> OsPath -> (L.ByteString -> ChangeOrAppend content) -> Annex ()
 changeOrAppend ru file f = lockJournal $ \jl ->
 	checkCanAppendJournalFile jl ru file >>= \case
 		Just appendable -> ifM (annexAlwaysCompact <$> Annex.getGitConfig)
@@ -462,7 +488,7 @@ changeOrAppend ru file f = lockJournal $ \jl ->
 					oldc <> journalableByteString toappend
 
 {- Only get private information when the RegardingUUID is itself private. -}
-getToChange :: RegardingUUID -> RawFilePath -> Annex L.ByteString
+getToChange :: RegardingUUID -> OsPath -> Annex L.ByteString
 getToChange ru f = flip getLocal' f . GetPrivate =<< regardingPrivateUUID ru
 
 {- Records new content of a file into the journal.
@@ -474,33 +500,40 @@ getToChange ru f = flip getLocal' f . GetPrivate =<< regardingPrivateUUID ru
  - git-annex index, and should not be written to the public git-annex
  - branch.
  -}
-set :: Journalable content => JournalLocked -> RegardingUUID -> RawFilePath -> content -> Annex ()
+set :: Journalable content => JournalLocked -> RegardingUUID -> OsPath -> content -> Annex ()
 set jl ru f c = do
 	journalChanged
 	setJournalFile jl ru f c
-	fastDebug "Annex.Branch" ("set " ++ fromRawFilePath f)
+	fastDebug "Annex.Branch" ("set " ++ fromOsPath f)
 	-- Could cache the new content, but it would involve
 	-- evaluating a Journalable Builder twice, which is not very
 	-- efficient. Instead, assume that it's not common to need to read
 	-- a log file immediately after writing it.
-	invalidateCache
+	invalidateCache f
 
 {- Appends content to the journal file. -}
-append :: Journalable content => JournalLocked -> RawFilePath -> AppendableJournalFile -> content -> Annex ()
+append :: Journalable content => JournalLocked -> OsPath -> AppendableJournalFile -> content -> Annex ()
 append jl f appendable toappend = do
 	journalChanged
 	appendJournalFile jl appendable toappend
-	fastDebug "Annex.Branch" ("append " ++ fromRawFilePath f)
-	invalidateCache
+	fastDebug "Annex.Branch" ("append " ++ fromOsPath f)
+	invalidateCache f
 
 {- Commit message used when making a commit of whatever data has changed
- - to the git-annex brach. -}
+ - to the git-annex branch. -}
 commitMessage :: Annex String
-commitMessage = fromMaybe "update" . annexCommitMessage <$> Annex.getGitConfig
+commitMessage = fromMaybe "update" <$> getCommitMessage
 
 {- Commit message used when creating the branch. -}
 createMessage :: Annex String
-createMessage = fromMaybe "branch created" . annexCommitMessage <$> Annex.getGitConfig
+createMessage = fromMaybe "branch created" <$> getCommitMessage
+
+getCommitMessage :: Annex (Maybe String)
+getCommitMessage = 
+	outputOfAnnexHook commitMessageAnnexHook annexCommitMessageCommand
+		>>= \case
+			Just msg -> return (Just msg)
+			Nothing -> annexCommitMessage <$> Annex.getGitConfig
 
 {- Stages the journal, and commits staged changes to the branch. -}
 commit :: String -> Annex ()
@@ -586,37 +619,29 @@ commitIndex' jl branchref message basemessage retrynum parents = do
  - not been merged in, returns Nothing, because it's not possible to
  - efficiently handle that.
  -}
-files :: Annex (Maybe ([RawFilePath], IO Bool))
+files :: Annex (Maybe ([OsPath], IO Bool))
 files = do
 	st <- update
         if not (null (unmergedRefs st))
 		then return Nothing
 		else do
 			(bfs, cleanup) <- branchFiles
+			jfs <- journalledFiles
+			pjfs <- journalledFilesPrivate
 			-- ++ forces the content of the first list to be
 			-- buffered in memory, so use journalledFiles,
 			-- which should be much smaller most of the time.
 			-- branchFiles will stream as the list is consumed.
-			l <- (++) <$> journalledFiles <*> pure bfs
+			let l = jfs ++ pjfs ++ bfs
 			return (Just (l, cleanup))
-
-{- Lists all files currently in the journal. There may be duplicates in
- - the list when using a private journal. -}
-journalledFiles :: Annex [RawFilePath]
-journalledFiles = ifM privateUUIDsKnown
-	( (++)
-		<$> getJournalledFilesStale gitAnnexPrivateJournalDir
-		<*> getJournalledFilesStale gitAnnexJournalDir
-	, getJournalledFilesStale gitAnnexJournalDir
-	)
 
 {- Files in the branch, not including any from journalled changes,
  - and without updating the branch. -}
-branchFiles :: Annex ([RawFilePath], IO Bool)
+branchFiles :: Annex ([OsPath], IO Bool)
 branchFiles = withIndex $ inRepo branchFiles'
 
-branchFiles' :: Git.Repo -> IO ([RawFilePath], IO Bool)
-branchFiles' = Git.Command.pipeNullSplit' $
+branchFiles' :: Git.Repo -> IO ([OsPath], IO Bool)
+branchFiles' = Git.Command.pipeNullSplit'' toOsPath $
 	lsTreeParams Git.LsTree.LsTreeRecursive (Git.LsTree.LsTreeLong False)
 		fullname
 		[Param "--name-only"]
@@ -624,7 +649,7 @@ branchFiles' = Git.Command.pipeNullSplit' $
 {- Populates the branch's index file with the current branch contents.
  - 
  - This is only done when the index doesn't yet exist, and the index 
- - is used to build up changes to be commited to the branch, and merge
+ - is used to build up changes to be committed to the branch, and merge
  - in changes from other branches.
  -}
 genIndex :: Git.Repo -> IO ()
@@ -653,7 +678,8 @@ mergeIndex jl branches = do
 prepareModifyIndex :: JournalLocked -> Annex ()
 prepareModifyIndex _jl = do
 	index <- fromRepo gitAnnexIndex
-	void $ liftIO $ tryIO $ R.removeLink (index <> ".lock")
+	void $ liftIO $ tryIO $
+		removeFile (index <> literalOsPath ".lock")
 
 {- Runs an action using the branch's index file. -}
 withIndex :: Annex a -> Annex a
@@ -662,7 +688,7 @@ withIndex' :: Bool -> Annex a -> Annex a
 withIndex' bootstrapping a = withIndexFile AnnexIndexFile $ \f -> do
 	checkIndexOnce $ unlessM (liftIO $ doesFileExist f) $ do
 		unless bootstrapping create
-		createAnnexDirectory $ toRawFilePath $ takeDirectory f
+		createAnnexDirectory $ takeDirectory f
 		unless bootstrapping $ inRepo genIndex
 	a
 
@@ -684,18 +710,18 @@ forceUpdateIndex jl branchref = do
 {- Checks if the index needs to be updated. -}
 needUpdateIndex :: Git.Ref -> Annex Bool
 needUpdateIndex branchref = do
-	f <- fromRawFilePath <$> fromRepo gitAnnexIndexStatus
+	f <- fromRepo gitAnnexIndexStatus
 	committedref <- Git.Ref . firstLine' <$>
-		liftIO (catchDefaultIO mempty $ B.readFile f)
+		liftIO (catchDefaultIO mempty $ F.readFile' f)
 	return (committedref /= branchref)
 
 {- Record that the branch's index has been updated to correspond to a
- - given ref of the branch. -}
-setIndexSha :: Git.Ref -> Annex ()
+ - given sha of the branch. -}
+setIndexSha :: Git.Sha -> Annex ()
 setIndexSha ref = do
 	f <- fromRepo gitAnnexIndexStatus
 	writeLogFile f $ fromRef ref ++ "\n"
-	runAnnexHook postUpdateAnnexHook
+	runAnnexHook postUpdateAnnexHook annexPostUpdateCommand
 
 {- Stages the journal into the index, and runs an action that
  - commits the index to the branch. Note that the action is run
@@ -712,25 +738,28 @@ stageJournal :: JournalLocked -> Annex () -> Annex ()
 stageJournal jl commitindex = withIndex $ withOtherTmp $ \tmpdir -> do
 	prepareModifyIndex jl
 	g <- gitRepo
-	let dir = gitAnnexJournalDir g
-	(jlogf, jlogh) <- openjlog (fromRawFilePath tmpdir)
+	st <- getState
+	let dir = gitAnnexJournalDir st g
+	(jlogf, jlogh) <- openjlog tmpdir
 	withHashObjectHandle $ \h ->
 		withJournalHandle gitAnnexJournalDir $ \jh ->
 			Git.UpdateIndex.streamUpdateIndex g
 				[genstream dir h jh jlogh]
 	commitindex
-	liftIO $ cleanup (fromRawFilePath dir) jlogh jlogf
+	liftIO $ cleanup dir jlogh jlogf
   where
 	genstream dir h jh jlogh streamer = readDirectory jh >>= \case
 		Nothing -> return ()
 		Just file -> do
-			unless (dirCruft file) $ do
-				let path = dir P.</> toRawFilePath file
+			let file' = toOsPath file
+			let path = dir </> file'
+			unless (file' `elem` dirCruft) $ whenM (isfile path) $ do
 				sha <- Git.HashObject.hashFile h path
-				hPutStrLn jlogh file
+				B.hPutStr jlogh (file <> "\n")
 				streamer $ Git.UpdateIndex.updateIndexLine
-					sha TreeFile (asTopFilePath $ fileJournal $ toRawFilePath file)
+					sha TreeFile (asTopFilePath $ fileJournal file')
 			genstream dir h jh jlogh streamer
+	isfile file = isRegularFile <$> R.getFileStatus (fromOsPath file)
 	-- Clean up the staged files, as listed in the temp log file.
 	-- The temp file is used to avoid needing to buffer all the
 	-- filenames in memory.
@@ -738,10 +767,10 @@ stageJournal jl commitindex = withIndex $ withOtherTmp $ \tmpdir -> do
 		hFlush jlogh
 		hSeek jlogh AbsoluteSeek 0
 		stagedfs <- lines <$> hGetContents jlogh
-		mapM_ (removeFile . (dir </>)) stagedfs
+		mapM_ (removeFile . (dir </>) . toOsPath) stagedfs
 		hClose jlogh
-		removeWhenExistsWith (R.removeLink) (toRawFilePath jlogf)
-	openjlog tmpdir = liftIO $ openTmpFileIn tmpdir "jlog"
+		removeWhenExistsWith removeFile jlogf
+	openjlog tmpdir = liftIO $ openTmpFileIn tmpdir (literalOsPath "jlog")
 
 getLocalTransitions :: Annex Transitions
 getLocalTransitions = 
@@ -801,12 +830,18 @@ performTransitionsLocked jl ts neednewlocalbranch transitionedrefs = do
 		if neednewlocalbranch
 			then do
 				cmode <- annexCommitMode <$> Annex.getGitConfig
-				committedref <- inRepo $ Git.Branch.commitAlways cmode message fullname transitionedrefs
-				setIndexSha committedref
+				-- Creating a new empty branch must happen
+				-- atomically, so if this is interrupted,
+				-- it will not leave the new branch created
+				-- but without exports grafted in.
+				c <- inRepo $ Git.Branch.commitShaAlways
+					cmode message transitionedrefs
+				void $ regraftexports c
 			else do
 				ref <- getBranch
-				commitIndex jl ref message (nub $ fullname:transitionedrefs)
-	regraftexports
+				ref' <- regraftexports ref
+				commitIndex jl ref' message
+					(nub $ fullname:transitionedrefs)
   where
 	message
 		| neednewlocalbranch && null transitionedrefs = "new branch for transition " ++ tdesc
@@ -844,7 +879,7 @@ performTransitionsLocked jl ts neednewlocalbranch transitionedrefs = do
 			if L.null content'
 				then do
 					Annex.Queue.addUpdateIndex
-						=<< inRepo (Git.UpdateIndex.unstageFile (fromRawFilePath file))
+						=<< inRepo (Git.UpdateIndex.unstageFile file)
 					-- File is deleted; can't run any other
 					-- transitions on it.
 					return ()
@@ -855,13 +890,25 @@ performTransitionsLocked jl ts neednewlocalbranch transitionedrefs = do
 					apply rest file content'
 
 	-- Trees mentioned in export.log were grafted into the old
-	-- git-annex branch to make sure they remain available. Re-graft
-	-- the trees into the new branch.
-	regraftexports = do
+	-- git-annex branch to make sure they remain available.
+	-- Re-graft the trees.
+	regraftexports parent = do
 		l <- exportedTreeishes . M.elems . parseExportLogMap
 			<$> getStaged exportLog
-		forM_ l $ \t ->
-			rememberTreeishLocked t (asTopFilePath exportTreeGraftPoint) jl
+		c <- regraft l parent
+		inRepo $ Git.Branch.update' fullname c
+		setIndexSha c
+		return c
+	  where
+		regraft [] c = pure c
+		regraft (et:ets) c =
+			-- Verify that the tree object exists.
+			catObjectDetails et >>= \case
+				Just _ ->
+					prepRememberTreeish et graftpoint c
+						>>= regraft ets
+				Nothing -> regraft ets c
+		graftpoint = asTopFilePath exportTreeGraftPoint
 
 checkBranchDifferences :: Git.Ref -> Annex ()
 checkBranchDifferences ref = do
@@ -881,11 +928,11 @@ ignoreRefs rs = do
 
 getIgnoredRefs :: Annex (S.Set Git.Sha)
 getIgnoredRefs = 
-	S.fromList . mapMaybe Git.Sha.extractSha . B8.lines <$> content
+	S.fromList . mapMaybe Git.Sha.extractSha . fileLines' <$> content
   where
 	content = do
-		f <- fromRawFilePath <$> fromRepo gitAnnexIgnoredRefs
-		liftIO $ catchDefaultIO mempty $ B.readFile f
+		f <- fromRepo gitAnnexIgnoredRefs
+		liftIO $ catchDefaultIO mempty $ F.readFile' f
 
 addMergedRefs :: [(Git.Sha, Git.Branch)] -> Annex ()
 addMergedRefs [] = return ()
@@ -902,9 +949,9 @@ getMergedRefs = S.fromList . map fst <$> getMergedRefs'
 
 getMergedRefs' :: Annex [(Git.Sha, Git.Branch)]
 getMergedRefs' = do
-	f <- fromRawFilePath <$> fromRepo gitAnnexMergedRefs
-	s <- liftIO $ catchDefaultIO mempty $ B.readFile f
-	return $ map parse $ B8.lines s
+	f <- fromRepo gitAnnexMergedRefs
+	s <- liftIO $ catchDefaultIO mempty $ F.readFile' f
+	return $ map parse $ fileLines' s
   where
 	parse l = 
 		let (s, b) = separate' (== (fromIntegral (ord '\t'))) l
@@ -913,26 +960,43 @@ getMergedRefs' = do
 {- Grafts a treeish into the branch at the specified location,
  - and then removes it. This ensures that the treeish won't get garbage
  - collected, and will always be available as long as the git-annex branch
- - is available. -}
-rememberTreeish :: Git.Ref -> TopFilePath -> Annex ()
-rememberTreeish treeish graftpoint = lockJournal $ rememberTreeishLocked treeish graftpoint
-rememberTreeishLocked :: Git.Ref -> TopFilePath -> JournalLocked -> Annex ()
-rememberTreeishLocked treeish graftpoint jl = do
+ - is available.
+ -
+ - Returns the sha of the git commit made to the git-annex branch.
+ -}
+rememberTreeish :: Git.Ref -> TopFilePath -> Annex Git.Sha
+rememberTreeish treeish graftpoint = lockJournal $ \jl -> do
 	branchref <- getBranch
 	updateIndex jl branchref
+	c <- prepRememberTreeish treeish graftpoint branchref
+	inRepo $ Git.Branch.update' fullname c
+	-- The tree in c is the same as the tree in branchref,
+	-- and the index was updated to that above, so it's safe to
+	-- say that the index contains c.
+	setIndexSha c
+	return c
+
+{- Create a series of commits that graft a tree onto the parent commit,
+ - and then remove it. -}
+prepRememberTreeish :: Git.Ref -> TopFilePath -> Git.Ref -> Annex Git.Sha
+prepRememberTreeish treeish graftpoint parent = do
 	origtree <- fromMaybe (giveup "unable to determine git-annex branch tree") <$>
-		inRepo (Git.Ref.tree branchref)
+		inRepo (Git.Ref.tree parent)
 	addedt <- inRepo $ Git.Tree.graftTree treeish graftpoint origtree
 	cmode <- annexCommitMode <$> Annex.getGitConfig
 	c <- inRepo $ Git.Branch.commitTree cmode
-		"graft" [branchref] addedt
-	c' <- inRepo $ Git.Branch.commitTree cmode
-		"graft cleanup" [c] origtree
-	inRepo $ Git.Branch.update' fullname c'
-	-- The tree in c' is the same as the tree in branchref,
-	-- and the index was updated to that above, so it's safe to
-	-- say that the index contains c'.
-	setIndexSha c'
+		["graft"] [parent] addedt
+	inRepo $ Git.Branch.commitTree cmode
+		["graft cleanup"] [c] origtree
+
+{- UnmergedBranches is used to indicate when a value was calculated in a
+ - read-only repository that has other git-annex branches that have not
+ - been merged in. The value does not include information from those
+ - branches.
+ -}
+data UnmergedBranches t
+	= UnmergedBranches t 
+	| NoUnmergedBranches t
 
 {- Runs an action on the content of selected files from the branch.
  - This is much faster than reading the content of each file in turn,
@@ -942,57 +1006,60 @@ rememberTreeishLocked treeish graftpoint jl = do
  - the next file and its contents. When there are no more files, the
  - callback will return Nothing.
  -
- - In some cases the callback may return the same file more than once,
- - with different content. This happens rarely, only when the journal
- - contains additional information, and the last version of the
- - file it returns is the most current one.
- -
- - In a read-only repository that has other git-annex branches that have
- - not been merged in, returns Nothing, because it's not possible to
- - efficiently handle that.
+ - Returns the accumulated result of the callback, as well as the sha of
+ - the branch at the point it was read.
  -}
 overBranchFileContents
-	:: (RawFilePath -> Maybe v)
-	-> (Annex (Maybe (v, RawFilePath, Maybe L.ByteString)) -> Annex a)
-	-> Annex (Maybe a)
-overBranchFileContents select go = do
+	:: Bool
+	-- ^ Should files in the journal be ignored? When False,
+	-- the content of journalled files is combined with files in the
+	-- git-annex branch. And also, at the end, the callback is run
+	-- on each journalled file, in case some journalled files are new
+	-- files that do not yet appear in the branch. Note that this means
+	-- the callback can be run more than once on the same filename,
+	-- and in this case it's also possible for the callback to be
+	-- passed some of the same file content repeatedly.
+	-> (OsPath -> Maybe v)
+	-> (Annex (FileContents v Bool) -> Annex a)
+	-> Annex (UnmergedBranches (a, Git.Sha))
+overBranchFileContents ignorejournal select go = do
 	st <- update
-	if not (null (unmergedRefs st))
-		then return Nothing
-		else Just <$> overBranchFileContents' select go st
+	let st' = if ignorejournal
+		then st { journalIgnorable = True }
+		else st
+	v <- overBranchFileContents' select go st'
+	return $ if not (null (unmergedRefs st))
+		then UnmergedBranches v
+		else NoUnmergedBranches v
 
 overBranchFileContents'
-	:: (RawFilePath -> Maybe v)
-	-> (Annex (Maybe (v, RawFilePath, Maybe L.ByteString)) -> Annex a)
+	:: (OsPath -> Maybe v)
+	-> (Annex (FileContents v Bool) -> Annex a)
 	-> BranchState
-	-> Annex a
+	-> Annex (a, Git.Sha)
 overBranchFileContents' select go st = do
 	g <- Annex.gitRepo
+	branchsha <- getBranch
 	(l, cleanup) <- inRepo $ Git.LsTree.lsTree
 		Git.LsTree.LsTreeRecursive
 		(Git.LsTree.LsTreeLong False)
-		fullname
+		branchsha
 	let select' f = fmap (\v -> (v, f)) (select f)
 	buf <- liftIO newEmptyMVar
 	let go' reader = go $ liftIO reader >>= \case
 		Just ((v, f), content) -> do
-			content' <- checkjournal f content
+			content' <- checkjournal f content >>= return . \case
+				Nothing -> Nothing
+				Just c -> Just (c, Just False)
 			return (Just (v, f, content'))
 		Nothing
 			| journalIgnorable st -> return Nothing
-			-- The journal did not get committed to the
-			-- branch, and may contain files that
-			-- are not present in the branch, which 
-			-- need to be provided to the action still.
-			-- This can cause the action to be run a
-			-- second time with a file it already ran on.
-			| otherwise -> liftIO (tryTakeMVar buf) >>= \case
-				Nothing -> drain buf =<< journalledFiles
-				Just fs -> drain buf fs
-	catObjectStreamLsTree l (select' . getTopFilePath . Git.LsTree.file) g go'
+			| otherwise ->
+				overJournalFileContents' buf False (handlestale branchsha) select
+	res <- catObjectStreamLsTree l (select' . getTopFilePath . Git.LsTree.file) g go'
 		`finally` liftIO (void cleanup)
+	return (res, branchsha)
   where
-	-- Check the journal, in case it did not get committed to the branch
 	checkjournal f branchcontent
 		| journalIgnorable st = return branchcontent
 		| otherwise = getJournalFileStale (GetPrivate True) f >>= return . \case
@@ -1001,27 +1068,22 @@ overBranchFileContents' select go st = do
 				Just journalledcontent
 			PossiblyStaleJournalledContent journalledcontent ->
 				Just (fromMaybe mempty branchcontent <> journalledcontent)
-				
-	drain buf fs = case getnext fs of
-		Just (v, f, fs') -> do
-			liftIO $ putMVar buf fs'
-			content <- getJournalFileStale (GetPrivate True) f >>= \case
-				NoJournalledContent -> return Nothing
-				JournalledContent journalledcontent ->
-					return (Just journalledcontent)
-				PossiblyStaleJournalledContent journalledcontent -> do
-					-- This is expensive, but happens
-					-- only when there is a private
-					-- journal file.
-					content <- getRef fullname f
-					return (Just (content <> journalledcontent))
-			return (Just (v, f, content))
-		Nothing -> do
-			liftIO $ putMVar buf []
-			return Nothing
 	
-	getnext [] = Nothing
-	getnext (f:fs) = case select f of
-		Nothing -> getnext fs
-		Just v -> Just (v, f, fs)
+	handlestale branchsha f journalledcontent = do
+		-- This is expensive, but happens only when there is a
+		-- private journal file.
+		branchcontent <- getRef branchsha f
+		return (combineStaleJournalWithBranch branchcontent journalledcontent, Just True)
 
+combineStaleJournalWithBranch :: L.ByteString -> L.ByteString -> L.ByteString
+combineStaleJournalWithBranch branchcontent journalledcontent =
+	branchcontent <> journalledcontent
+
+{- Check if the git-annex branch has been updated from the oldtree.
+ - If so, returns the tuple of the old and new trees. -}
+updatedFromTree :: Git.Sha -> Annex (Maybe (Git.Sha, Git.Sha))
+updatedFromTree oldtree =
+	inRepo (Git.Ref.tree fullname) >>= \case
+		Just currtree | currtree /= oldtree ->
+			return $ Just (oldtree, currtree)
+		_ -> return Nothing

@@ -1,6 +1,6 @@
 {- External special remote data types.
  -
- - Copyright 2013-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2013-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -12,7 +12,7 @@
 module Remote.External.Types (
 	External(..),
 	newExternal,
-	ExternalType,
+	ExternalProgram(..),
 	ExternalState(..),
 	PrepareStatus(..),
 	ExtensionList(..),
@@ -52,9 +52,10 @@ import Types.RemoteConfig
 import Types.Export
 import Types.Availability (Availability(..))
 import Types.Key
-import Git.Types
 import Utility.Url (URLString)
+import Utility.Url.Parse
 import qualified Utility.SimpleProtocol as Proto
+import Annex.LockFile
 
 import Control.Concurrent.STM
 import Network.URI
@@ -63,7 +64,7 @@ import Text.Read
 import qualified Data.ByteString.Short as S (fromShort)
 
 data External = External
-	{ externalType :: ExternalType
+	{ externalProgram :: ExternalProgram
 	, externalUUID :: Maybe UUID
 	, externalState :: TVar [ExternalState]
 	-- ^ Contains states for external special remote processes
@@ -74,11 +75,13 @@ data External = External
 	, externalRemoteName :: Maybe RemoteName 
 	, externalRemoteStateHandle :: Maybe RemoteStateHandle
 	, externalAsync :: TMVar ExternalAsync
+	, externalEphemeralDelegateLock :: TMVar (Maybe LockHandle)
+	, externalEphemeralDelegates :: TMVar [Remote]
 	}
 
-newExternal :: ExternalType -> Maybe UUID -> ParsedRemoteConfig -> Maybe RemoteGitConfig -> Maybe RemoteName -> Maybe RemoteStateHandle -> Annex External
-newExternal externaltype u c gc rn rs = liftIO $ External
-	<$> pure externaltype
+newExternal :: ExternalProgram -> Maybe UUID -> ParsedRemoteConfig -> Maybe RemoteGitConfig -> Maybe RemoteName -> Maybe RemoteStateHandle -> Annex External
+newExternal p u c gc rn rs = liftIO $ External
+	<$> pure p
 	<*> pure u
 	<*> atomically (newTVar [])
 	<*> atomically (newTVar 0)
@@ -87,8 +90,15 @@ newExternal externaltype u c gc rn rs = liftIO $ External
 	<*> pure rn
 	<*> pure rs
 	<*> atomically (newTMVar UncheckedExternalAsync)
+	<*> atomically (newTMVar Nothing)
+	<*> atomically (newTMVar [])
 
-type ExternalType = String
+data ExternalProgram
+	= ExternalType String
+	-- ^ "git-annex-remote-" is prepended to this to get the program
+	| ExternalCommand String [CommandParam]
+	-- ^ to use a program with a different name, and parameters
+	deriving (Show, Eq)
 
 data ExternalState = ExternalState
 	{ externalSend :: forall t. (Proto.Sendable t, ToAsyncWrapped t) => t -> IO ()
@@ -109,6 +119,10 @@ supportedExtensionList :: ExtensionList
 supportedExtensionList = ExtensionList
 	[ "INFO"
 	, "GETGITREMOTENAME"
+	, "UNAVAILABLERESPONSE"
+	, "TRANSFER-RETRIEVE-URL"
+	, "CHECKPRESENT-URL"
+	, "DELEGATE"
 	, asyncExtension
 	]
 
@@ -161,6 +175,7 @@ data Request
 	| INITREMOTE
 	| GETCOST
 	| GETAVAILABILITY
+	| GETORDERED
 	| CLAIMURL URLString
 	| CHECKURL URLString
 	| TRANSFER Direction SafeKey FilePath
@@ -193,6 +208,7 @@ instance Proto.Sendable Request where
 	formatMessage INITREMOTE = ["INITREMOTE"]
 	formatMessage GETCOST = ["GETCOST"]
 	formatMessage GETAVAILABILITY = ["GETAVAILABILITY"]
+	formatMessage GETORDERED = ["GETORDERED"]
 	formatMessage (CLAIMURL url) = [ "CLAIMURL", Proto.serialize url ]
 	formatMessage (CHECKURL url) = [ "CHECKURL", Proto.serialize url ]
 	formatMessage (TRANSFER direction key file) =
@@ -234,13 +250,17 @@ data Response
 	| PREPARE_FAILURE ErrorMsg
 	| TRANSFER_SUCCESS Direction Key
 	| TRANSFER_FAILURE Direction Key ErrorMsg
+	| TRANSFER_RETRIEVE_URL Key URLString
 	| CHECKPRESENT_SUCCESS Key
 	| CHECKPRESENT_FAILURE Key
 	| CHECKPRESENT_UNKNOWN Key ErrorMsg
+	| CHECKPRESENT_URL Key URLString
 	| REMOVE_SUCCESS Key
 	| REMOVE_FAILURE Key ErrorMsg
 	| COST Cost
 	| AVAILABILITY Availability
+	| ORDERED
+	| UNORDERED
 	| INITREMOTE_SUCCESS
 	| INITREMOTE_FAILURE ErrorMsg
 	| CLAIMURL_SUCCESS
@@ -261,6 +281,7 @@ data Response
 	| REMOVEEXPORTDIRECTORY_FAILURE
 	| RENAMEEXPORT_SUCCESS Key
 	| RENAMEEXPORT_FAILURE Key
+	| DELEGATE [String]
 	| UNSUPPORTED_REQUEST
 	deriving (Show)
 
@@ -270,13 +291,17 @@ instance Proto.Receivable Response where
 	parseCommand "PREPARE-FAILURE" = Proto.parse1 PREPARE_FAILURE
 	parseCommand "TRANSFER-SUCCESS" = Proto.parse2 TRANSFER_SUCCESS
 	parseCommand "TRANSFER-FAILURE" = Proto.parse3 TRANSFER_FAILURE
+	parseCommand "TRANSFER-RETRIEVE-URL" = Proto.parse2 TRANSFER_RETRIEVE_URL
 	parseCommand "CHECKPRESENT-SUCCESS" = Proto.parse1 CHECKPRESENT_SUCCESS
 	parseCommand "CHECKPRESENT-FAILURE" = Proto.parse1 CHECKPRESENT_FAILURE
 	parseCommand "CHECKPRESENT-UNKNOWN" = Proto.parse2 CHECKPRESENT_UNKNOWN
+	parseCommand "CHECKPRESENT-URL" = Proto.parse2 CHECKPRESENT_URL
 	parseCommand "REMOVE-SUCCESS" = Proto.parse1 REMOVE_SUCCESS
 	parseCommand "REMOVE-FAILURE" = Proto.parse2 REMOVE_FAILURE
 	parseCommand "COST" = Proto.parse1 COST
 	parseCommand "AVAILABILITY" = Proto.parse1 AVAILABILITY
+	parseCommand "ORDERED" = Proto.parse0 ORDERED
+	parseCommand "UNORDERED" = Proto.parse0 UNORDERED
 	parseCommand "INITREMOTE-SUCCESS" = Proto.parse0 INITREMOTE_SUCCESS
 	parseCommand "INITREMOTE-FAILURE" = Proto.parse1 INITREMOTE_FAILURE
 	parseCommand "CLAIMURL-SUCCESS" = Proto.parse0 CLAIMURL_SUCCESS
@@ -297,6 +322,7 @@ instance Proto.Receivable Response where
 	parseCommand "REMOVEEXPORTDIRECTORY-FAILURE" = Proto.parse0 REMOVEEXPORTDIRECTORY_FAILURE
 	parseCommand "RENAMEEXPORT-SUCCESS" = Proto.parse1 RENAMEEXPORT_SUCCESS
 	parseCommand "RENAMEEXPORT-FAILURE" = Proto.parse1 RENAMEEXPORT_FAILURE
+	parseCommand "DELEGATE" = Proto.parseList DELEGATE
 	parseCommand "UNSUPPORTED-REQUEST" = Proto.parse0 UNSUPPORTED_REQUEST
 	parseCommand _ = Proto.parseFail
 
@@ -415,7 +441,7 @@ newtype JobId = JobId Integer
 	deriving (Eq, Ord, Show)
 
 supportedProtocolVersions :: [ProtocolVersion]
-supportedProtocolVersions = [1]
+supportedProtocolVersions = [1, 2]
 
 instance Proto.Serializable JobId where
 	serialize (JobId n) = show n
@@ -446,9 +472,11 @@ instance Proto.Serializable Size where
 instance Proto.Serializable Availability where
 	serialize GloballyAvailable = "GLOBAL"
 	serialize LocallyAvailable = "LOCAL"
+	serialize Unavailable = "UNAVAILABLE"
 
 	deserialize "GLOBAL" = Just GloballyAvailable
 	deserialize "LOCAL" = Just LocallyAvailable
+	deserialize "UNAVAILABLE" = Just Unavailable
 	deserialize _ = Nothing
 
 instance Proto.Serializable [(URLString, Size, FilePath)] where
@@ -462,15 +490,15 @@ instance Proto.Serializable [(URLString, Size, FilePath)] where
 
 instance Proto.Serializable URI where
 	serialize = show
-	deserialize = parseURI
+	deserialize = parseURIPortable
 
 instance Proto.Serializable ExportLocation where
-	serialize = fromRawFilePath . fromExportLocation
-	deserialize = Just . mkExportLocation . toRawFilePath
+	serialize = fromOsPath . fromExportLocation
+	deserialize = Just . mkExportLocation . toOsPath
 
 instance Proto.Serializable ExportDirectory where
-	serialize = fromRawFilePath . fromExportDirectory
-	deserialize = Just . mkExportDirectory . toRawFilePath
+	serialize = fromOsPath . fromExportDirectory
+	deserialize = Just . mkExportDirectory . toOsPath
 
 instance Proto.Serializable ExtensionList where
 	serialize (ExtensionList l) = unwords l

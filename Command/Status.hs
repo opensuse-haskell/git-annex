@@ -8,14 +8,17 @@
 module Command.Status where
 
 import Command
+import qualified Annex
 import Git.Status
 import Git.FilePath
+
+import Data.ByteString.Char8 as B8
 
 cmd :: Command
 cmd = notBareRepo $ noCommit $ noMessages $
 	withAnnexOptions [jsonOptions] $
 		command "status" SectionCommon
-			"show the working tree status"
+			"show the working tree status (deprecated)"
 			paramPaths (seek <$$> optParser)
 
 data StatusOptions = StatusOptions
@@ -61,6 +64,8 @@ displayStatus (Renamed _ _) = noop
 displayStatus s = do
 	let c = statusChar s
 	absf <- fromRepo $ fromTopFilePath (statusFile s)
-	f <- liftIO $ fromRawFilePath <$> relPathCwdToFile absf
-	unlessM (showFullJSON $ JSONChunk [("status", [c]), ("file", f)]) $
-		liftIO $ putStrLn $ [c] ++ " " ++ f
+	f <- liftIO $ relPathCwdToFile absf
+	qp <- coreQuotePath <$> Annex.getGitConfig
+	unlessM (showFullJSON $ JSONChunk [("status", [c]), ("file", fromOsPath f)]) $
+		liftIO $ B8.putStrLn $ quote qp $
+			UnquotedString (c : " ") <> QuotedPath f

@@ -20,6 +20,7 @@ import Utility.DataUnits
 import Utility.DiskFree
 import Utility.HumanTime
 import Utility.Tense
+import Remote.List
 
 import Data.Time.Clock.POSIX
 import qualified Data.Text as T
@@ -34,7 +35,7 @@ describeUnusedWhenBig = describeUnused' True
  - than the remaining free disk space, or more than 1/10th the total
  - disk space being unused keys all suggest a problem. -}
 describeUnused' :: Bool -> Assistant (Maybe TenseText)
-describeUnused' whenbig = liftAnnex $ go =<< readUnusedLog ""
+describeUnused' whenbig = liftAnnex $ go =<< readUnusedLog (literalOsPath "")
   where
 	go m = do
 		let num = M.size m
@@ -64,22 +65,22 @@ describeUnused' whenbig = liftAnnex $ go =<< readUnusedLog ""
 
 	sumkeysize s k = s + fromMaybe 0 (fromKey keySize k)
 
-	forpath a = inRepo $ liftIO . a . fromRawFilePath . Git.repoPath
+	forpath a = inRepo $ liftIO . a . fromOsPath . Git.repoPath
 
 {- With a duration, expires all unused files that are older.
  - With Nothing, expires *all* unused files. -}
 expireUnused :: Maybe Duration -> Assistant ()
 expireUnused duration = do
-	m <- liftAnnex $ readUnusedLog ""
+	m <- liftAnnex $ readUnusedLog (literalOsPath "")
 	now <- liftIO getPOSIXTime
 	let oldkeys = M.keys $ M.filter (tooold now) m
 	forM_ oldkeys $ \k -> do
 		debug ["removing old unused key", serializeKey k]
 		liftAnnex $ tryNonAsync $ do
-			lockContentForRemoval k noop removeAnnex
-			logStatus k InfoMissing
+			lockContentForRemoval k noop (removeAnnex remoteList)
+			logStatus NoLiveUpdate k InfoMissing
   where
-	boundry = durationToPOSIXTime <$> duration
-	tooold now (_, mt) = case boundry of
+	boundary = durationToPOSIXTime <$> duration
+	tooold now (_, mt) = case boundary of
 		Nothing -> True
 		Just b -> maybe False (\t -> now - t >= b) mt

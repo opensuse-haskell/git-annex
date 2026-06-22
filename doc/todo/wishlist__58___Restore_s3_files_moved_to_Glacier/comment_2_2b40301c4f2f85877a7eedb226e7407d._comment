@@ -1,0 +1,31 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 2"""
+ date="2025-12-03T17:01:50Z"
+ content="""
+Glacier is in the process of being deprecated, instead there is 
+the Deep Archive S3 storage class.
+<https://aws.amazon.com/blogs/aws/new-amazon-s3-storage-class-glacier-deep-archive/>
+
+While it is possible to configure a S3 special remote
+with `storageclass=DEEP_ARCHIVE`, or configure a bucket with lifecycle rules
+to move objects to deep archive, git-annex won't be able to retrieve objects
+stored in deep archive.
+
+To support that, the S3 special remote would need to send a request to S3 to
+restore an object from deep archive. Then later (on a subsequent `git-annex` run)
+it can download the object from S3.
+
+This is the API:
+<https://docs.aws.amazon.com/AmazonS3/latest/API/API_RestoreObject.html>
+
+It includes a Tier tag which controls whether the restore is
+expedited. There would probably need to be a git config for that, since
+the user may want to get a file fast or pay less for a slower retrieval.
+
+And there is a Days tag, which controls how long the object should be left
+accessible in S3. This would also make sense to have a git config.
+
+I have opened this issue, which is a prerequisite to implementing this
+<https://github.com/aristidb/aws/issues/297>
+"""]]

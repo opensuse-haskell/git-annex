@@ -1,27 +1,26 @@
 {- Sqlite database used for incremental fsck. 
  -
- - Copyright 2015-2019 Joey Hess <id@joeyh.name>
+ - Copyright 2015-2026 Joey Hess <id@joeyh.name>
  -:
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE QuasiQuotes, TypeFamilies, TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings, GADTs, FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DataKinds, FlexibleInstances #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE UndecidableInstances #-}
-#if MIN_VERSION_persistent_template(2,8,0)
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE StandaloneDeriving #-}
-#endif
 
 module Database.Fsck (
 	FsckHandle,
 	newPass,
 	openDb,
 	closeDb,
+	removeDb,
 	addDb,
 	inDb,
 	FsckedId,
@@ -34,12 +33,10 @@ import Annex.Locations
 import Utility.Exception
 import Annex.Common
 import Annex.LockFile
-import qualified Utility.RawFilePath as R
 
 import Database.Persist.Sql hiding (Key)
 import Database.Persist.TH
 import Data.Time.Clock
-import qualified System.FilePath.ByteString as P
 
 data FsckHandle = FsckHandle H.DbQueue UUID
 
@@ -67,14 +64,14 @@ newPass u = do
 	go = do
 		removedb =<< calcRepo' (gitAnnexFsckDbDir u)
 		removedb =<< calcRepo' (gitAnnexFsckDbDirOld u)
-	removedb = liftIO . void . tryIO . removeDirectoryRecursive . fromRawFilePath
+	removedb = liftIO . void . tryIO . removeDirectoryRecursive
 
 {- Opens the database, creating it if it doesn't exist yet. -}
 openDb :: UUID -> Annex FsckHandle
 openDb u = do
 	dbdir <- calcRepo' (gitAnnexFsckDbDir u)
-	let db = dbdir P.</> "db"
-	unlessM (liftIO $ R.doesPathExist db) $ do
+	let db = dbdir </> literalOsPath "db"
+	unlessM (liftIO $ doesFileExist db) $ do
 		initDb db $ void $
 			runMigrationSilent migrateFsck
 	lockFileCached =<< calcRepo' (gitAnnexFsckDbLock u)
@@ -86,9 +83,19 @@ closeDb (FsckHandle h u) = do
 	liftIO $ H.closeDbQueue h
 	unlockFile =<< calcRepo' (gitAnnexFsckDbLock u)
 
+removeDb :: UUID -> Annex ()
+removeDb u = do
+	lck <- calcRepo' (gitAnnexFsckDbLock u)
+	withExclusiveLock lck $ do
+		dir <- calcRepo' (gitAnnexFsckDbUUIDDir u)
+		liftIO $ whenM (doesDirectoryExist dir) $
+			removeDirectoryRecursive dir
+		liftIO $ void $ tryNonAsync $
+			removeWhenExistsWith removeFile lck
+
 addDb :: FsckHandle -> Key -> IO ()
 addDb (FsckHandle h _) k = H.queueDb h checkcommit $
-	void $ insertUnique $ Fscked k
+	void $ insertUnique_ $ Fscked k
   where
 	-- Commit queue after 1000 changes or 5 minutes, whichever comes first.
 	-- The time based commit allows for an incremental fsck to be

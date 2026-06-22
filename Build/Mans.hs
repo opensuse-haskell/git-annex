@@ -1,6 +1,6 @@
 {- Build man pages.
  -
- - Copyright 2016 Joey Hess <id@joeyh.name>
+ - Copyright 2016-2025 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -9,16 +9,14 @@
 
 module Build.Mans where
 
+import Utility.Process
 import System.Directory
 import System.FilePath
 import Data.List
 import Control.Monad
-import System.Process
 import System.Exit
 import Data.Maybe
 import Utility.Exception
-import Control.Applicative
-import Prelude
 
 buildMansOrWarn :: IO ()
 buildMansOrWarn = do
@@ -37,15 +35,17 @@ buildMans = do
 		destm <- catchMaybeIO $ getModificationTime dest
 		if (Just srcm > destm)
 			then do
-				r <- system $ unwords
-					-- Run with per because in some
+				(Nothing, Nothing, Nothing, pid) <- createProcess $ shell $ unwords $
+					-- Run with perl because in some
 					-- cases it may not be executable.
-					[ "perl", "./Build/mdwn2man"
+					[ "perl"
+					, "./Build/mdwn2man"
 					, progName src
 					, "1"
 					, src
 					, "> " ++ dest
 					]
+				r <- waitForProcess pid
 				if r == ExitSuccess
 					then return (Just dest)
 					else return Nothing

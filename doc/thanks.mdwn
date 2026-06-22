@@ -1,7 +1,8 @@
 Financially, the development of git-annex was made possible by the generous
-donations of many people. I want to say "Thank You!" to each of
-you individually, but until I meet all 1500+ of you, this page will have to
-do. You have my most sincere thanks. --[[Joey]]
+donations of many people, and the feedback and encouragement of many more. 
+I want to say "Thank You!" to each of you individually, but until I meet all
+1500+ of you, this page will have to do. You have my most sincere thanks.
+--[[Joey]]
 
 You can support my git-annex development
 [on Patreon](https://www.patreon.com/joeyh) or
@@ -13,29 +14,42 @@ email <id@joeyh.name>.)
 
 ## code and other bits
 
-git-annex is mostly developed by Joey Hess, with code contributions
-from Sören Brunk, Robie Basak, Klaus Ethgen, Sebastian Reuße, Oliver
-Matthews, guilhem, fftehnik, Ben Gamari, Eric Siegerman, Sean T Parsons,
-Félix Sipma, aristidb, Daniel Brooks, Alper Nebi Yasak,
-James MacMahon, Farhan Kathawala, divergentdave, Gabor Greif, wzhd, Pieter
-Kitslaar, Øyvind A. Holm, Michael Alan Dorman, Ben Boeckel, Robert Schütz,
-Magnus Therning, Yaroslav Halchenko, silvio, Magnus Therning,
-Justin Geibel, Trent, Jon Ander Peñalba, divB, Fraser Tweedale,
-jlebar, Johan Kiviniemi, Alberto Berti, ion, Anarcat, Adam Spiers,
-Peter Simmons, Nicolas Pouillard, Eskild Hustvedt, Nathan Collins,
-Sergei Trofimovich, Mark Wright, Jimmy Tang, Josh Triplett,
-and Joachim Breitner.
+git-annex is mostly developed by Joey Hess, with contributions
+from [[!inline raw=yes pages="thanks/contributor-list"]] and
+many others who have [[contributed|contribute]] documentation fixes,
+tips, user support, etc. John Lawrence made the logo.
 
-Many folks have [[contributed|contribute]] documentation fixes, 
-tips, user support, etc. Two names that come to mind are Anarcat and
-CandyAngel. John Lawrence made the logo. And many others have
-contributed good bug reports and great ideas.
+## financial support, 2024-2025
 
-## financial support, 2019-2021
+<img alt="OpenNeuro logo" src="https://raw.githubusercontent.com/OpenNeuroOrg/openneuro/1c1e0d3b2a2032729727702eb65b1b563eadce1d/packages/openneuro-components/src/assets/on-dark.svg" width=100>&nbsp;&nbsp;
+<img alt="Stanford wordmark" src="https://poldracklab.org/images/stanford-line2-8.png" width=200>&nbsp;&nbsp;
+<img alt="Jülich Forschungszentrum logo" src="https://www.fz-juelich.de/static/media/Logo.2ceb35fc.svg" width=200>&nbsp;&nbsp;
+<img alt="DANDI logo" src="https://dandiarchive.org/assets/logo-DbYqjGgV.svg" width=150>&nbsp;&nbsp;
+<img alt="ReproNim logo" src="https://repronim.org/images/square-512T2.png" width=70>&nbsp;&nbsp;
+
+git-annex development is supported in large part by:
+
+* [OpenNeuro](https://openneuro.org/), funded by a
+  [BRAIN Initiative NIH grant](//reporter.nih.gov/project-details/10881961)
+  awarded to The Poldrack Lab at Stanford University.
+* Institute of Neuroscience and Medicine (Brain and Behavior; INM-7)
+  at [Forschungszentrum Jülich](https://www.fz-juelich.de/en/inm/inm-7).
+* [DANDI](https://www.dandiarchive.org/), funded by
+  [a NIH grant](https://projectreporter.nih.gov/project_info_description.cfm?aid=9981835)
+  awarded to MIT, Dartmouth College, and Kitware.
+* [ReproNim](https://repronim.org/), funded by
+  [a NIH grant](https://projectreporter.nih.gov/project_info_details.cfm?aid=8999833)
+  awarded to UMass Medical School Worcester, Dartmouth College, MIT, et al.
+* Institute of Climate and Energy Systems (Stratosphere; ICE-4) at
+  [Forschungszentrum Jülich](https://www.fz-juelich.de/en/ice/ice-4).
+
+Thanks also to these folks for their support: 
+[[!inline raw=yes pages="thanks/list"]] and anonymous supporters.
+
+## financial support, 2019-2023
 
 <img alt="McGill logo" src="https://mcgill.ca/hbhl/sites/all/themes/moriarty/images/logo-red.svg" width=100>
 <img alt="Neurohub" src="https://joeyh.name/blog/pics/neurohub.png" width=100>
-<img alt="NSF logo" src="https://www.nsf.gov/images/logos/nsf1.gif">
 <img alt="Powderhouse logo" src="https://d33wubrfki0l68.cloudfront.net/e9285c9a8db37874efdadd61f2231774ce1d86cb/5de87/assets/phs-leftaligned-logo.svg" width=100>
 
 git-annex development was supported in large part by:
@@ -57,11 +71,9 @@ git-annex development was supported in large part by:
 * Gioele Barabucci ENK
 
 Thanks also to these folks for their support: 
-[[!inline raw=yes pages="thanks/list"]] and anonymous supporters.
+[[!inline raw=yes pages="thanks/list.2023"]] and anonymous supporters.
 
 ## financial support, 2014-2018
-
-<img alt="NSF logo" src="https://www.nsf.gov/images/logos/nsf1.gif">
 
 git-annex development was partially supported by the
 [Datalad project](http://datalad.org/), funded by a
@@ -246,7 +258,7 @@ Sherif Abouseda, Ben Strawbridge, chee rabbits, Pedro Côrte-Real
 And special thanks to Kevin McKenzie, who also gave me a login to a Mac OSX
 machine, which has proven invaluable, Jimmy Tang who has helped
 with Mac OSX autobuilding and packaging, and Yury V. Zaytsev who
-provides the Windows autobuilder.
+provided the Windows autobuilder.
 
 ### Other Backers
 

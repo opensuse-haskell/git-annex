@@ -1,19 +1,24 @@
 {- misc utility functions
  -
- - Copyright 2010-2011 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2025 Joey Hess <id@joeyh.name>
  -
  - License: BSD-2-clause
  -}
 
+{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fno-warn-tabs #-}
 
 module Utility.Misc (
 	hGetContentsStrict,
-	readFileStrict,
 	separate,
 	separate',
+	separateEnd',
 	firstLine,
 	firstLine',
+	fileLines,
+	fileLines',
+	linesFile,
+	linesFile',
 	segment,
 	segmentDelim,
 	massReplace,
@@ -29,18 +34,15 @@ import Foreign
 import Data.Char
 import Data.List
 import System.Exit
-import Control.Applicative
 import qualified Data.ByteString as S
-import Prelude
+import qualified Data.ByteString.Char8 as S8
+import qualified Data.ByteString.Lazy as L
+import qualified Data.ByteString.Lazy.Char8 as L8
 
 {- A version of hgetContents that is not lazy. Ensures file is 
  - all read before it gets closed. -}
 hGetContentsStrict :: Handle -> IO String
 hGetContentsStrict = hGetContents >=> \s -> length s `seq` return s
-
-{- A version of readFile that is not lazy. -}
-readFileStrict :: FilePath -> IO String
-readFileStrict = readFile >=> \s -> length s `seq` return s
 
 {- Like break, but the item matching the condition is not included
  - in the second result list.
@@ -51,9 +53,8 @@ readFileStrict = readFile >=> \s -> length s `seq` return s
 separate :: (a -> Bool) -> [a] -> ([a], [a])
 separate c l = unbreak $ break c l
   where
-	unbreak r@(a, b)
-		| null b = r
-		| otherwise = (a, tail b)
+	unbreak (a, (_:b)) = (a, b)
+	unbreak r = r
 
 separate' :: (Word8 -> Bool) -> S.ByteString -> (S.ByteString, S.ByteString)
 separate' c l = unbreak $ S.break c l
@@ -61,6 +62,13 @@ separate' c l = unbreak $ S.break c l
 	unbreak r@(a, b)
 		| S.null b = r
 		| otherwise = (a, S.tail b)
+
+separateEnd' :: (Word8 -> Bool) -> S.ByteString -> (S.ByteString, S.ByteString)
+separateEnd' c l = unbreak $ S.breakEnd c l
+  where
+	unbreak r@(a, b)
+		| S.null a = r
+		| otherwise = (S.init a, b)
 
 {- Breaks out the first line. -}
 firstLine :: String -> String
@@ -70,6 +78,51 @@ firstLine' :: S.ByteString -> S.ByteString
 firstLine' = S.takeWhile (/= nl)
   where
 	nl = fromIntegral (ord '\n')
+
+-- On windows, readFile does NewlineMode translation,
+-- stripping CR before LF. When converting to ByteString,
+-- use this to emulate that.
+fileLines :: L.ByteString -> [L.ByteString]
+#ifdef mingw32_HOST_OS
+fileLines = map stripCR . L8.lines
+  where
+	stripCR b = case L8.unsnoc b of
+		Nothing -> b
+		Just (b', e)
+			| e == '\r' -> b'
+			| otherwise -> b
+#else
+fileLines = L8.lines
+#endif
+
+fileLines' :: S.ByteString -> [S.ByteString]
+#ifdef mingw32_HOST_OS
+fileLines' = map stripCR . S8.lines
+  where
+	stripCR b = case S8.unsnoc b of
+		Nothing -> b
+		Just (b', e)
+			| e == '\r' -> b'
+			| otherwise -> b
+#else
+fileLines' = S8.lines
+#endif
+
+-- On windows, writeFile does NewlineMode translation,
+-- adding CR before LF. When converting to ByteString, use this to emulate that.
+linesFile :: L.ByteString -> L.ByteString
+#ifndef mingw32_HOST_OS
+linesFile = id
+#else
+linesFile = L8.concat . concatMap (\x -> [x, L8.pack "\r\n"]) . fileLines
+#endif
+
+linesFile' :: S.ByteString -> S.ByteString
+#ifndef mingw32_HOST_OS
+linesFile' = id
+#else
+linesFile' = S8.concat . concatMap (\x -> [x, S8.pack "\r\n"]) . fileLines'
+#endif
 
 {- Splits a list into segments that are delimited by items matching
  - a predicate. (The delimiters are not included in the segments.)
@@ -86,7 +139,7 @@ prop_segment_regressionTest :: Bool
 prop_segment_regressionTest = all id
 	-- Even an empty list is a segment.
 	[ segment (== "--") [] == [[]]
-	-- There are two segements in this list, even though the first is empty.
+	-- There are two segments in this list, even though the first is empty.
 	, segment (== "--") ["--", "foo", "bar"] == [[],["foo","bar"]]
 	]
 

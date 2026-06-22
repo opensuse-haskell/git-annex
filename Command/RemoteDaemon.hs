@@ -1,6 +1,6 @@
 {- git-annex command
  -
- - Copyright 2014-2016 Joey Hess <id@joeyh.name>
+ - Copyright 2014-2025 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -12,7 +12,11 @@ module Command.RemoteDaemon where
 import Command
 import RemoteDaemon.Core
 import Utility.Daemon
+#ifndef mingw32_HOST_OS
+import qualified Annex
 import Annex.Path
+import Utility.OpenFd
+#endif
 
 cmd :: Command
 cmd = noCommit $
@@ -22,13 +26,18 @@ cmd = noCommit $
 
 run :: DaemonOptions -> CommandSeek
 run o
-	| stopDaemonOption o = error "--stop not implemented for remotedaemon"
+	| stopDaemonOption o = giveup "--stop not implemented for remotedaemon"
 	| foregroundDaemonOption o = liftIO runInteractive
 	| otherwise = do
 #ifndef mingw32_HOST_OS
-		git_annex <- liftIO programPath
+		git_annex <- fromOsPath <$> liftIO programPath
 		ps <- gitAnnexDaemonizeParams
-		let logfd = openFd "/dev/null" ReadOnly Nothing defaultFileFlags
+		logfd <- ifM (Annex.getRead Annex.debugenabled) 
+			( return Nothing
+			, return $ Just $ openFdWithMode (toRawFilePath "/dev/null") WriteOnly Nothing 
+				defaultFileFlags
+				(CloseOnExecFlag True)
+			)
 		liftIO $ daemonize git_annex ps logfd Nothing False runNonInteractive
 #else
 		liftIO $ foreground Nothing runNonInteractive	

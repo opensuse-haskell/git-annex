@@ -1,6 +1,6 @@
 {- git-annex concurrent state
  -
- - Copyright 2015-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2015-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -62,6 +62,9 @@ setConcurrency' c f = do
 			, Annex.checkignorehandle = Just cih
 			}
 
+setCpus :: Cpus -> Annex ()
+setCpus n =  Annex.changeState $ \s -> s  { Annex.cpus = Just n }
+
 {- Allows forking off a thread that uses a copy of the current AnnexState
  - to run an Annex action.
  -
@@ -97,12 +100,16 @@ dupState = do
 			setConcurrency (ConcurrencyCmdLine (Concurrent 1))
 			Annex.getState id
 		_ -> return st
-	return $ st'
-		-- each thread has its own repoqueue
-		{ Annex.repoqueue = Nothing
-		-- no errors from this thread yet
-		, Annex.errcounter = 0
-		}
+	return $ dupState' st'
+
+{- Should only be used when concurrency is enabled. -}
+dupState' :: AnnexState -> AnnexState
+dupState' st = st
+	-- each thread has its own repoqueue
+	{ Annex.repoqueue = Nothing
+	-- no errors from this thread yet
+	, Annex.errcounter = 0
+	}
 
 {- Merges the passed AnnexState into the current Annex state. -}
 mergeState :: AnnexState -> Annex ()

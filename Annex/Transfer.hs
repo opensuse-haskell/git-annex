@@ -1,11 +1,11 @@
 {- git-annex transfers
  -
- - Copyright 2012-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2012-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
-{-# LANGUAGE CPP, BangPatterns #-}
+{-# LANGUAGE CPP, BangPatterns, OverloadedStrings #-}
 
 module Annex.Transfer (
 	module X,
@@ -29,66 +29,65 @@ import Annex.Notification as X
 import Annex.Content
 import Annex.Perms
 import Annex.Action
-import Logs.Location
 import Utility.Metered
 import Utility.ThreadScheduler
+import Utility.FileMode
 import Annex.LockPool
 import Types.Key
 import qualified Types.Remote as Remote
+import qualified Types.Backend
 import Types.Concurrency
 import Annex.Concurrent
 import Types.WorkerPool
 import Annex.WorkerPool
 import Annex.TransferrerPool
 import Annex.StallDetection
-import Backend (isCryptographicallySecure)
+import Backend (isCryptographicallySecureKey)
 import Types.StallDetection
-import qualified Utility.RawFilePath as R
 
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM hiding (retry)
 import qualified Data.Map.Strict as M
-import qualified System.FilePath.ByteString as P
 import Data.Ord
 
 -- Upload, supporting canceling detected stalls.
 upload :: Remote -> Key -> AssociatedFile -> RetryDecider -> NotifyWitness -> Annex Bool
-upload r key f d witness = 
-	case remoteAnnexStallDetection (Remote.gitconfig r) of
+upload r key af d witness = 
+	case getStallDetection Upload r of
 		Nothing -> go (Just ProbeStallDetection)
 		Just StallDetectionDisabled -> go Nothing
-		Just sd -> runTransferrer sd r key f d Upload witness
+		Just sd -> runTransferrer sd r key af d Upload witness
   where
- 	go sd = upload' (Remote.uuid r) key f sd d (action . Remote.storeKey r key f) witness
+ 	go sd = upload' (Remote.uuid r) key af sd d (action . Remote.storeKey r key af Nothing) witness
 
 -- Upload, not supporting canceling detected stalls
 upload' :: Observable v => UUID -> Key -> AssociatedFile -> Maybe StallDetection -> RetryDecider -> (MeterUpdate -> Annex v) -> NotifyWitness -> Annex v
 upload' u key f sd d a _witness = guardHaveUUID u $ 
-	runTransfer (Transfer Upload u (fromKey id key)) f sd d a
+	runTransfer (Transfer Upload u (fromKey id key)) Nothing f sd d a
 
 alwaysUpload :: Observable v => UUID -> Key -> AssociatedFile -> Maybe StallDetection -> RetryDecider -> (MeterUpdate -> Annex v) -> NotifyWitness -> Annex v
 alwaysUpload u key f sd d a _witness = guardHaveUUID u $ 
-	alwaysRunTransfer (Transfer Upload u (fromKey id key)) f sd d a
+	alwaysRunTransfer (Transfer Upload u (fromKey id key)) Nothing f sd d a
 
 -- Download, supporting canceling detected stalls.
 download :: Remote -> Key -> AssociatedFile -> RetryDecider -> NotifyWitness -> Annex Bool
-download r key f d witness = logStatusAfter key $
-	case remoteAnnexStallDetection (Remote.gitconfig r) of
+download r key f d witness = 
+	case getStallDetection Download r of
 		Nothing -> go (Just ProbeStallDetection)
 		Just StallDetectionDisabled -> go Nothing
 		Just sd -> runTransferrer sd r key f d Download witness
   where
-	go sd = getViaTmp (Remote.retrievalSecurityPolicy r) vc key f $ \dest ->
+	go sd = getViaTmp (Remote.retrievalSecurityPolicy r) vc key Nothing $ \dest ->
 		download' (Remote.uuid r) key f sd d (go' dest) witness
 	go' dest p = verifiedAction $
-		Remote.retrieveKeyFile r key f (fromRawFilePath dest) p vc
+		Remote.retrieveKeyFile r key f dest p vc
 	vc = Remote.RemoteVerify r
 
 -- Download, not supporting canceling detected stalls.
 download' :: Observable v => UUID -> Key -> AssociatedFile -> Maybe StallDetection -> RetryDecider -> (MeterUpdate -> Annex v) -> NotifyWitness -> Annex v
 download' u key f sd d a _witness = guardHaveUUID u $
-	runTransfer (Transfer Download u (fromKey id key)) f sd d a
+	runTransfer (Transfer Download u (fromKey id key)) Nothing f sd d a
 
 guardHaveUUID :: Observable v => UUID -> Annex v -> Annex v
 guardHaveUUID u a
@@ -110,26 +109,27 @@ guardHaveUUID u a
  - Cannot cancel stalls, but when a likely stall is detected, 
  - suggests to the user that they enable stall detection handling.
  -}
-runTransfer :: Observable v => Transfer -> AssociatedFile -> Maybe StallDetection -> RetryDecider -> (MeterUpdate -> Annex v) -> Annex v
+runTransfer :: Observable v => Transfer -> Maybe Backend -> AssociatedFile -> Maybe StallDetection -> RetryDecider -> (MeterUpdate -> Annex v) -> Annex v
 runTransfer = runTransfer' False
 
 {- Like runTransfer, but ignores any existing transfer lock file for the
  - transfer, allowing re-running a transfer that is already in progress.
  -}
-alwaysRunTransfer :: Observable v => Transfer -> AssociatedFile -> Maybe StallDetection -> RetryDecider -> (MeterUpdate -> Annex v) -> Annex v
+alwaysRunTransfer :: Observable v => Transfer -> Maybe Backend -> AssociatedFile -> Maybe StallDetection -> RetryDecider -> (MeterUpdate -> Annex v) -> Annex v
 alwaysRunTransfer = runTransfer' True
 
-runTransfer' :: Observable v => Bool -> Transfer -> AssociatedFile -> Maybe StallDetection -> RetryDecider -> (MeterUpdate -> Annex v) -> Annex v
-runTransfer' ignorelock t afile stalldetection retrydecider transferaction =
-	enteringStage TransferStage $
+runTransfer' :: Observable v => Bool -> Transfer -> Maybe Backend -> AssociatedFile -> Maybe StallDetection -> RetryDecider -> (MeterUpdate -> Annex v) -> Annex v
+runTransfer' ignorelock t eventualbackend afile stalldetection retrydecider transferaction =
+	enteringStage (TransferStage (transferDirection t)) $
 		debugLocks $
-			preCheckSecureHashes (transferKey t) go
+			preCheckSecureHashes (transferKey t) eventualbackend go
   where
 	go = do
 		info <- liftIO $ startTransferInfo afile
-		(meter, tfile, createtfile, metervar) <- mkProgressUpdater t info
+		(tfile, lckfile, moldlckfile) <- fromRepo $ transferFileAndLockFile t
+		(meter, createtfile, metervar) <- mkProgressUpdater t info tfile
 		mode <- annexFileMode
-		(lck, inprogress) <- prep tfile createtfile mode
+		(lck, inprogress) <- prep lckfile moldlckfile createtfile mode
 		if inprogress && not ignorelock
 			then do
 				warning "transfer already in progress, or unable to take transfer lock"
@@ -138,51 +138,75 @@ runTransfer' ignorelock t afile stalldetection retrydecider transferaction =
 				v <- retry 0 info metervar $
 					detectStallsAndSuggestConfig stalldetection metervar $
 						transferaction meter
-				liftIO $ cleanup tfile lck
+				liftIO $ cleanup tfile lckfile moldlckfile lck
 				if observeBool v
 					then removeFailedTransfer t
 					else recordFailedTransfer t info
 				return v
 	
-	prep :: RawFilePath -> Annex () -> FileMode -> Annex (Maybe LockHandle, Bool)
+	prep :: OsPath -> Maybe OsPath -> Annex () -> ModeSetter -> Annex (Maybe (LockHandle, Maybe LockHandle), Bool)
 #ifndef mingw32_HOST_OS
-	prep tfile createtfile mode = catchPermissionDenied (const prepfailed) $ do
-		let lck = transferLockFile tfile
-		createAnnexDirectory $ P.takeDirectory lck
-		tryLockExclusive (Just mode) lck >>= \case
+	prep lckfile moldlckfile createtfile mode = catchPermissionDenied (const prepfailed) $ do
+		createAnnexDirectory $ takeDirectory lckfile
+		tryLockExclusive (Just mode) lckfile >>= \case
 			Nothing -> return (Nothing, True)
 			-- Since the lock file is removed in cleanup,
 			-- there's a race where different processes
 			-- may have a deleted and a new version of the same
 			-- lock file open. checkSaneLock guards against
 			-- that.
-			Just lockhandle -> ifM (checkSaneLock lck lockhandle)
-				( do
-					createtfile
-					return (Just lockhandle, False)
+			Just lockhandle -> ifM (checkSaneLock lckfile lockhandle)
+				( case moldlckfile of
+					Nothing -> do
+						createtfile
+						return (Just (lockhandle, Nothing), False)
+					Just oldlckfile -> do
+						createAnnexDirectory $ takeDirectory oldlckfile
+						tryLockExclusive (Just mode) oldlckfile >>= \case
+							Nothing -> do
+								liftIO $ dropLock lockhandle
+								return (Nothing, True)
+							Just oldlockhandle -> ifM (checkSaneLock oldlckfile oldlockhandle)
+								( do
+									createtfile
+									return (Just (lockhandle, Just oldlockhandle), False)
+								, do
+									liftIO $ dropLock oldlockhandle
+									liftIO $ dropLock lockhandle
+									return (Nothing, True)
+								)
 				, do
 					liftIO $ dropLock lockhandle
 					return (Nothing, True)
 				)
 #else
-	prep tfile createtfile _mode = catchPermissionDenied (const prepfailed) $ do
-		let lck = transferLockFile tfile
-		createAnnexDirectory $ P.takeDirectory lck
-		catchMaybeIO (liftIO $ lockExclusive lck) >>= \case
-			Nothing -> return (Nothing, False)
-			Just Nothing -> return (Nothing, True)
-			Just (Just lockhandle) -> do
-				createtfile
-				return (Just lockhandle, False)
+	prep lckfile moldlckfile createtfile _mode = catchPermissionDenied (const prepfailed) $ do
+		createAnnexDirectory $ takeDirectory lckfile
+		catchMaybeIO (liftIO $ lockExclusive lckfile) >>= \case
+			Just (Just lockhandle) -> case moldlckfile of
+				Nothing -> do
+					createtfile
+					return (Just (lockhandle, Nothing), False)
+				Just oldlckfile -> do
+					createAnnexDirectory $ takeDirectory oldlckfile
+					catchMaybeIO (liftIO $ lockExclusive oldlckfile) >>= \case
+						Just (Just oldlockhandle) -> do
+							createtfile
+							return (Just (lockhandle, Just oldlockhandle), False)
+						_ -> do
+							liftIO $ dropLock lockhandle
+							return (Nothing, False)
+			_ -> return (Nothing, False)
 #endif
 	prepfailed = return (Nothing, False)
 
-	cleanup _ Nothing = noop
-	cleanup tfile (Just lockhandle) = do
-		let lck = transferLockFile tfile
-		void $ tryIO $ R.removeLink tfile
+	cleanup _ _ _ Nothing = noop
+	cleanup tfile lckfile moldlckfile (Just (lockhandle, moldlockhandle)) = do
+		void $ tryIO $ removeFile tfile
 #ifndef mingw32_HOST_OS
-		void $ tryIO $ R.removeLink lck
+		void $ tryIO $ removeFile lckfile
+		maybe noop (void . tryIO . removeFile) moldlckfile
+		maybe noop dropLock moldlockhandle
 		dropLock lockhandle
 #else
 		{- Windows cannot delete the lockfile until the lock
@@ -190,8 +214,10 @@ runTransfer' ignorelock t afile stalldetection retrydecider transferaction =
 		 - process that takes the lock before it's removed,
 		 - so ignore failure to remove.
 		 -}
+		maybe noop dropLock moldlockhandle
 		dropLock lockhandle
-		void $ tryIO $ R.removeLink lck
+		void $ tryIO $ removeFile lckfile
+		maybe noop (void . tryIO . removeFile) moldlckfile
 #endif
 
 	retry numretries oldinfo metervar run =
@@ -200,7 +226,7 @@ runTransfer' ignorelock t afile stalldetection retrydecider transferaction =
 				| observeBool v -> return v
 				| otherwise -> checkretry
 			Left e -> do
-				warning (show e)
+				warning (UnquotedString (show e))
 				checkretry
 	  where
 		checkretry = do
@@ -245,7 +271,7 @@ runTransferrer
 	-> NotifyWitness
 	-> Annex Bool
 runTransferrer sd r k afile retrydecider direction _witness =
-	enteringStage TransferStage $ preCheckSecureHashes k $ do
+	enteringStage (TransferStage direction) $ preCheckSecureHashes k Nothing $ do
 		info <- liftIO $ startTransferInfo afile
 		go 0 info
   where
@@ -272,18 +298,25 @@ runTransferrer sd r k afile retrydecider direction _witness =
  - still contains content using an insecure hash, remotes will likewise
  - tend to be configured to reject it, so Upload is also prevented.
  -}
-preCheckSecureHashes :: Observable v => Key -> Annex v -> Annex v
-preCheckSecureHashes k a = ifM (isCryptographicallySecure k)
-	( a
-	, ifM (annexSecureHashesOnly <$> Annex.getGitConfig)
-		( do
-			warning $ "annex.securehashesonly blocked transfer of " ++ decodeBS (formatKeyVariety variety) ++ " key"
-			return observeFailure
-		, a
-		)
-	)
+preCheckSecureHashes :: Observable v => Key -> Maybe Backend -> Annex v -> Annex v
+preCheckSecureHashes k meventualbackend a = case meventualbackend of
+	Just eventualbackend -> go
+		(pure (Types.Backend.isCryptographicallySecure eventualbackend))
+		(Types.Backend.backendVariety eventualbackend)
+	Nothing -> go
+		(isCryptographicallySecureKey k)
+		(fromKey keyVariety k)
   where
-	variety = fromKey keyVariety k
+	go checksecure variety = ifM checksecure
+		( a
+		, ifM (annexSecureHashesOnly <$> Annex.getGitConfig)
+			( blocked variety
+			, a
+			)
+		)
+	blocked variety = do
+		warning $ UnquotedString $ "annex.securehashesonly blocked transfer of " ++ decodeBS (formatKeyVariety variety) ++ " key"
+		return observeFailure
 
 type NumRetries = Integer
 
@@ -332,7 +365,7 @@ configuredRetry numretries _old new = do
 	if numretries < maxretries
 		then do
 			let retrydelay = Seconds (initretrydelay * 2^(numretries-1))
-			showSideAction $ "Delaying " ++ show (fromSeconds retrydelay) ++ "s before retrying."
+			showSideAction $ UnquotedString $ "Delaying " ++ show (fromSeconds retrydelay) ++ "s before retrying."
 			liftIO $ threadDelaySeconds retrydelay
 			return True
 		else return False

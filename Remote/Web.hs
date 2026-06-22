@@ -1,6 +1,6 @@
 {- Web remote.
  -
- - Copyright 2011-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -9,6 +9,10 @@ module Remote.Web (remote, getWebUrls) where
 
 import Annex.Common
 import Types.Remote
+import Types.ProposedAccepted
+import Types.Creds
+import Types.Key
+import Remote.Helper.Special
 import Remote.Helper.ExportImport
 import qualified Git
 import qualified Git.Construct
@@ -19,52 +23,73 @@ import Config
 import Logs.Web
 import Annex.UUID
 import Utility.Metered
+import Utility.Glob
 import qualified Annex.Url as Url
 import Annex.YoutubeDl
 import Annex.SpecialRemote.Config
+import Logs.Remote
+import Logs.EquivilantKeys
+import Backend
+
+import qualified Data.Map as M
 
 remote :: RemoteType
 remote = RemoteType
 	{ typename = "web"
 	, enumerate = list
 	, generate = gen
-	, configParser = mkRemoteConfigParser []
-	, setup = error "not supported"
+	, configParser = mkRemoteConfigParser
+		[ optionalStringParser urlincludeField
+			(FieldDesc "only use urls matching this glob")
+		, optionalStringParser urlexcludeField
+			(FieldDesc "don't use urls that match this glob")
+		]
+	, setup = setupInstance
 	, exportSupported = exportUnsupported
 	, importSupported = importUnsupported
 	, thirdPartyPopulated = False
 	}
 
--- There is only one web remote, and it always exists.
+-- The web remote always exists.
 -- (If the web should cease to exist, remove this module and redistribute
 -- a new release to the survivors by carrier pigeon.)
+--
+-- There may also be other instances of the web remote, which can be
+-- limited to accessing particular urls, and have different costs.
 list :: Bool -> Annex [Git.Repo]
 list _autoinit = do
 	r <- liftIO $ Git.Construct.remoteNamed "web" (pure Git.Construct.fromUnknown)
-	return [r]
+	others <- findSpecialRemotes "web"
+	-- List the main one last, this makes its name be used instead
+	-- of the other names when git-annex is referring to content on the
+	-- web.
+	return (others++[r])
 
 gen :: Git.Repo -> UUID -> RemoteConfig -> RemoteGitConfig -> RemoteStateHandle -> Annex (Maybe Remote)
-gen r _ rc gc rs = do
+gen r u rc gc rs = do
 	c <- parsedRemoteConfig remote rc
-	cst <- remoteCost gc expensiveRemoteCost
+	cst <- remoteCost gc c expensiveRemoteCost
+ 	urlincludeexclude <- mkUrlIncludeExclude c
 	return $ Just Remote
-		{ uuid = webUUID
+		{ uuid = if u == NoUUID then webUUID else u
 		, cost = cst
 		, name = Git.repoDescribe r
 		, storeKey = uploadKey
-		, retrieveKeyFile = downloadKey
+		, retrieveKeyFile = downloadKey gc urlincludeexclude
+		, retrieveKeyFileInOrder = pure True
 		, retrieveKeyFileCheap = Nothing
 		-- HttpManagerRestricted is used here, so this is
 		-- secure.
 		, retrievalSecurityPolicy = RetrievalAllKeysSecure
-		, removeKey = dropKey
+		, removeKey = dropKey urlincludeexclude
 		, lockContent = Nothing
-		, checkPresent = checkKey
+		, checkPresent = checkKey gc urlincludeexclude
 		, checkPresentCheap = False
 		, exportActions = exportUnsupported
 		, importActions = importUnsupported
 		, whereisKey = Nothing
 		, remoteFsck = Nothing
+		, repairKey = Nothing
 		, repairRepo = Nothing
 		, config = c
 		, gitconfig = gc
@@ -73,17 +98,27 @@ gen r _ rc gc rs = do
 		, readonly = True
 		, appendonly = False
 		, untrustworthy = False
-		, availability = GloballyAvailable
+		, availability = pure GloballyAvailable
 		, remotetype = remote
 		, mkUnavailable = return Nothing
 		, getInfo = return []
-		, claimUrl = Nothing -- implicitly claims all urls
+		-- claimingUrl makes the web special remote claim
+		-- urls that are not claimed by other remotes,
+		-- so no need to claim anything here.
+		, claimUrl = Nothing
 		, checkUrl = Nothing
 		, remoteStateHandle = rs
 		}
 
-downloadKey :: Key -> AssociatedFile -> FilePath -> MeterUpdate -> VerifyConfig -> Annex Verification
-downloadKey key _af dest p vc = go =<< getWebUrls key
+setupInstance :: SetupStage -> Maybe UUID -> RemoteName -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
+setupInstance _ mu _ _ c _ = do
+	u <- maybe (liftIO genUUID) return mu
+	gitConfigSpecialRemote u c [("web", "true")]
+	return (c, u)
+
+downloadKey :: RemoteGitConfig -> UrlIncludeExclude -> Key -> AssociatedFile -> OsPath -> MeterUpdate -> VerifyConfig -> Annex Verification
+downloadKey gc urlincludeexclude key _af dest p vc = 
+	go =<< getWebUrls' urlincludeexclude key
   where
 	go [] = giveup "no known url"
 	go urls = dl (partition (not . isyoutube) (map getDownloader urls)) >>= \case
@@ -93,43 +128,71 @@ downloadKey key _af dest p vc = go =<< getWebUrls key
 			, show (length urls)
 			, "known url(s) failed"
 			]
+	
+	isyoutube (_, YoutubeDownloader) = True
+	isyoutube _ = False
 
 	dl ([], ytus) = flip getM (map fst ytus) $ \u ->
 		ifM (youtubeDlTo key u dest p)
-			( return (Just UnVerified)
+			( postdl UnVerified
 			, return Nothing
 			)
 	dl (us, ytus) = do
 		iv <- startVerifyKeyContentIncrementally vc key
-		ifM (Url.withUrlOptions $ downloadUrl True key p iv (map fst us) dest)
+		ifM (Url.withUrlOptions (Just gc) $ downloadUrl True key p iv (map fst us) dest)
 			( finishVerifyKeyContentIncrementally iv >>= \case
-				(True, v) -> return (Just v)
+				(True, v) -> postdl v
 				(False, _) -> dl ([], ytus)
 			, dl ([], ytus)
 			)
 
-	isyoutube (_, YoutubeDownloader) = True
-	isyoutube _ = False
+	postdl v@Verified = return (Just v)
+	postdl v
+		-- For a VURL key that was not verified on download, 
+		-- need to generate a hashed key for the content downloaded
+		-- from the web, and record it for later use verifying this
+		-- content.
+		--
+		-- But when the VURL key has a known size, and already has a
+		-- recorded hashed key, don't record a new key, since the
+		-- content on the web is expected to be stable for such a key.
+		| fromKey keyVariety key == VURLKey =
+			case fromKey keySize key of
+				Nothing -> 
+					getEquivilantKeys key
+						>>= recordvurlkey
+				Just _ -> do
+					eks <- getEquivilantKeys key
+					if null eks
+						then recordvurlkey eks
+						else return (Just v)
+		| otherwise = return (Just v)
+	
+	recordvurlkey eks = do
+		b <- hashBackend
+		updateEquivilantKeys b dest key eks
 
-uploadKey :: Key -> AssociatedFile -> MeterUpdate -> Annex ()
-uploadKey _ _ _ = giveup "upload to web not supported"
+uploadKey :: Key -> AssociatedFile -> Maybe OsPath -> MeterUpdate -> Annex ()
+uploadKey _ _ _ _ = giveup "upload to web not supported"
 
-dropKey :: Key -> Annex ()
-dropKey k = mapM_ (setUrlMissing k) =<< getWebUrls k
+dropKey :: UrlIncludeExclude -> Maybe SafeDropProof -> Key -> Annex ()
+dropKey urlincludeexclude _proof k = mapM_ (setUrlMissing k) =<< getWebUrls' urlincludeexclude k
 
-checkKey :: Key -> Annex Bool
-checkKey key = do
-	us <- getWebUrls key
+checkKey :: RemoteGitConfig -> UrlIncludeExclude -> Key -> Annex Bool
+checkKey gc urlincludeexclude key = do
+	us <- getWebUrls' urlincludeexclude key
 	if null us
 		then return False
-		else either giveup return =<< checkKey' key us
-checkKey' :: Key -> [URLString] -> Annex (Either String Bool)
-checkKey' key us = firsthit us (Right False) $ \u -> do
+		else either giveup return =<< checkKey' gc key us
+
+checkKey' :: RemoteGitConfig -> Key -> [URLString] -> Annex (Either String Bool)
+checkKey' gc key us = firsthit us (Right False) $ \u -> do
 	let (u', downloader) = getDownloader u
 	case downloader of
 		YoutubeDownloader -> youtubeDlCheck u'
 		_ -> catchMsgIO $
-			Url.withUrlOptions $ Url.checkBoth u' (fromKey keySize key)
+			Url.withUrlOptions (Just gc) $
+				Url.checkBoth u' (fromKey keySize key)
   where
 	firsthit [] miss _ = return miss
 	firsthit (u:rest) _ a = do
@@ -139,7 +202,65 @@ checkKey' key us = firsthit us (Right False) $ \u -> do
 			_ -> firsthit rest r a
 
 getWebUrls :: Key -> Annex [URLString]
-getWebUrls key = filter supported <$> getUrls key
+getWebUrls key = getWebUrls' alwaysInclude key
+
+getWebUrls' :: UrlIncludeExclude -> Key -> Annex [URLString]
+getWebUrls' urlincludeexclude key = 
+	filter supported <$> getUrls key
   where
-	supported u = snd (getDownloader u) 
+	supported u = supporteddownloader u 
+		&& checkUrlIncludeExclude urlincludeexclude u
+	supporteddownloader u = snd (getDownloader u) 
 		`elem` [WebDownloader, YoutubeDownloader]
+
+urlincludeField :: RemoteConfigField
+urlincludeField = Accepted "urlinclude"
+
+urlexcludeField :: RemoteConfigField
+urlexcludeField = Accepted "urlexclude"
+
+data UrlIncludeExclude = UrlIncludeExclude
+	{ checkUrlIncludeExclude :: URLString -> Bool
+	}
+
+alwaysInclude :: UrlIncludeExclude
+alwaysInclude = UrlIncludeExclude { checkUrlIncludeExclude = const True }
+
+mkUrlIncludeExclude :: ParsedRemoteConfig -> Annex UrlIncludeExclude
+mkUrlIncludeExclude = go fallback
+  where
+	go b pc = case (getglob urlincludeField pc, getglob urlexcludeField pc) of
+		(Nothing, Nothing) -> b
+		(minclude, mexclude) -> mk minclude mexclude
+
+	getglob f pc = do
+		glob <- getRemoteConfigValue f pc
+		Just $ compileGlob glob CaseInsensitive (GlobFilePath False)
+	
+	mk minclude mexclude = pure $ UrlIncludeExclude
+			{ checkUrlIncludeExclude = \u -> and
+				[ case minclude of
+					Just glob -> matchGlob glob u
+					Nothing -> True
+				, case mexclude of
+					Nothing -> True
+					Just glob -> not (matchGlob glob u)
+				]
+			}
+
+	-- When nothing to include or exclude is specified, only include
+	-- urls that are not explicitly included by other web special remotes.
+	fallback = do
+		rcs <- M.elems . M.filter iswebremote <$> remoteConfigMap
+		l <- forM rcs $ \rc ->
+			parsedRemoteConfig remote rc
+				>>= go (pure neverinclude)
+		pure $ UrlIncludeExclude
+			{ checkUrlIncludeExclude = \u ->
+				not (any (\c -> checkUrlIncludeExclude c u) l)
+			}
+	
+	iswebremote rc = (fromProposedAccepted <$> M.lookup typeField rc)
+		== Just (typename remote)
+
+	neverinclude = UrlIncludeExclude { checkUrlIncludeExclude = const False }

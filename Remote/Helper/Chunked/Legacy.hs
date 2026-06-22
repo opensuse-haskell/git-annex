@@ -10,6 +10,7 @@ module Remote.Helper.Chunked.Legacy where
 import Annex.Common
 import Remote.Helper.Chunked
 import Utility.Metered
+import qualified Utility.FileIO as F
 
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Lazy as L
@@ -72,7 +73,7 @@ storeChunks key tmp dest storer recorder finalizer = do
 	when (null stored) $
 		giveup "no chunks were stored"
   where
-	basef = tmp ++ fromRawFilePath (keyFile key)
+	basef = tmp ++ fromOsPath (keyFile key)
 	tmpdests = map (basef ++ ) chunkStream
 
 {- Given a list of destinations to use, chunks the data according to the
@@ -100,7 +101,7 @@ storeChunked annexrunner chunksize dests storer content =
 		| otherwise = storechunks sz [] dests content
 		
 	onerr e = do
-		annexrunner $ warning (show e)
+		annexrunner $ warning (UnquotedString (show e))
 		return []
 	
 	storechunks _ _ [] _ = return [] -- ran out of dests
@@ -116,6 +117,6 @@ storeChunked annexrunner chunksize dests storer content =
  -}
 meteredWriteFileChunks :: MeterUpdate -> FilePath -> [v] -> (v -> IO L.ByteString) -> IO ()
 meteredWriteFileChunks meterupdate dest chunks feeder =
-	withBinaryFile dest WriteMode $ \h ->
+	F.withBinaryFile (toOsPath dest) WriteMode $ \h ->
 		forM_ chunks $
 			meteredWrite meterupdate (S.hPut h) <=< feeder

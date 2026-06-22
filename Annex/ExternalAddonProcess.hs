@@ -1,6 +1,6 @@
 {- External addon processes for special remotes and backends.
  -
- - Copyright 2013-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2013-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -33,25 +33,57 @@ data ExternalAddonStartError
 	= ProgramNotInstalled String
 	| ProgramFailure String
 
-startExternalAddonProcess :: String -> ExternalAddonPID -> Annex (Either ExternalAddonStartError ExternalAddonProcess)
-startExternalAddonProcess basecmd pid = do
+externalAddonStartErr :: Maybe OsPath -> String -> IO ExternalAddonStartError
+externalAddonStartErr (Just cmd) _ =
+		return $ ProgramFailure $
+			"Cannot run " ++ fromOsPath cmd ++ " -- Make sure it's executable and that its dependencies are installed."
+externalAddonStartErr Nothing basecmd = do
+		path <- intercalate ":" . map fromOsPath <$> getSearchPath
+		return $ ProgramNotInstalled $
+			"Cannot run " ++ basecmd ++ " -- It is not installed in PATH (" ++ path ++ ")"
+
+startExternalAddonProcess
+	:: (CreateProcess -> CreateProcess)
+	-> String
+	-> [CommandParam]
+	-> IO (Either ExternalAddonStartError (String, (Maybe Handle, Maybe Handle, Maybe Handle, ProcessHandle)))
+startExternalAddonProcess f basecmd ps = do
+	cmdpath <- searchPath basecmd
+	startExternalAddonProcess' cmdpath f basecmd ps
+
+startExternalAddonProcess'
+	:: Maybe OsPath
+	-> (CreateProcess -> CreateProcess)
+	-> String
+	-> [CommandParam]
+	-> IO (Either ExternalAddonStartError (String, (Maybe Handle, Maybe Handle, Maybe Handle, ProcessHandle)))
+startExternalAddonProcess' cmdpath mkproc basecmd ps = do
+	(cmd, cmdps) <- maybe (pure (basecmd, [])) findShellCommand cmdpath
+	let p = mkproc (proc cmd (toCommand (cmdps ++ ps)))
+	tryNonAsync (createProcess p) >>= \case
+		Right v -> return (Right (cmd, v))
+		Left _ -> Left <$> externalAddonStartErr cmdpath basecmd
+
+-- | Starts an external addon process that speaks a protocol over stdio.
+startExternalAddonProcessProtocol :: String -> [CommandParam] -> ExternalAddonPID -> Annex (Either ExternalAddonStartError ExternalAddonProcess)
+startExternalAddonProcessProtocol basecmd ps pid = do
 	errrelayer <- mkStderrRelayer
 	g <- Annex.gitRepo
 	cmdpath <- liftIO $ searchPath basecmd
 	liftIO $ start errrelayer g cmdpath
   where
 	start errrelayer g cmdpath = do
-		(cmd, ps) <- maybe (pure (basecmd, [])) findShellCommand cmdpath
-		let basep = (proc cmd (toCommand ps))
+		environ <- propGitEnv g
+		let mkproc = \p -> p
 			{ std_in = CreatePipe
 			, std_out = CreatePipe
 			, std_err = CreatePipe
+			, env = Just environ
 			}
-		p <- propgit g basep
-		tryNonAsync (createProcess p) >>= \case
-			Right v -> (Right <$> started cmd errrelayer v)
-				`catchNonAsync` const (runerr cmdpath)
-			Left _ -> runerr cmdpath
+		startExternalAddonProcess' cmdpath mkproc basecmd ps >>= \case
+			Right (cmd, v) -> (Right <$> started cmd errrelayer v)
+				`catchNonAsync` const (Left <$> externalAddonStartErr cmdpath basecmd)
+			Left err -> return (Left err)
 	
 	started cmd errrelayer pall@(Just hin, Just hout, Just herr, ph) = do
 		stderrelay <- async $ errrelayer ph herr
@@ -78,18 +110,6 @@ startExternalAddonProcess basecmd pid = do
 			, externalProgram = cmd
 			}
 	started _ _ _ = giveup "internal"
-
-	propgit g p = do
-		environ <- propGitEnv g
-		return $ p { env = Just environ }
-
-	runerr (Just cmd) =
-		return $ Left $ ProgramFailure $
-			"Cannot run " ++ cmd ++ " -- Make sure it's executable and that its dependencies are installed."
-	runerr Nothing = do
-		path <- intercalate ":" <$> getSearchPath
-		return $ Left $ ProgramNotInstalled $
-			"Cannot run " ++ basecmd ++ " -- It is not installed in PATH (" ++ path ++ ")"
 
 protocolDebug :: ExternalAddonProcess -> Bool -> String -> IO ()
 protocolDebug external sendto line = debug "Annex.ExternalAddonProcess" $ unwords

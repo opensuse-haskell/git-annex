@@ -5,6 +5,8 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE OverloadedStrings #-}
+
 module CmdLine (
 	dispatch,
 	usage,
@@ -14,6 +16,7 @@ module CmdLine (
 
 import qualified Options.Applicative as O
 import qualified Options.Applicative.Help as H
+import qualified Data.List.NonEmpty as NE
 import Control.Exception (throw)
 import Control.Monad.IO.Class (MonadIO)
 import System.Exit
@@ -23,14 +26,16 @@ import qualified Annex
 import qualified Git
 import qualified Git.AutoCorrect
 import qualified Git.Config
+import Annex.Startup
 import Annex.Action
 import Annex.Environment
 import Command
 import Types.Messages
+import qualified Utility.OsString as OS
 
 {- Parses input arguments, finds a matching Command, and runs it. -}
 dispatch :: Bool -> Bool -> CmdParams -> [Command] -> [(String, String)] -> IO Git.Repo -> String -> String -> IO ()
-dispatch addonok fuzzyok allargs allcmds fields getgitrepo progname progdesc =
+dispatch addonok fuzzyok allargs allcmds fields getgitrepo progname progdesc = do
 	go addonok allcmds $
 		findAddonCommand subcommandname >>= \case
 			Just c -> go addonok (c:allcmds) noop
@@ -90,7 +95,7 @@ dispatch' subcommandname args fuzzy cmds allargs allcmds fields getgitrepo progn
 				handleresult (parseCmd progname progdesc correctedargs allcmds getparser)
 			res -> handleresult res
 	  where
-		autocorrect = Git.AutoCorrect.prepare (fromJust subcommandname) cmdname cmds
+		autocorrect = Git.AutoCorrect.prepare "git-annex" (fromJust subcommandname) cmdname (NE.fromList cmds)
 		name
 			| fuzzy = case cmds of
 				(c:_) -> Just (cmdname c)
@@ -116,7 +121,7 @@ parseCmd progname progdesc allargs allcmds getparser =
 		<*> getparser c
 		<*> parserAnnexOptions (cmdannexoptions c)
 	synopsis n d = n ++ " - " ++ d
-	intro = mconcat $ concatMap (\l -> [H.text l, H.line])
+	intro = mconcat $ concatMap (\l -> [H.pretty l, H.line])
 		(synopsis progname progdesc : commandList allcmds)
 
 {- Selects the Command that matches the subcommand name.
@@ -157,17 +162,18 @@ findAddonCommand Nothing = return Nothing
 findAddonCommand (Just subcommandname) =
 	searchPath c >>= \case
 		Nothing -> return Nothing
-		Just p -> return (Just (mkAddonCommand p subcommandname))
+		Just p -> return (Just (mkAddonCommand (fromOsPath p) subcommandname))
   where
 	c = "git-annex-" ++ subcommandname
 
 findAllAddonCommands :: IO [Command]
 findAllAddonCommands = 
 	filter isaddoncommand
-		. map (\p -> mkAddonCommand p (deprefix p))
-		<$> searchPathContents ("git-annex-" `isPrefixOf`)
+		. map go
+		<$> searchPathContents (literalOsPath "git-annex-" `OS.isPrefixOf`)
   where
-	deprefix = replace "git-annex-" "" . takeFileName
+	go p = mkAddonCommand (fromOsPath p) (deprefix p)
+	deprefix = replace "git-annex-" "" . fromOsPath . takeFileName
 	isaddoncommand c
 		-- git-annex-shell
 		| cmdname c == "shell" = False

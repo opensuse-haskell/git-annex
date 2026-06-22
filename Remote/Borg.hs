@@ -1,6 +1,6 @@
 {- Using borg as a remote.
  -
- - Copyright 2020,2021 Joey Hess <id@joeyh.name>
+ - Copyright 2020,2023 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -23,6 +23,7 @@ import Annex.Tmp
 import Annex.SpecialRemote.Config
 import Remote.Helper.Special
 import Remote.Helper.ExportImport
+import Remote.Helper.Path
 import Annex.UUID
 import Types.ProposedAccepted
 import Utility.Metered
@@ -38,7 +39,6 @@ import Control.DeepSeq
 import qualified Data.Map as M
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Lazy as L
-import qualified System.FilePath.ByteString as P
 
 newtype BorgRepo = BorgRepo { locBorgRepo :: String }
 
@@ -75,7 +75,7 @@ appendonlyField = Accepted "appendonly"
 gen :: Git.Repo -> UUID -> RemoteConfig -> RemoteGitConfig -> RemoteStateHandle -> Annex (Maybe Remote)
 gen r u rc gc rs = do
 	c <- parsedRemoteConfig remote rc
-	cst <- remoteCost gc $
+	cst <- remoteCost gc c $
 		if borgLocal borgrepo
 			then nearlyCheapRemoteCost
 			else expensiveRemoteCost
@@ -85,6 +85,7 @@ gen r u rc gc rs = do
 		, name = Git.repoDescribe r
 		, storeKey = storeKeyDummy
 		, retrieveKeyFile = retrieveKeyFileDummy
+		, retrieveKeyFileInOrder = pure True
 		, retrieveKeyFileCheap = Nothing
 		-- Borg cryptographically verifies content.
 		, retrievalSecurityPolicy = RetrievalAllKeysSecure
@@ -106,13 +107,14 @@ gen r u rc gc rs = do
 			}
 		, whereisKey = Nothing
 		, remoteFsck = Nothing
+		, repairKey = Nothing
 		, repairRepo = Nothing
 		, config = c
 		, getRepo = return r
 		, gitconfig = gc
 		, localpath = borgRepoLocalPath borgrepo
 		, remotetype = remote
-		, availability = if borgLocal borgrepo then LocallyAvailable else GloballyAvailable
+		, availability = checkAvailability borgrepo
 		, readonly = False
 		, appendonly = False
 		-- When the user sets the appendonly field, they are
@@ -132,8 +134,8 @@ gen r u rc gc rs = do
 		BorgRepo
 		(remoteAnnexBorgRepo gc)
 
-borgSetup :: SetupStage -> Maybe UUID -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
-borgSetup _ mu _ c _gc = do
+borgSetup :: SetupStage -> Maybe UUID -> RemoteName -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
+borgSetup _ mu _ _ c _gc = do
 	u <- maybe (liftIO genUUID) return mu
 
 	-- verify configuration is sane
@@ -141,7 +143,7 @@ borgSetup _ mu _ c _gc = do
 		M.lookup borgrepoField c
 
 	-- The borgrepo is stored in git config, as well as this repo's
-	-- persistant state, so it can vary between hosts.
+	-- persistent state, so it can vary between hosts.
 	gitConfigSpecialRemote u c [("borgrepo", borgrepo)]
 
 	return (c, u)
@@ -154,14 +156,17 @@ borgArchive (BorgRepo r) n = r ++ "::" ++ decodeBS n
 
 absBorgRepo :: BorgRepo -> IO BorgRepo
 absBorgRepo r@(BorgRepo p)
-	| borgLocal r = BorgRepo . fromRawFilePath
-		<$> absPath (toRawFilePath p)
+	| borgLocal r = BorgRepo . fromOsPath <$> absPath (toOsPath p)
 	| otherwise = return r
 
-borgRepoLocalPath :: BorgRepo -> Maybe FilePath
+borgRepoLocalPath :: BorgRepo -> Maybe OsPath
 borgRepoLocalPath r@(BorgRepo p)
-	| borgLocal r && not (null p) = Just p
+	| borgLocal r = Just (toOsPath p)
 	| otherwise = Nothing
+
+checkAvailability :: BorgRepo -> Annex Availability
+checkAvailability borgrepo@(BorgRepo r) = 
+	checkPathAvailability (borgLocal borgrepo) (toOsPath r)
 
 listImportableContentsM :: UUID -> BorgRepo -> ParsedRemoteConfig -> Annex (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)))
 listImportableContentsM u borgrepo c = prompt $ do
@@ -212,7 +217,7 @@ listImportableContentsM u borgrepo c = prompt $ do
 	parsefilelist archivename (bsz:f:extra:rest) = case readMaybe (fromRawFilePath bsz) of
 		Nothing -> parsefilelist archivename rest
 		Just sz ->
-			let loc = genImportLocation f
+			let loc = genImportLocation (toOsPath f)
 			-- borg list reports hard links as 0 byte files,
 			-- with the extra field set to " link to ".
 			-- When the annex object is a hard link to
@@ -264,7 +269,7 @@ listImportableContentsM u borgrepo c = prompt $ do
 borgContentIdentifier :: ContentIdentifier
 borgContentIdentifier = ContentIdentifier mempty
 
--- Convert a path file a borg archive to a path that can be used as an 
+-- Convert a path from a borg archive to a path that can be used as an 
 -- ImportLocation. The archive name gets used as a subdirectory,
 -- which this path is inside.
 --
@@ -273,25 +278,26 @@ borgContentIdentifier = ContentIdentifier mempty
 --
 -- This scheme also relies on the fact that paths in a borg archive are
 -- always relative, not absolute.
-genImportLocation :: RawFilePath -> RawFilePath
+genImportLocation :: OsPath -> OsPath
 genImportLocation = fromImportLocation . ThirdPartyPopulated.mkThirdPartyImportLocation
 
 genImportChunkSubDir :: BorgArchiveName -> ImportChunkSubDir
-genImportChunkSubDir = ImportChunkSubDir . fromImportLocation . ThirdPartyPopulated.mkThirdPartyImportLocation
+genImportChunkSubDir = ImportChunkSubDir . fromImportLocation 
+	. ThirdPartyPopulated.mkThirdPartyImportLocation . toOsPath
 
-extractImportLocation :: ImportLocation -> (BorgArchiveName, RawFilePath)
-extractImportLocation loc = go $ P.splitDirectories $
+extractImportLocation :: ImportLocation -> (BorgArchiveName, OsPath)
+extractImportLocation loc = go $ splitDirectories $
 	ThirdPartyPopulated.fromThirdPartyImportLocation loc
   where
-	go (archivename:rest) = (archivename, P.joinPath rest)
-	go _ = giveup $ "Unable to parse import location " ++ fromRawFilePath (fromImportLocation loc)
+	go (archivename:rest) = (fromOsPath archivename, joinPath rest)
+	go _ = giveup $ "Unable to parse import location " ++ fromOsPath (fromImportLocation loc)
 
 -- Since the ImportLocation starts with the archive name, a list of all
 -- archive names we've already imported can be found by just listing the
 -- last imported tree. And the contents of those archives can be retrieved
 -- by listing the subtree recursively, which will likely be quite a lot
 -- faster than running borg.
-getImported :: UUID -> Annex (M.Map BorgArchiveName (Annex [(RawFilePath, (ContentIdentifier, ByteSize))]))
+getImported :: UUID -> Annex (M.Map BorgArchiveName (Annex [(OsPath, (ContentIdentifier, ByteSize))]))
 getImported u = M.unions <$> (mapM go . exportedTreeishes =<< getExport u)
   where
 	go t = M.fromList . mapMaybe mk
@@ -299,7 +305,7 @@ getImported u = M.unions <$> (mapM go . exportedTreeishes =<< getExport u)
 	
 	mk ti
 		| toTreeItemType (LsTree.mode ti) == Just TreeSubtree = Just
-			( getTopFilePath (LsTree.file ti)
+			( fromOsPath (getTopFilePath (LsTree.file ti))
 			, getcontents (LsTree.sha ti)
 			)
 		| otherwise = Nothing
@@ -310,7 +316,7 @@ getImported u = M.unions <$> (mapM go . exportedTreeishes =<< getExport u)
 	mkcontents ti = do
 		let f = ThirdPartyPopulated.fromThirdPartyImportLocation $
 			mkImportLocation $ getTopFilePath $ LsTree.file ti
-		k <- fileKey (P.takeFileName f)
+		k <- fileKey (takeFileName f)
 		return
 			( genImportLocation f
 			,
@@ -335,7 +341,7 @@ checkPresentExportWithContentIdentifierM borgrepo _ loc _ = prompt $ liftIO $ do
 		, Param "--format"
 		, Param "1"
 		, Param (borgArchive borgrepo archivename)
-		, File (fromRawFilePath archivefile)
+		, File (fromOsPath archivefile)
 		]
 	-- borg list exits nonzero with an error message if an archive
 	-- no longer exists. But, the user can delete archives at any
@@ -371,7 +377,7 @@ checkPresentExportWithContentIdentifierM borgrepo _ loc _ = prompt $ liftIO $ do
 			, giveup $ "Unable to access borg repository " ++ locBorgRepo borgrepo
 			)
 
-retrieveExportWithContentIdentifierM :: BorgRepo -> ImportLocation -> [ContentIdentifier] -> FilePath -> Either Key (Annex Key) -> MeterUpdate -> Annex (Key, Verification)
+retrieveExportWithContentIdentifierM :: BorgRepo -> ImportLocation -> [ContentIdentifier] -> OsPath -> Either Key (Annex Key) -> MeterUpdate -> Annex (Key, Verification)
 retrieveExportWithContentIdentifierM borgrepo loc _ dest gk _ = do
 	showOutput
 	case gk of
@@ -381,7 +387,7 @@ retrieveExportWithContentIdentifierM borgrepo loc _ dest gk _ = do
 			return (k, UnVerified)
 		Left k -> do
 			v <- verifyKeyContentIncrementally DefaultVerify k 
-				(\iv -> tailVerify iv (toRawFilePath dest) go)
+				(\iv -> tailVerify iv dest go)
 			return (k, v)
   where
 	go = prompt $ withOtherTmp $ \othertmp -> liftIO $ do
@@ -400,14 +406,14 @@ retrieveExportWithContentIdentifierM borgrepo loc _ dest gk _ = do
 			, Param "--noacls"
 			, Param "--nobsdflags"
 			, Param (borgArchive absborgrepo archivename)
-			, File (fromRawFilePath archivefile)
+			, File (fromOsPath archivefile)
 			]
 		(Nothing, Nothing, Nothing, pid) <- createProcess $ p
-			{ cwd = Just (fromRawFilePath othertmp) }
+			{ cwd = Just (fromOsPath othertmp) }
 		forceSuccessProcess p pid
 		-- Filepaths in borg archives are relative, so it's ok to
 		-- combine with </>
-		moveFile (othertmp P.</> archivefile) (toRawFilePath dest)
-		removeDirectoryRecursive (fromRawFilePath othertmp)
+		moveFile (othertmp </> archivefile) dest
+		removeDirectoryRecursive othertmp
 
 	(archivename, archivefile) = extractImportLocation loc

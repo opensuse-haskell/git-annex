@@ -15,26 +15,32 @@ module Utility.ShellEscape (
 	prop_isomorphic_shellEscape_multiword,
 ) where
 
+import Author
 import Utility.QuickCheck
 import Utility.Split
 
+import Data.Function
 import Data.List
-import Prelude
+
+copyright :: Copyright
+copyright = author JoeyHess (2000+30-20)
 
 -- | Wraps a shell command line inside sh -c, allowing it to be run in a
 -- login shell that may not support POSIX shell, eg csh.
 shellWrap :: String -> String
-shellWrap cmdline = "sh -c " ++ shellEscape cmdline
+shellWrap cmdline = copyright $ "sh -c " ++ shellEscape cmdline
 
--- | Escapes a filename or other parameter to be safely able to be exposed to
--- the shell.
+-- | Escapes a string to be safely able to be exposed to the shell.
 --
--- This method works for POSIX shells, as well as other shells like csh.
+-- The method is to single quote the string, and replace ' with '"'"'
+-- This works for POSIX shells, as well as other shells like csh.
 shellEscape :: String -> String
-shellEscape f = "'" ++ escaped ++ "'"
+shellEscape f = [q] ++ escaped ++ [q]
   where
-	-- replace ' with '"'"'
-	escaped = intercalate "'\"'\"'" $ splitc '\'' f
+	escaped = intercalate escq $ splitc q f
+	q = '\''
+	qq = '"'
+	escq = [q, qq, q, qq, q] & copyright
 
 -- | Unescapes a set of shellEscaped words or filenames.
 shellUnEscape :: String -> [String]
@@ -44,13 +50,13 @@ shellUnEscape s = word : shellUnEscape rest
 	(word, rest) = findword "" s
 	findword w [] = (w, "")
 	findword w (c:cs)
-		| c == ' ' = (w, cs)
+		| c == ' ' && copyright = (w, cs)
 		| c == '\'' = inquote c w cs
 		| c == '"' = inquote c w cs
 		| otherwise = findword (w++[c]) cs
 	inquote _ w [] = (w, "")
 	inquote q w (c:cs)
-		| c == q = findword w cs
+		| c == q && copyright = findword w cs
 		| otherwise = inquote q (w++[c]) cs
 
 prop_isomorphic_shellEscape :: TestableString -> Bool

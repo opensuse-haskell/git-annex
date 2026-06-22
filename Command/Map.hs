@@ -1,13 +1,13 @@
 {- git-annex command
  -
- - Copyright 2010 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2025 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
-module Command.Map where
+{-# LANGUAGE OverloadedStrings #-}
 
-import qualified Data.Map as M
+module Command.Map where
 
 import Command
 import qualified Git
@@ -23,15 +23,17 @@ import Logs.Trust
 import Types.TrustLevel
 import qualified Remote.Helper.Ssh as Ssh
 import qualified Utility.Dot as Dot
+import qualified Messages.JSON as JSON
+import Messages.JSON ((.=))
+import Utility.Aeson (packString)
 
--- a link from the first repository to the second (its remote)
-data Link = Link Git.Repo Git.Repo
+import qualified Data.Map as M
 
 -- a repo and its remotes
 type RepoRemotes = (Git.Repo, [Git.Repo])
 
 cmd :: Command
-cmd = dontCheck repoExists $
+cmd = dontCheck repoExists $ withAnnexOptions [jsonOptions] $
 	command "map" SectionQuery
 		"generate map of repositories"
 		paramNothing (withParams seek)
@@ -45,28 +47,31 @@ start = startingNoMessage (ActionItemOther Nothing) $ do
 
 	umap <- uuidDescMap
 	trustmap <- trustMapLoad
-		
-	file <- (</>)
-		<$> fromRepo (fromRawFilePath . gitAnnexDir)
-		<*> pure "map.dot"
+	
+	ifM (outputJSONMap rs trustmap umap)
+		( next $ return True
+		, do
+			file <- (</>)
+				<$> fromRepo gitAnnexDir
+				<*> pure (literalOsPath "map.dot")
 
-	liftIO $ writeFile file (drawMap rs trustmap umap)
-	next $
-		ifM (Annex.getRead Annex.fast)
-			( runViewer file []
-			, runViewer file
-	 			[ ("xdot", [File file])
-				, ("dot", [Param "-Tx11", File file])
-				]	
-			)
+			liftIO $ writeFileString file (drawMap rs trustmap umap)
+			next $
+				ifM (Annex.getRead Annex.fast)
+					( runViewer file []
+					, runViewer file
+			 			[ ("xdot", [File (fromOsPath file)])
+						]	
+					)
+		)
 
-runViewer :: FilePath -> [(String, [CommandParam])] -> Annex Bool
+runViewer :: OsPath -> [(String, [CommandParam])] -> Annex Bool
 runViewer file [] = do
-	showLongNote $ "left map in " ++ file
+	showLongNote $ UnquotedString $ "left map in " ++ fromOsPath file
 	return True
 runViewer file ((c, ps):rest) = ifM (liftIO $ inSearchPath c)
 	( do
-		showLongNote $ "running: " ++ c ++ unwords (toCommand ps)
+		showLongNote $ UnquotedString $ "running: " ++ c ++ " " ++ unwords (toCommand ps)
 		showOutput
 		liftIO $ boolSystem c ps
 	, runViewer file rest
@@ -96,16 +101,16 @@ drawMap rs trustmap umap = Dot.graph $ repos ++ others
 
 hostname :: Git.Repo -> String
 hostname r
-	| Git.repoIsUrl r = fromMaybe (Git.repoLocation r) (Git.Url.host r)
+	| Git.repoIsUrl r = fromMaybe (Git.repoLocationUserVisible r) (Git.Url.host r)
 	| otherwise = "localhost"
 
 basehostname :: Git.Repo -> String
 basehostname r = fromMaybe "" $ headMaybe $ splitc '.' $ hostname r
 
-{- A name to display for a repo. Uses the name from uuid.log if available,
- - or the remote name if not. -}
-repoName :: UUIDDescMap -> Git.Repo -> String
-repoName umap r
+{- A description to display for a repo. Uses the description 
+ - from uuid.log if available, or the remote name if not. -}
+repoDesc :: UUIDDescMap -> Git.Repo -> String
+repoDesc umap r
 	| repouuid == NoUUID = fallback
 	| otherwise = maybe fallback fromUUIDDesc $ M.lookup repouuid umap
   where
@@ -125,7 +130,7 @@ node umap fullinfo trustmap (r, rs) = unlines $ n:edges
   where
 	n = Dot.subGraph (hostname r) (basehostname r) "lightblue" $
 		trustDecorate trustmap (getUncachedUUID r) $
-			Dot.graphNode (nodeId r) (repoName umap r)
+			Dot.graphNode (nodeId r) (repoDesc umap r)
 	edges = map (edge umap fullinfo r) rs
 
 {- An edge between two repos. The second repo is a remote of the first. -}
@@ -144,7 +149,7 @@ edge umap fullinfo from to =
 	 - different from its hostname. (This reduces visual clutter.) -}
 	edgename = maybe Nothing calcname $ Git.remoteName to
 	calcname n
-		| n `elem` [repoName umap fullto, hostname fullto] = Nothing
+		| n `elem` [repoDesc umap fullto, hostname fullto] = Nothing
 		| otherwise = Just n
 
 trustDecorate :: TrustMap -> UUID -> String -> String
@@ -155,7 +160,7 @@ trustDecorate trustmap u s = case M.lookup u trustmap of
 	Just DeadTrusted -> Dot.fillColor "grey" s
 	Nothing -> Dot.fillColor "white" s
 
-{- Recursively searches out remotes starting with the specified repo. -}
+{- Recursively searches out remotes starting with the specified local repo. -}
 spider :: Git.Repo -> Annex [RepoRemotes]
 spider r = spider' [r] []
 spider' :: [Git.Repo] -> [RepoRemotes] -> Annex [RepoRemotes]
@@ -167,20 +172,25 @@ spider' (r:rs) known
 
 		-- The remotes will be relative to r', and need to be
 		-- made absolute for later use.
-		remotes <- mapM (absRepo r')
-			=<< (liftIO $ Git.Construct.fromRemotes r')
-	
+		remotes <- mapM (absRepo r') =<<
+			if Git.repoIsUrl r
+				then liftIO $ Git.Construct.fromRemoteUrlRemotes r'
+				else liftIO $ Git.Construct.fromRemotes r'
+
 		spider' (rs ++ remotes) ((r', remotes):known)
 
 {- Converts repos to a common absolute form. -}
 absRepo :: Git.Repo -> Git.Repo -> Annex Git.Repo
 absRepo reference r
-	| Git.repoIsUrl reference = return $ Git.Construct.localToUrl reference r
+	| Git.repoIsUrl reference = return $
+		Git.Construct.localToUrl reference r
 	| Git.repoIsUrl r = return r
 	| otherwise = liftIO $ do
 		r' <- Git.Construct.fromPath =<< absPath (Git.repoPath r)
 		r'' <- safely $ flip Annex.eval Annex.gitRepo =<< Annex.new r'
-		return (fromMaybe r' r'')
+		return $ (fromMaybe r' r'')
+			{ Git.remoteName = Git.remoteName r
+			}
 
 {- Checks if two repos are the same. -}
 same :: Git.Repo -> Git.Repo -> Bool
@@ -196,7 +206,8 @@ same a b
 {- reads the config of a remote, with progress display -}
 scan :: Git.Repo -> Annex Git.Repo
 scan r = do
-	showStartOther "map" (Just $ Git.repoDescribe r) (SeekInput [])
+	unlessM jsonOutputEnabled $
+		showStartMessage (StartMessage "map" (ActionItemOther (Just $ UnquotedString $ Git.repoDescribe r)) (SeekInput []))
 	v <- tryScan r
 	case v of
 		Just r' -> do
@@ -242,7 +253,7 @@ tryScan r
 	  where
 		remotecmd = "sh -c " ++ shellEscape
 			(cddir ++ " && " ++ "git config --null --list")
-		dir = fromRawFilePath $ Git.repoPath r
+		dir = fromOsPath $ Git.repoPath r
 		cddir
 			| "/~" `isPrefixOf` dir =
 				let (userhome, reldir) = span (/= '/') (drop 1 dir)
@@ -267,7 +278,7 @@ tryScan r
 				configlist
 			ok -> return ok
 
-	sshnote = do
+	sshnote = unlessM jsonOutputEnabled $ do
 		showAction "sshing"
 		showOutput
 
@@ -285,3 +296,33 @@ safely a = do
 	case result of
 		Left _ -> return Nothing
 		Right r' -> return $ Just r'
+
+outputJSONMap :: [RepoRemotes] -> TrustMap -> UUIDDescMap -> Annex Bool
+outputJSONMap rs trustmap umap = 
+	showFullJSON $ JSON.AesonObject $ case mapo of
+		JSON.Object obj -> obj
+		_ -> error "internal"
+  where
+	mapo = JSON.object
+		[ "nodes" .= map mknode (filterdead fst rs)
+		]
+	
+	mknode (r, remotes) = JSON.object
+		[ "description" .= packString (repoDesc umap r)
+		, "uuid" .= mkuuid (getUncachedUUID r)
+		, "url" .= packString (Git.repoLocation r)
+		, "remotes" .= map mkremote (filterdead id remotes)
+		]
+	
+	mkremote r = JSON.object
+		[ "remote" .= (packString <$> Git.remoteName r)
+		, "uuid" .= mkuuid (getUncachedUUID r)
+		, "url" .= packString (Git.repoLocation r)
+		]
+	
+	mkuuid NoUUID = Nothing
+	mkuuid u = Just $ packString $ fromUUID u
+	
+	filterdead f = filter
+		(\i -> M.lookup (getUncachedUUID (f i)) trustmap /= Just DeadTrusted)
+

@@ -56,7 +56,12 @@ commonOptions =
 		)
 	, annexOption setdebugfilter $ strOption
 		( long "debugfilter" <> metavar "NAME[,NAME..]"
-		<> help "show debug messages coming from a module"
+		<> help "show debug messages coming from the specified module"
+		<> hidden
+		)
+	, annexFlag (setexplain True)
+		( long "explain" <> short 'd'
+		<> help "explain why git-annex does what it does"
 		<> hidden
 		)
 	]
@@ -80,6 +85,10 @@ commonOptions =
 		-- git-annex child processes.
 		, setAnnexState $ Annex.addGitConfigOverride $ 
 			decodeBS (debugfilterconfig <> "=") ++ v
+		]
+	
+	setexplain v = mconcat
+		[ setAnnexRead $ \rd -> rd { Annex.explainenabled = v }
 		]
 	
 	(ConfigKey debugconfig) = annexConfig "debug"

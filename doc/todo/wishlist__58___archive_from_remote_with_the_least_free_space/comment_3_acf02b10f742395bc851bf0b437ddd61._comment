@@ -1,0 +1,17 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 3"""
+ date="2026-04-28T16:54:00Z"
+ content="""
+Some similar things can now be accomplished using the `sizebalanced`
+preferred content expression. When there are several repositories in a
+group that are all sizebalanced, a file will be wanted by repositories
+that have space for it.
+
+That preferred content expression needs the size of the remote to be
+configured with `git-annex maxsize` in order for the remote to want
+to contain any content.
+
+I think it would be possible to have a similar preferred content expression
+that just makes the repo that is least full want the file.
+"""]]

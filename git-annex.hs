@@ -1,6 +1,6 @@
 {- git-annex main program dispatch
  -
- - Copyright 2010-2016 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -10,12 +10,17 @@
 import System.Environment (getArgs, getProgName)
 import System.FilePath
 import Network.Socket (withSocketsDo)
+import qualified Data.Map as M
 
+import CmdLine.Multicall
 import qualified CmdLine.GitAnnex
 import qualified CmdLine.GitAnnexShell
+import qualified CmdLine.GitRemoteAnnex
+import qualified CmdLine.GitRemoteP2PAnnex
 import qualified CmdLine.GitRemoteTorAnnex
 import qualified Test
 import qualified Benchmark
+import Messages
 import Utility.FileSystemEncoding
 
 #ifdef mingw32_HOST_OS
@@ -24,7 +29,7 @@ import Utility.Env.Set
 #endif
 
 main :: IO ()
-main = withSocketsDo $ do
+main = sanitizeTopLevelExceptionMessages $ withSocketsDo $ do
 	useFileSystemEncoding
 	ps <- getArgs
 #ifdef mingw32_HOST_OS
@@ -32,10 +37,16 @@ main = withSocketsDo $ do
 #endif
 	run ps =<< getProgName
   where
-	run ps n = case takeFileName n of
-		"git-annex-shell" -> CmdLine.GitAnnexShell.run ps
-		"git-remote-tor-annex" -> CmdLine.GitRemoteTorAnnex.run ps
-		_  -> CmdLine.GitAnnex.run Test.optParser Test.runner Benchmark.mkGenerator ps
+	run ps n = case M.lookup (takeFileName n) otherMulticallCommands of
+		Just GitAnnexShell -> CmdLine.GitAnnexShell.run ps
+		Just GitRemoteAnnex -> CmdLine.GitRemoteAnnex.run ps
+		Just GitRemoteP2PAnnex -> CmdLine.GitRemoteP2PAnnex.run ps
+		Just GitRemoteTorAnnex -> CmdLine.GitRemoteTorAnnex.run ps
+		Nothing -> CmdLine.GitAnnex.run
+			Test.optParser
+			Test.runner
+			Benchmark.mkGenerator
+			ps
 
 #ifdef mingw32_HOST_OS
 {- On Windows, if HOME is not set, probe it and set it.

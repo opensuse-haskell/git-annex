@@ -12,13 +12,14 @@ import qualified Annex.Branch
 import qualified Git
 import qualified Git.Branch
 import Annex.CurrentBranch
-import Command.Sync (prepMerge, mergeLocal, mergeConfig, merge, notOnlyAnnexOption, parseUnrelatedHistoriesOption)
+import Command.Sync (prepMerge, mergeLocalLikePull, mergeConfig, merge, notOnlyAnnexOption, parseUnrelatedHistoriesOption)
 import Git.Types
 
 cmd :: Command
-cmd = command "merge" SectionMaintenance
-	"merge changes from remotes"
-	(paramOptional paramRef) (seek <$$> optParser)
+cmd = withAnnexOptions [jsonOptions] $
+	command "merge" SectionMaintenance
+		"merge changes from remotes"
+		(paramOptional paramRef) (seek <$$> optParser)
 
 data MergeOptions = MergeOptions
 	{ mergeBranches :: [String]
@@ -48,20 +49,20 @@ mergeAnnexBranch = starting "merge" ai si $ do
 	Annex.Branch.commit =<< Annex.Branch.commitMessage
 	next $ return True
   where
-	ai = ActionItemOther (Just (fromRef Annex.Branch.name))
+	ai = ActionItemOther (Just (UnquotedString (fromRef Annex.Branch.name)))
 	si = SeekInput []
 
 mergeSyncedBranch :: MergeOptions -> CommandStart
 mergeSyncedBranch o = do
 	mc <- mergeConfig (allowUnrelatedHistories o)
-	mergeLocal mc def =<< getCurrentBranch
+	mergeLocalLikePull mc def =<< getCurrentBranch
 
 mergeBranch :: MergeOptions -> Git.Ref -> CommandStart
 mergeBranch o r = starting "merge" ai si $ do
 	currbranch <- getCurrentBranch
 	mc <- mergeConfig (allowUnrelatedHistories o)
 	let so = def { notOnlyAnnexOption = True }
-	next $ merge currbranch mc so Git.Branch.ManualCommit r
+	next $ merge currbranch mc so Git.Branch.ManualCommit [(r, noop)]
   where
-	ai = ActionItemOther (Just (Git.fromRef r))
+	ai = ActionItemOther (Just (UnquotedString (Git.fromRef r)))
 	si = SeekInput []

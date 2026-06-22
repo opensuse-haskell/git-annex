@@ -15,9 +15,9 @@ import Logs.Trust
 import Logs.Web
 import Remote.Web (getWebUrls)
 import Annex.UUID
+import Annex.NumCopies
 import qualified Utility.Format
 import qualified Command.Find
-import Types.ActionItem
 
 import qualified Data.Map as M
 import qualified Data.Vector as V
@@ -38,7 +38,7 @@ data WhereisOptions = WhereisOptions
 optParser :: CmdParamsDesc -> Parser WhereisOptions
 optParser desc = WhereisOptions
 	<$> cmdParams desc
-	<*> optional parseKeyOptions
+	<*> optional (parseKeyOptions <|> parseFailedTransfersOption)
 	<*> parseBatchOption True
 	<*> optional parseFormatOption
 
@@ -52,7 +52,7 @@ seek :: WhereisOptions -> CommandSeek
 seek o = do
 	m <- remoteMap id
 	let seeker = AnnexedFileSeeker
-		{ startAction = start o m
+		{ startAction = startSingle $ const $ start o m
 		, checkContentPresent = Nothing
 		, usesLocationLog = True
 		}
@@ -65,9 +65,9 @@ seek o = do
 		Batch fmt -> batchOnly (keyOptions o) (whereisFiles o) $
 			batchAnnexed fmt seeker (startKeys o m)
   where
-	ww = WarnUnmatchLsFiles
+	ww = WarnUnmatchLsFiles "whereis"
 
-start :: WhereisOptions -> M.Map UUID Remote -> SeekInput -> RawFilePath -> Key -> CommandStart
+start :: WhereisOptions -> M.Map UUID Remote -> SeekInput -> OsPath -> Key -> CommandStart
 start o remotemap si file key = 
 	startKeys o remotemap (si, key, mkActionItem (key, afile))
   where
@@ -87,13 +87,15 @@ perform o remotemap key ai = do
 	(untrustedlocations, safelocations) <- trustPartition UnTrusted locations
 	case formatOption o of
 		Nothing -> do
-			let num = length safelocations
-			showNote $ show num ++ " " ++ copiesplural num
+			let num = numCopiesCount safelocations
+			showNote $ UnquotedString $ show num ++ " " ++ copiesplural num
 			pp <- ppwhereis "whereis" safelocations urls
-			unless (null safelocations) $ showLongNote pp
+			unless (null safelocations) $
+				showLongNote (UnquotedString pp)
 			pp' <- ppwhereis "untrusted" untrustedlocations urls
-			unless (null untrustedlocations) $ showLongNote $ untrustedheader ++ pp'
-		
+			unless (null untrustedlocations) $
+				showLongNote $ UnquotedString $
+					untrustedheader ++ pp'
 			mapM_ (showRemoteUrls remotemap) urls
 		Just formatter -> liftIO $ do
 			let vs = Command.Find.formatVars key
@@ -143,7 +145,7 @@ getRemoteUrls key remote
 		Just w -> tryNonAsync (w key) >>= \case
 			Right l -> pure l
 			Left e -> do
-				warning $ unwords
+				warning $ UnquotedString $ unwords
 					[ "unable to query remote"
 					, name remote
 					, "for urls:"
@@ -161,6 +163,6 @@ showRemoteUrls :: M.Map UUID Remote -> (UUID, [URLString]) -> Annex ()
 showRemoteUrls remotemap (uu, us)
 	| null us = noop
 	| otherwise = case M.lookup uu remotemap of
-		Just r -> showLongNote $ 
+		Just r -> showLongNote $ UnquotedString $
 			unlines $ map (\u -> name r ++ ": " ++ u) us 
 		Nothing -> noop

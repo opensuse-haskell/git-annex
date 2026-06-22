@@ -1,9 +1,11 @@
 {- P2P protocol addresses
  -
- - Copyright 2016 Joey Hess <id@joeyh.name>
+ - Copyright 2016-2025 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
+
+{-# LANGUAGE OverloadedStrings #-}
 
 module P2P.Address where
 
@@ -14,15 +16,25 @@ import Git.Types
 import Creds
 import Utility.AuthToken
 import Utility.Tor
+import qualified Utility.RawFilePath as R
 
 import qualified Data.Text as T
+import System.PosixCompat.Files (fileOwner, fileGroup)
 
 -- | A P2P address, without an AuthToken.
 --
 -- This is enough information to connect to the peer,
 -- but not enough to authenticate with it.
-data P2PAddress = TorAnnex OnionAddress OnionPort
-	deriving (Eq, Show)
+data P2PAddress
+	= TorAnnex OnionAddress OnionPort
+	| P2PAnnex P2PNetName UnderlyingP2PAddress
+	deriving (Eq, Show, Ord)
+
+newtype P2PNetName = P2PNetName String
+	deriving (Eq, Show, Ord)
+
+newtype UnderlyingP2PAddress = UnderlyingP2PAddress String
+	deriving (Eq, Show, Ord)
 
 -- | A P2P address, with an AuthToken.
 --
@@ -38,16 +50,25 @@ class FormatP2PAddress a where
 instance FormatP2PAddress P2PAddress where
 	formatP2PAddress (TorAnnex (OnionAddress onionaddr) onionport) =
 		torAnnexScheme ++ ":" ++ onionaddr ++ ":" ++ show onionport
+	formatP2PAddress (P2PAnnex (P2PNetName netname) (UnderlyingP2PAddress address)) =
+		p2pAnnexScheme ++ ":" ++ netname ++ ":" ++ address
 	unformatP2PAddress s
-		| (torAnnexScheme ++ ":") `isPrefixOf` s = do
-			let s' = dropWhile (== ':') $ dropWhile (/= ':') s
-			let (onionaddr, ps) = separate (== ':') s'
-			onionport <- readish ps
-			return (TorAnnex (OnionAddress onionaddr) onionport)
+		| schemeprefixed torAnnexScheme = do
+			onionport <- readish bs
+			return (TorAnnex (OnionAddress as) onionport)
+		| schemeprefixed p2pAnnexScheme =
+			return (P2PAnnex (P2PNetName as) (UnderlyingP2PAddress bs))
 		| otherwise = Nothing
+	  where
+		schemeprefixed scheme = (scheme ++ ":") `isPrefixOf` s
+		(as, bs) = separate (== ':') $
+			dropWhile (== ':') $ dropWhile (/= ':') s
 
 torAnnexScheme :: String
 torAnnexScheme = "tor-annex:"
+
+p2pAnnexScheme :: String
+p2pAnnexScheme = "p2p-annex:"
 
 instance FormatP2PAddress P2PAddressAuth where
 	formatP2PAddress (P2PAddressAuth addr authtoken) =
@@ -73,23 +94,24 @@ storeP2PAddress addr = do
 	addrs <- loadP2PAddresses
 	unless (addr `elem` addrs) $ do
 		let s = unlines $ map formatP2PAddress (addr:addrs)
-		let tmpnam = p2pAddressCredsFile ++ ".new"
+		let tmpnam = p2pAddressCredsFile <> literalOsPath ".new"
 		writeCreds s tmpnam
 		tmpf <- credsFile tmpnam
 		destf <- credsFile p2pAddressCredsFile
 		-- This may be run by root, so make the creds file
 		-- and directory have the same owner and group as
 		-- the git repository directory has.
-		st <- liftIO . getFileStatus =<< Annex.fromRepo repoLocation
-		let fixowner f = setOwnerAndGroup f (fileOwner st) (fileGroup st)
+		st <- liftIO . R.getFileStatus . fromOsPath
+			=<< Annex.fromRepo repoPath
+		let fixowner f = R.setOwnerAndGroup (fromOsPath f) (fileOwner st) (fileGroup st)
 		liftIO $ do
 			fixowner tmpf
 			fixowner (takeDirectory tmpf)
 			fixowner (takeDirectory (takeDirectory tmpf))
 			renameFile tmpf destf
 
-p2pAddressCredsFile :: FilePath
-p2pAddressCredsFile = "p2paddrs"
+p2pAddressCredsFile :: OsPath
+p2pAddressCredsFile = literalOsPath "p2paddrs"
 
 torAppName :: AppName
 torAppName = "tor-annex"

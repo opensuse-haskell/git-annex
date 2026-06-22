@@ -1,6 +1,6 @@
 {- common functions for encryptable remotes
  -
- - Copyright 2011-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2025 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -8,12 +8,14 @@
 {-# LANGUAGE FlexibleContexts, ScopedTypeVariables, PackageImports #-}
 
 module Remote.Helper.Encryptable (
-	EncryptionIsSetup,
+	EncryptionIsSetup(..),
 	encryptionSetup,
 	noEncryptionUsed,
 	encryptionAlreadySetup,
 	encryptionConfigParsers,
 	parseEncryptionConfig,
+	parseEncryptionMethod,
+	CipherPurpose(..),
 	remoteCipher,
 	remoteCipher',
 	embedCreds,
@@ -28,8 +30,6 @@ module Remote.Helper.Encryptable (
 
 import qualified Data.Map as M
 import qualified Data.Set as S
-import qualified "sandi" Codec.Binary.Base64 as B64
-import qualified Data.ByteString as B
 import Control.Concurrent.STM
 
 import Annex.Common
@@ -39,6 +39,7 @@ import Types.Crypto
 import Types.ProposedAccepted
 import qualified Annex
 import Annex.SpecialRemote.Config
+import Utility.Base64
 
 -- Used to ensure that encryption has been set up before trying to
 -- eg, store creds in the remote config that would need to use the
@@ -63,6 +64,8 @@ encryptionConfigParsers =
 	, optionalStringParser pubkeysField HiddenField
 	, yesNoParser embedCredsField Nothing
 		(FieldDesc "embed credentials into git repository")
+	, yesNoParser onlyEncryptCredsField Nothing
+		(FieldDesc "only encrypt embedded credentials, not annexed files")
 	, macFieldParser
 	, optionalStringParser (Accepted "keyid")
 		(FieldDesc "gpg key id")
@@ -86,7 +89,7 @@ encryptionFieldParser :: RemoteConfigFieldParser
 encryptionFieldParser = RemoteConfigFieldParser
 	{ parserForField = encryptionField
 	, valueParser = \v c -> Just . RemoteConfigValue
-		<$> parseEncryptionMethod (fmap fromProposedAccepted v) c
+		<$> parseEncryptionMethod' v c
 	, fieldDesc = FieldDesc "how to encrypt data stored in the special remote"
 	, valueDesc = Just $ ValueDesc $
 		intercalate " or " (M.keys encryptionMethods)
@@ -101,14 +104,18 @@ encryptionMethods = M.fromList
 	, ("sharedpubkey", SharedPubKeyEncryption)
 	]
 
-parseEncryptionMethod :: Maybe String -> RemoteConfig -> Either String EncryptionMethod
-parseEncryptionMethod (Just s) _ = case M.lookup s encryptionMethods of
-	Just em -> Right em
-	Nothing -> Left badEncryptionMethod
+parseEncryptionMethod :: RemoteConfig -> Either String EncryptionMethod
+parseEncryptionMethod c = parseEncryptionMethod' (M.lookup encryptionField c) c
+
+parseEncryptionMethod' :: Maybe (ProposedAccepted String) -> RemoteConfig -> Either String EncryptionMethod
+parseEncryptionMethod' (Just s) _ =
+	case M.lookup (fromProposedAccepted s) encryptionMethods of
+		Just em -> Right em
+		Nothing -> Left badEncryptionMethod
 -- Hybrid encryption is the default when a keyid is specified without
 -- an encryption field, or when there's a cipher already but no encryption
 -- field.
-parseEncryptionMethod Nothing c
+parseEncryptionMethod' Nothing c
 	| M.member (Accepted "keyid") c || M.member cipherField c = Right HybridEncryption
 	| otherwise = Left badEncryptionMethod
 
@@ -156,21 +163,26 @@ parseMac (Just (Proposed s)) = case readMac s of
  - an encryption key, or not encrypt. An encrypted cipher is created, or is
  - updated to be accessible to an additional encryption key. Or the user
  - could opt to use a shared cipher, which is stored unencrypted. -}
-encryptionSetup :: RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, EncryptionIsSetup)
-encryptionSetup c gc = do
+encryptionSetup :: SetupStage -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, EncryptionIsSetup)
+encryptionSetup setupstage c gc = do
 	pc <- either giveup return $ parseEncryptionConfig c
-	cmd <- gpgCmd <$> Annex.getGitConfig
-	maybe (genCipher pc cmd) (updateCipher pc cmd) (extractCipher pc)
+	when (onlyEncryptCreds pc && encryption == Right SharedEncryption) $
+		giveup "There is no security benefit to using onlyencryptcreds=yes with encryption=shared"
+	when (onlyEncryptCreds pc && encryption == Right NoneEncryption) $
+		giveup "There is no security benefit to using onlyencryptcreds=yes with encryption=none"
+	checkallowedchange pc
+	gpgcmd <- gpgCmd <$> Annex.getGitConfig
+	maybe (genCipher pc gpgcmd) (updateCipher pc gpgcmd) (extractCipher pc)
   where
 	-- The type of encryption
-	encryption = parseEncryptionMethod (fromProposedAccepted <$> M.lookup encryptionField c) c
+	encryption = parseEncryptionMethod c
 	-- Generate a new cipher, depending on the chosen encryption scheme
-	genCipher pc cmd = case encryption of
+	genCipher pc gpgcmd = case encryption of
 		Right NoneEncryption -> return (c, NoEncryption)
-		Right SharedEncryption -> encsetup $ genSharedCipher cmd
-		Right HybridEncryption -> encsetup $ genEncryptedCipher cmd (pc, gc) key Hybrid
-		Right PubKeyEncryption -> encsetup $ genEncryptedCipher cmd (pc, gc) key PubKey
-		Right SharedPubKeyEncryption -> encsetup $ genSharedPubKeyCipher cmd key
+		Right SharedEncryption -> encsetup $ genSharedCipher gpgcmd
+		Right HybridEncryption -> encsetup $ genEncryptedCipher gpgcmd (pc, gc) key Hybrid
+		Right PubKeyEncryption -> encsetup $ genEncryptedCipher gpgcmd (pc, gc) key PubKey
+		Right SharedPubKeyEncryption -> encsetup $ genSharedPubKeyCipher gpgcmd key
 		Left err -> giveup err
 	key = maybe (giveup "Specify keyid=...") fromProposedAccepted $
 		M.lookup (Accepted "keyid") c
@@ -178,13 +190,13 @@ encryptionSetup c gc = do
 		maybe [] (\k -> [(False,fromProposedAccepted k)]) (M.lookup (Accepted "keyid-") c)
 	cannotchange = giveup "Cannot set encryption type of existing remotes."
 	-- Update an existing cipher if possible.
-	updateCipher pc cmd v = case v of
+	updateCipher pc gpgcmd v = case v of
 		SharedCipher _ | encryption == Right SharedEncryption ->
 			return (c', EncryptionIsSetup)
 		EncryptedCipher _ variant _ | sameasencryption variant ->
-			use "encryption update" $ updateCipherKeyIds cmd (pc, gc) newkeys v
+			use "encryption update" $ updateCipherKeyIds gpgcmd (pc, gc) newkeys v
 		SharedPubKeyCipher _ _ ->
-			use "encryption update" $ updateCipherKeyIds cmd (pc, gc) newkeys v
+			use "encryption update" $ updateCipherKeyIds gpgcmd (pc, gc) newkeys v
 		_ -> cannotchange
 	sameasencryption variant = case encryption of
 		Right HybridEncryption -> variant == Hybrid
@@ -193,9 +205,9 @@ encryptionSetup c gc = do
 		Left _ -> True
 	encsetup a = use "encryption setup" . a =<< highRandomQuality
 	use m a = do
-		showNote m
+		showNote (UnquotedString m)
 		cipher <- liftIO a
-		showNote (describeCipher cipher)
+		showNote (UnquotedString (describeCipher cipher))
 		return (storeCipher cipher c', EncryptionIsSetup)
 	highRandomQuality = ifM (Annex.getRead Annex.fast)
 		( return False
@@ -212,13 +224,33 @@ encryptionSetup c gc = do
 		-- public-key encryption, hence we leave it on newer
 		-- remotes (while being backward-compatible).
 		(map Accepted ["keyid", "keyid+", "keyid-", "highRandomQuality"])
+	moldpc = either (const Nothing) Just $ parseEncryptionConfig $
+		case setupstage of
+			Init -> mempty
+			Enable oldc -> oldc
+			AutoEnable oldc -> oldc
+	checkallowedchange pc = case moldpc of
+		Nothing -> return ()
+		Just oldpc -> do
+			case extractCipher oldpc of
+				Nothing -> req NoneEncryption
+				Just (EncryptedCipher _ Hybrid _) -> req HybridEncryption
+				Just (EncryptedCipher _ PubKey _) -> req PubKeyEncryption
+				Just (SharedCipher _) -> req SharedEncryption
+				Just (SharedPubKeyCipher _ _) -> req SharedPubKeyEncryption
+			when (onlyEncryptCreds oldpc /= onlyEncryptCreds pc) $
+				giveup "Cannot change onlyencryptcreds of existing remotes."
+	  where
+		req v = when (encryption /= Right v) cannotchange
 
-remoteCipher :: ParsedRemoteConfig -> RemoteGitConfig -> Annex (Maybe Cipher)
-remoteCipher c gc = fmap fst <$> remoteCipher' c gc
+data CipherPurpose t = CipherAllPurpose t | CipherOnlyCreds t
 
 {- Gets encryption Cipher. The decrypted Ciphers are cached in the Annex
  - state. -}
-remoteCipher' :: ParsedRemoteConfig -> RemoteGitConfig -> Annex (Maybe (Cipher, StorableCipher))
+remoteCipher :: ParsedRemoteConfig -> RemoteGitConfig -> Annex (Maybe (CipherPurpose Cipher))
+remoteCipher c gc = fmap fst <$> remoteCipher' c gc
+
+remoteCipher' :: ParsedRemoteConfig -> RemoteGitConfig -> Annex (Maybe (CipherPurpose Cipher, StorableCipher))
 remoteCipher' c gc = case extractCipher c of
 	Nothing -> return Nothing
 	Just encipher -> do
@@ -226,7 +258,7 @@ remoteCipher' c gc = case extractCipher c of
 		cachedciper <- liftIO $ atomically $ 
 			M.lookup encipher <$> readTMVar cachev
 		case cachedciper of
-			Just cipher -> return $ Just (cipher, encipher)
+			Just cipher -> return $ Just (purpose cipher, encipher)
 			-- Not cached; decrypt it, making sure
 			-- to only decrypt one at a time. Avoids
 			-- prompting for decrypting the same thing twice
@@ -237,11 +269,14 @@ remoteCipher' c gc = case extractCipher c of
 				(go cachev encipher)
   where
 	go cachev encipher cache = do
-		cmd <- gpgCmd <$> Annex.getGitConfig
-		cipher <- liftIO $ decryptCipher cmd (c, gc) encipher
+		gpgcmd <- gpgCmd <$> Annex.getGitConfig
+		cipher <- liftIO $ decryptCipher gpgcmd (c, gc) encipher
 		liftIO $ atomically $ putTMVar cachev $
 			M.insert encipher cipher cache
-		return $ Just (cipher, encipher)
+		return $ Just (purpose cipher, encipher)
+	purpose
+		| onlyEncryptCreds c = CipherOnlyCreds
+		| otherwise = CipherAllPurpose
 
 {- Checks if the remote's config allows storing creds in the remote's config.
  - 
@@ -258,11 +293,19 @@ embedCreds c = case getRemoteConfigValue embedCredsField c of
 		(Just (_ :: String), Just (_ :: String)) -> True
 		_ -> False
 
-{- Gets encryption Cipher, and key encryptor. -}
+onlyEncryptCreds :: ParsedRemoteConfig -> Bool
+onlyEncryptCreds c = case getRemoteConfigValue onlyEncryptCredsField c of
+	Just v -> v
+	Nothing -> False
+
+{- Gets key data encryption Cipher, and key encryptor. -}
 cipherKey :: ParsedRemoteConfig -> RemoteGitConfig -> Annex (Maybe (Cipher, EncKey))
-cipherKey c gc = fmap make <$> remoteCipher c gc
+cipherKey c gc = go <$> remoteCipher c gc
   where
-	make ciphertext = (ciphertext, encryptKey mac ciphertext)
+	go (Just (CipherAllPurpose ciphertext)) = 
+		Just (ciphertext, encryptKey mac ciphertext)
+	go (Just (CipherOnlyCreds _)) = Nothing
+	go Nothing = Nothing
 	mac = fromMaybe defaultMac $ getRemoteConfigValue macField c
 
 {- Stores an StorableCipher in a remote's configuration. -}
@@ -272,7 +315,7 @@ storeCipher cip = case cip of
 	(EncryptedCipher t _ ks) -> addcipher t . storekeys ks cipherkeysField
 	(SharedPubKeyCipher t ks) -> addcipher t . storekeys ks pubkeysField
   where
-	addcipher t = M.insert cipherField (Accepted (toB64bs t))
+	addcipher t = M.insert cipherField (Accepted (decodeBS (toB64 t)))
 	storekeys (KeyIds l) n = M.insert n (Accepted (intercalate "," l))
 
 {- Extracts an StorableCipher from a remote's configuration. -}
@@ -281,19 +324,19 @@ extractCipher c = case (getRemoteConfigValue cipherField c,
 			(getRemoteConfigValue cipherkeysField c <|> getRemoteConfigValue pubkeysField c),
 			getRemoteConfigValue encryptionField c) of
 	(Just t, Just ks, Just HybridEncryption) ->
-		Just $ EncryptedCipher (fromB64bs t) Hybrid (readkeys ks)
+		Just $ EncryptedCipher (fromB64 (encodeBS t)) Hybrid (readkeys ks)
 	(Just t, Just ks, Just PubKeyEncryption) ->
-		Just $ EncryptedCipher (fromB64bs t) PubKey (readkeys ks)
+		Just $ EncryptedCipher (fromB64 (encodeBS t)) PubKey (readkeys ks)
 	(Just t, Just ks, Just SharedPubKeyEncryption) ->
-		Just $ SharedPubKeyCipher (fromB64bs t) (readkeys ks)
+		Just $ SharedPubKeyCipher (fromB64 (encodeBS t)) (readkeys ks)
 	(Just t, Nothing, Just SharedEncryption) ->
-		Just $ SharedCipher (fromB64bs t)
+		Just $ SharedCipher (fromB64 (encodeBS t))
 	_ -> Nothing
   where
 	readkeys = KeyIds . splitc ','
 
 isEncrypted :: ParsedRemoteConfig -> Bool
-isEncrypted = isJust . extractCipher
+isEncrypted c = isJust (extractCipher c) && not (onlyEncryptCreds c)
 
 -- Check if encryption is enabled. This can be done before encryption
 -- is fully set up yet, so the cipher might not be present yet.
@@ -301,12 +344,16 @@ encryptionIsEnabled :: ParsedRemoteConfig -> Bool
 encryptionIsEnabled c = case getRemoteConfigValue encryptionField c of
 	Nothing -> False
 	Just NoneEncryption -> False
-	Just _ -> True
+	Just _ -> not (onlyEncryptCreds c)
 
 describeEncryption :: ParsedRemoteConfig -> String
 describeEncryption c = case extractCipher c of
 	Nothing -> "none"
-	Just cip -> nameCipher cip ++ " (" ++ describeCipher cip ++ ")"
+	Just cip
+		| onlyEncryptCreds c -> "creds only; " ++ desc cip
+		| otherwise -> desc cip
+  where
+	desc cip = nameCipher cip ++ " (" ++ describeCipher cip ++ ")"
 
 nameCipher :: StorableCipher -> String
 nameCipher (SharedCipher _) = "shared"
@@ -321,14 +368,3 @@ describeCipher c = case c of
 	(SharedPubKeyCipher _ ks) -> showkeys ks
   where
 	showkeys (KeyIds { keyIds = ks }) = "to gpg keys: " ++ unwords ks
-
-{- Not using Utility.Base64 because these "Strings" are really
- - bags of bytes and that would convert to unicode and not round-trip
- - cleanly. -}
-toB64bs :: String -> String
-toB64bs = w82s . B.unpack . B64.encode . B.pack . s2w8
-
-fromB64bs :: String -> String
-fromB64bs s = either (const bad) (w82s . B.unpack) (B64.decode $ B.pack $ s2w8 s)
-  where
-	bad = error "bad base64 encoded data"

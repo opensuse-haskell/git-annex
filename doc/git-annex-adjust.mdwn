@@ -21,7 +21,7 @@ to a public branch with commands like `git-annex unlock`.
 
 While in the adjusted branch, you can use git-annex and git commands as
 usual. Any commits that you make will initially only be made to the
-adjusted branch. 
+adjusted branch.
 
 To propagate commits from the adjusted branch back to the original branch,
 and to other repositories, as well as to merge in changes from other
@@ -31,8 +31,9 @@ made by this command.
 
 When in an adjusted branch, using `git merge otherbranch` is often not
 ideal, because merging a non-adjusted branch may lead to unnecessary
-merge conflicts, or add files in non-adjusted form. To avoid those
-problems, use `git annex merge otherbranch`.
+merge conflicts, or add files in non-adjusted form. And such merges
+cannot be propagated from the adjusted branch back to the original branch.
+To avoid those problems, use `git annex merge otherbranch`.
 
 Re-running this command with the same options
 while inside the adjusted branch will update the adjusted branch
@@ -59,7 +60,7 @@ and will also propagate commits back to the original branch.
 
 * `--lock`
 
-  Lock all annexed file in the adjusted branch. This may be preferred
+  Lock all annexed files in the adjusted branch. This may be preferred
   by those who like seeing broken symlinks when the content of an
   annexed file is not present.
 
@@ -91,11 +92,15 @@ and will also propagate commits back to the original branch.
   set the `annex.adjustedbranchrefresh` config.
 
   Despite missing files being hidden, `git annex sync --content` will
-  still operate on them, and can be used to download missing
+  still operate on them, and can be used to retrieve missing
   files from remotes. It also updates the adjusted branch after
   transferring content.
 
-  This option can be combined with --unlock, --lock, or --fix.
+  To retrieve specific missing files, use eg:
+  `git-annex get --branch=master --include=foo`
+
+  The `--hide-missing` option can be combined with 
+  `--unlock`, `--lock`, or `--fix`.
 
 * `--unlock-present`
 
@@ -114,6 +119,16 @@ and will also propagate commits back to the original branch.
   set the `annex.adjustedbranchrefresh` config. Or use `git-annex sync
   --content`, which updates the branch after transferring content.
 
+* `--force`
+
+  Allow overwriting an existing adjusted branch with a new version.
+
+  For example, suppose you started with branch foo checked out
+  and used  `git-annex adjust --unlock`. But then foo was rebased,
+  and you checked out that new version of foo. Running `git-annex adjust
+  --unlock` again would fail because of the existing adjusted branch.
+  Using `--force` would overwrite that adjusted branch.
+
 * Also the [[git-annex-common-options]](1) can be used.
 
 # SEE ALSO
@@ -127,6 +142,8 @@ and will also propagate commits back to the original branch.
 [[git-annex-upgrade]](1)
 
 [[git-annex-sync]](1)
+
+[[git-annex-view]](1)
 
 # AUTHOR
 

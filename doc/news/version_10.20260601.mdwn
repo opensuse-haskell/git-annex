@@ -1,0 +1,18 @@
+git-annex 10.20260601 released with [[!toggle text="these changes"]]
+[[!toggleable text="""  * Avoid an error message displaying a password embedded in a git remote url.
+    (Reversion introduced in 10.20260421)
+  * Fix use of annex.commitmessage
+    (Reversion introduced in 10.20250115)
+  * disableremote: Avoid (temporarily) clearing size tracking information
+    for other repos than the one being disabled.
+  * Fix bug that prevented remote.name.annex-web-options from always taking
+    effect, and sometimes caused it to be used in situations where it
+    should not be.
+  * map: Don't try to use dot -Tx11 to display the map, that no longer
+    works in commonly available builds of graphviz.
+  * push: Avoid updating a view branch or adjusted branch.
+  * pull: Avoid propagating adjusted branch changes to the original branch.
+  * get, copy: Added --wanted option, which only transfers files
+    that are preferred content.
+  * fsck, drop, whereis: Support --failed option.
+  * Display an introduction before other debug output."""]]

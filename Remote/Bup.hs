@@ -12,7 +12,6 @@ module Remote.Bup (remote) where
 import qualified Data.Map as M
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Lazy as L
-import qualified System.FilePath.ByteString as P
 import Data.ByteString.Lazy.UTF8 (fromString)
 import Control.Concurrent.Async
 
@@ -32,6 +31,7 @@ import qualified Remote.Helper.Ssh as Ssh
 import Annex.SpecialRemote.Config
 import Remote.Helper.Special
 import Remote.Helper.ExportImport
+import Remote.Helper.Path
 import Utility.Hash
 import Utility.UserInfo
 import Annex.UUID
@@ -65,7 +65,7 @@ gen :: Git.Repo -> UUID -> RemoteConfig -> RemoteGitConfig -> RemoteStateHandle 
 gen r u rc gc rs = do
 	c <- parsedRemoteConfig remote rc
 	bupr <- liftIO $ bup2GitRemote buprepo
-	cst <- remoteCost gc $
+	cst <- remoteCost gc c $
 		if bupLocal buprepo
 			then nearlyCheapRemoteCost
 			else expensiveRemoteCost
@@ -77,6 +77,7 @@ gen r u rc gc rs = do
 		, name = Git.repoDescribe r
 		, storeKey = storeKeyDummy
 		, retrieveKeyFile = retrieveKeyFileDummy
+		, retrieveKeyFileInOrder = pure True
 		, retrieveKeyFileCheap = Nothing
 		-- Bup uses git, which cryptographically verifies content
 		-- (with SHA1, but sufficiently for this).
@@ -89,15 +90,18 @@ gen r u rc gc rs = do
 		, importActions = importUnsupported
 		, whereisKey = Nothing
 		, remoteFsck = Nothing
+		, repairKey = Nothing
 		, repairRepo = Nothing
 		, config = c
 		, getRepo = return r
 		, gitconfig = gc
 		, localpath = if bupLocal buprepo && not (null buprepo)
-			then Just buprepo
+			then Just (toOsPath buprepo)
 			else Nothing
 		, remotetype = remote
-		, availability = if bupLocal buprepo then LocallyAvailable else GloballyAvailable
+		, availability = if null buprepo
+			then pure LocallyAvailable
+			else checkPathAvailability (bupLocal buprepo) (toOsPath buprepo)
 		, readonly = False
 		, appendonly = False
 		, untrustworthy = False
@@ -120,14 +124,14 @@ gen r u rc gc rs = do
   where
 	buprepo = fromMaybe (giveup "missing buprepo") $ remoteAnnexBupRepo gc
 
-bupSetup :: SetupStage -> Maybe UUID -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
-bupSetup _ mu _ c gc = do
+bupSetup :: SetupStage -> Maybe UUID -> RemoteName -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
+bupSetup ss mu _ _ c gc = do
 	u <- maybe (liftIO genUUID) return mu
 
 	-- verify configuration is sane
 	let buprepo = maybe (giveup "Specify buprepo=") fromProposedAccepted $
 		M.lookup buprepoField c
-	(c', _encsetup) <- encryptionSetup c gc
+	(c', _encsetup) <- encryptionSetup ss c gc
 
 	-- bup init will create the repository.
 	-- (If the repository already exists, bup init again appears safe.)
@@ -137,7 +141,7 @@ bupSetup _ mu _ c gc = do
 	storeBupUUID u buprepo
 
 	-- The buprepo is stored in git config, as well as this repo's
-	-- persistant state, so it can vary between hosts.
+	-- persistent state, so it can vary between hosts.
 	gitConfigSpecialRemote u c' [("buprepo", buprepo)]
 
 	return (c', u)
@@ -207,7 +211,7 @@ retrieve r buprepo = byteRetriever $ \k sink -> lockBup True r $ do
  - We can, however, remove the git branch that bup created for the key.
  -}
 remove :: BupRepo -> Remover
-remove buprepo k = do
+remove buprepo _proof k = do
 	go =<< liftIO (bup2GitRemote buprepo)
 	warning "content cannot be completely removed from bup remote"
   where
@@ -266,7 +270,7 @@ onBupRemote r runner command params = do
 	(sshcmd, sshparams) <- Ssh.toRepo NoConsumeStdin r c remotecmd
 	liftIO $ runner sshcmd sshparams
   where
-	path = fromRawFilePath $ Git.repoPath r
+	path = fromOsPath $ Git.repoPath r
 	base = fromMaybe path (stripPrefix "/~/" path)
 	dir = shellEscape base
 
@@ -295,16 +299,16 @@ bup2GitRemote :: BupRepo -> IO Git.Repo
 bup2GitRemote "" = do
 	-- bup -r "" operates on ~/.bup
 	h <- myHomeDir
-	Git.Construct.fromPath $ toRawFilePath $ h </> ".bup"
+	Git.Construct.fromPath $ toOsPath h </> literalOsPath ".bup"
 bup2GitRemote r
 	| bupLocal r = 
 		if "/" `isPrefixOf` r
-			then Git.Construct.fromPath (toRawFilePath r)
+			then Git.Construct.fromPath (toOsPath r)
 			else giveup "please specify an absolute path"
-	| otherwise = Git.Construct.fromUrl $ "ssh://" ++ host ++ slash dir
+	| otherwise = Git.Construct.fromUrl False $ "ssh://" ++ host ++ slash dir
   where
 	bits = splitc ':' r
-	host = Prelude.head bits
+	host = fromMaybe "" $ headMaybe bits
 	dir = intercalate ":" $ drop 1 bits
 	-- "host:~user/dir" is not supported specially by bup;
 	-- "host:dir" is relative to the home directory;
@@ -319,7 +323,7 @@ bup2GitRemote r
 bupRef :: Key -> String
 bupRef k
 	| Git.Ref.legal True shown = shown
-	| otherwise = "git-annex-" ++ show (sha2_256 (fromString shown))
+	| otherwise = "git-annex-" ++ show (digestToHash (sha2_256 (fromString shown)))
   where
 	shown = serializeKey k
 
@@ -330,11 +334,10 @@ bupLocal = notElem ':'
  - should run at a time; multiple readers may run if no writer is running. -}
 lockBup :: Bool -> Remote -> Annex a -> Annex a
 lockBup writer r a = do
-	dir <- fromRepo gitAnnexRemotesDir
-	unlessM (liftIO $ doesDirectoryExist (fromRawFilePath dir)) $
+	lck <- fromRepo $ gitAnnexRemoteLockFile (uuid r)
+	let dir = takeDirectory lck
+	unlessM (liftIO $ doesDirectoryExist dir) $
 		createAnnexDirectory dir
-	let remoteid = fromUUID (uuid r)
-	let lck = dir P.</> remoteid <> ".lck"
 	if writer
 		then withExclusiveLock lck a
 		else withSharedLock lck a

@@ -1,6 +1,6 @@
 {- git-annex Key data type
  -
- - Copyright 2011-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -29,6 +29,8 @@ module Types.Key (
 	parseKeyVariety,
 ) where
 
+import Utility.OsPath
+
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Short as S (ShortByteString, toShort, fromShort)
 import qualified Data.ByteString.Char8 as S8
@@ -37,16 +39,13 @@ import Data.ByteString.Builder
 import Data.ByteString.Builder.Extra
 import qualified Data.Attoparsec.ByteString as A
 import qualified Data.Attoparsec.ByteString.Char8 as A8
-import Utility.FileSystemEncoding
 import Data.List
 import Data.Char
 import System.Posix.Types
 import Foreign.C.Types
-import Data.Monoid
 import Control.Applicative
 import GHC.Generics
 import Control.DeepSeq
-import Prelude
 
 {- A Key has a unique name, which is derived from a particular backend,
  - and may contain other optional metadata. -}
@@ -61,7 +60,7 @@ data KeyData = Key
 
 instance NFData KeyData
 
-{- Caching the seralization of a key is an optimization.
+{- Caching the serialization of a key is an optimization.
  -
  - This constructor is not exported, and all smart constructors maintain
  - the serialization.
@@ -69,7 +68,7 @@ instance NFData KeyData
 data Key = MkKey
 	{ keyData :: KeyData
 	, keySerialization :: S.ShortByteString
-	} deriving (Show, Generic)
+	} deriving (Show, Read, Generic)
 
 instance Eq Key where
 	-- comparing the serialization would be unnecessary work
@@ -135,12 +134,12 @@ buildKeyData k = byteString (formatKeyVariety (keyVariety k))
 	c ?: (Just b) = sepbefore (char7 c <> b)
 	_ ?: Nothing = mempty
 
-{- This is a strict parser for security reasons; a key
- - can contain only 4 fields, which all consist only of numbers.
+{- This is a strict parser for security reasons; in addition to keyName,
+ - a key can contain only 4 fields, which all consist only of numbers.
  - Any key containing other fields, or non-numeric data will fail
  - to parse.
  -
- - If a key contained non-numeric fields, they could be used to
+ - If a key contained other non-numeric fields, they could be used to
  - embed data used in a SHA1 collision attack, which would be a
  - problem since the keys are committed to git.
  -}
@@ -203,8 +202,8 @@ splitKeyNameExtension' :: S.ByteString -> (S.ByteString, S.ByteString)
 splitKeyNameExtension' keyname = S8.span (/= '.') keyname
 
 {- A filename may be associated with a Key. -}
-newtype AssociatedFile = AssociatedFile (Maybe RawFilePath)
-	deriving (Show, Read, Eq, Ord)
+newtype AssociatedFile = AssociatedFile (Maybe OsPath)
+	deriving (Show, Eq, Ord)
 
 {- There are several different varieties of keys. -}
 data KeyVariety
@@ -222,6 +221,9 @@ data KeyVariety
 	| MD5Key HasExt
 	| WORMKey
 	| URLKey
+	| VURLKey
+	| GitBundleKey
+	| GitManifestKey
 	-- A key that is handled by some external backend.
 	| ExternalKey S.ByteString HasExt
  	-- Some repositories may contain keys of other varieties,
@@ -258,6 +260,9 @@ hasExt (SHA1Key (HasExt b)) = b
 hasExt (MD5Key (HasExt b)) = b
 hasExt WORMKey = False
 hasExt URLKey = False
+hasExt VURLKey = False
+hasExt GitBundleKey = False
+hasExt GitManifestKey = False
 hasExt (ExternalKey _ (HasExt b)) = b
 hasExt (OtherKey s) = (snd <$> S8.unsnoc s) == Just 'E'
 
@@ -292,6 +297,9 @@ formatKeyVariety v = case v of
 	MD5Key e -> adde e "MD5"
 	WORMKey -> "WORM"
 	URLKey -> "URL"
+	VURLKey -> "VURL"
+	GitBundleKey -> "GITBUNDLE"
+	GitManifestKey -> "GITMANIFEST"
 	ExternalKey s e -> adde e ("X" <> s)
 	OtherKey s -> s
   where
@@ -360,6 +368,9 @@ parseKeyVariety "MD5"          = MD5Key (HasExt False)
 parseKeyVariety "MD5E"         = MD5Key (HasExt True)
 parseKeyVariety "WORM"         = WORMKey
 parseKeyVariety "URL"          = URLKey
+parseKeyVariety "VURL"         = VURLKey
+parseKeyVariety "GITBUNDLE"    = GitBundleKey
+parseKeyVariety "GITMANIFEST"  = GitManifestKey
 parseKeyVariety b
 	| "X" `S.isPrefixOf` b = 
 		let b' = S.tail b

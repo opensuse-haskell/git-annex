@@ -37,8 +37,11 @@ import qualified Remote.Ddar
 import qualified Remote.GitLFS
 import qualified Remote.HttpAlso
 import qualified Remote.Borg
+import qualified Remote.Rclone
 import qualified Remote.Hook
 import qualified Remote.External
+import qualified Remote.Compute
+import qualified Remote.Mask
 
 remoteTypes :: [RemoteType]
 remoteTypes = map adjustExportImportRemoteType
@@ -59,11 +62,14 @@ remoteTypes = map adjustExportImportRemoteType
 	, Remote.GitLFS.remote
 	, Remote.HttpAlso.remote
 	, Remote.Borg.remote
+	, Remote.Rclone.remote
 	, Remote.Hook.remote
 	, Remote.External.remote
+	, Remote.Compute.remote
+	, Remote.Mask.remote
 	]
 
-{- Builds a list of all available Remotes.
+{- Builds a list of all Remotes.
  - Since doing so can be expensive, the list is cached. -}
 remoteList :: Annex [Remote]
 remoteList = do
@@ -76,7 +82,10 @@ remoteList' :: Bool -> Annex [Remote]
 remoteList' autoinit = do
 	m <- remoteConfigMap
 	rs <- concat <$> mapM (process m) remoteTypes
-	Annex.changeState $ \s -> s { Annex.remotes = rs }
+	Annex.changeState $ \s -> s
+		{ Annex.remotes = rs
+		, Annex.remotetypes = remoteTypes
+		}
 	return rs
   where
 	process m t = enumerate t autoinit 
@@ -85,12 +94,20 @@ remoteList' autoinit = do
 
 {- Generates a Remote. -}
 remoteGen :: M.Map UUID RemoteConfig -> RemoteType -> Git.Repo -> Annex (Maybe Remote)
-remoteGen m t g = do
+remoteGen = remoteGen' id
+
+remoteGen'
+	:: (RemoteConfig -> RemoteConfig)
+	-> M.Map UUID RemoteConfig
+	-> RemoteType
+	-> Git.Repo
+	-> Annex (Maybe Remote)
+remoteGen' adjustconfig m t g = do
 	u <- getRepoUUID g
 	gc <- Annex.getRemoteGitConfig g
 	let cu = fromMaybe u $ remoteAnnexConfigUUID gc
 	let rs = RemoteStateHandle cu
-	let c = fromMaybe M.empty $ M.lookup cu m
+	let c = adjustconfig (fromMaybe M.empty $ M.lookup cu m)
 	generate t g u c gc rs >>= \case
 		Nothing -> return Nothing
 		Just r -> Just <$> adjustExportImport (adjustReadOnly (addHooks r)) rs
@@ -107,7 +124,11 @@ updateRemote remote = do
 			Remote.Git.configRead False r
 		| otherwise = return r
 
-{- Checks if a remote is syncable using git. -}
+{- Types of remotes that are always syncable using git.
+ -
+ - This does not include special remotes that may or may not have an
+ - annex:: url that allows using git-remote-annex with them.
+ -}
 gitSyncableRemoteType :: RemoteType -> Bool
 gitSyncableRemoteType t = t `elem`
 	[ Remote.Git.remote

@@ -5,6 +5,7 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE CPP #-}
 
 module Annex.Ssh (
@@ -38,15 +39,14 @@ import Annex.Concurrent.Utility
 import Types.Concurrency
 import Git.Env
 import Git.Ssh
-import qualified Utility.RawFilePath as R
+import qualified Utility.OsString as OS
 import Annex.Perms
 #ifndef mingw32_HOST_OS
 import Annex.LockPool
 #endif
 
 import Control.Concurrent.STM
-import qualified Data.ByteString as S
-import qualified System.FilePath.ByteString as P
+import qualified Data.ByteString.Short as SBS
 
 {- Some ssh commands are fed stdin on a pipe and so should be allowed to
  - consume it. But ssh commands that are not piped stdin should generally
@@ -100,15 +100,16 @@ consumeStdinParams NoConsumeStdin = [Param "-n"]
 
 {- Returns a filename to use for a ssh connection caching socket, and
  - parameters to enable ssh connection caching. -}
-sshCachingInfo :: (SshHost, Maybe Integer) -> Annex (Maybe FilePath, [CommandParam])
+sshCachingInfo :: (SshHost, Maybe Integer) -> Annex (Maybe OsPath, [CommandParam])
 sshCachingInfo (host, port) = go =<< sshCacheDir'
   where
 	go (Right dir) =
-		liftIO (bestSocketPath $ dir P.</> hostport2socket host port) >>= return . \case
+		liftIO (bestSocketPath $ dir </> hostport2socket host port) >>= return . \case
 			Nothing -> (Nothing, [])
 			Just socketfile -> 
-				let socketfile' = fromRawFilePath socketfile
-				in (Just socketfile', sshConnectionCachingParams socketfile')
+				(Just socketfile
+				, sshConnectionCachingParams (fromOsPath socketfile)
+				)
 	-- No connection caching with concurrency is not a good
 	-- combination, so warn the user.
 	go (Left whynocaching) = do
@@ -120,8 +121,8 @@ sshCachingInfo (host, port) = go =<< sshCacheDir'
 	
 	warnnocaching whynocaching =
 		whenM (annexAdviceNoSshCaching <$> Annex.getGitConfig) $ do
-			warning nocachingwarning
-			warning whynocaching
+			warning $ UnquotedString nocachingwarning
+			warning $ UnquotedString whynocaching
 	
 	nocachingwarning = unwords
 		[ "You have enabled concurrency, but git-annex is not able"
@@ -135,10 +136,10 @@ sshCachingInfo (host, port) = go =<< sshCacheDir'
  - file.
  -
  - If no path can be constructed that is a valid socket, returns Nothing. -}
-bestSocketPath :: RawFilePath -> IO (Maybe RawFilePath)
+bestSocketPath :: OsPath -> IO (Maybe OsPath)
 bestSocketPath abssocketfile = do
 	relsocketfile <- liftIO $ relPathCwdToFile abssocketfile
-	let socketfile = if S.length abssocketfile <= S.length relsocketfile
+	let socketfile = if OS.length abssocketfile <= OS.length relsocketfile
 		then abssocketfile
 		else relsocketfile
 	return $ if valid_unix_socket_path socketfile sshgarbagelen
@@ -165,10 +166,10 @@ sshSocketDirEnv = "GIT_ANNEX_SSH_SOCKET_DIR"
  - 
  - The directory will be created if it does not exist.
  -}
-sshCacheDir :: Annex (Maybe RawFilePath)
+sshCacheDir :: Annex (Maybe OsPath)
 sshCacheDir = eitherToMaybe <$> sshCacheDir'
 
-sshCacheDir' :: Annex (Either String RawFilePath)
+sshCacheDir' :: Annex (Either String OsPath)
 sshCacheDir' = 
 	ifM (fromMaybe BuildInfo.sshconnectioncaching . annexSshCaching <$> Annex.getGitConfig)
 		( ifM crippledFileSystem
@@ -189,9 +190,9 @@ sshCacheDir' =
 	gettmpdir = liftIO $ getEnv sshSocketDirEnv
 
 	usetmpdir tmpdir = do
-		let socktmp = tmpdir </> "ssh"
+		let socktmp = toOsPath tmpdir </> literalOsPath "ssh"
 		createDirectoryIfMissing True socktmp
-		return (toRawFilePath socktmp)
+		return socktmp
 	
 	crippledfswarning = unwords
 		[ "This repository is on a crippled filesystem, so unix named"
@@ -214,7 +215,7 @@ portParams (Just port) = [Param "-p", Param $ show port]
  - Locks the socket lock file to prevent other git-annex processes from
  - stopping the ssh multiplexer on this socket.
  -}
-prepSocket :: FilePath -> SshHost -> [CommandParam] -> Annex ()
+prepSocket :: OsPath -> SshHost -> [CommandParam] -> Annex ()
 prepSocket socketfile sshhost sshparams = do
 	-- There could be stale ssh connections hanging around
 	-- from a previous git-annex run that was interrupted.
@@ -286,13 +287,13 @@ prepSocket socketfile sshhost sshparams = do
  - and this check makes such files be skipped since the corresponding lock
  - file won't exist.
  -}
-enumSocketFiles :: Annex [FilePath]
+enumSocketFiles :: Annex [OsPath]
 enumSocketFiles = liftIO . go =<< sshCacheDir
   where
 	go Nothing = return []
-	go (Just dir) = filterM (R.doesPathExist . socket2lock)
+	go (Just dir) = filterM (doesPathExist . socket2lock)
 		=<< filter (not . isLock)
-		<$> catchDefaultIO [] (dirContents (fromRawFilePath dir))
+		<$> catchDefaultIO [] (dirContents dir)
 
 {- Stop any unused ssh connection caching processes. -}
 sshCleanup :: Annex ()
@@ -311,7 +312,7 @@ sshCleanup = mapM_ cleanup =<< enumSocketFiles
 		let lockfile = socket2lock socketfile
 		unlockFile lockfile
 		mode <- annexFileMode
-		noUmask mode (tryLockExclusive (Just mode) lockfile) >>= \case
+		tryLockExclusive (Just mode) lockfile >>= \case
 			Nothing -> noop
 			Just lck -> do
 				forceStopSsh socketfile
@@ -324,45 +325,51 @@ sshCleanup = mapM_ cleanup =<< enumSocketFiles
 forceSshCleanup :: Annex ()
 forceSshCleanup = mapM_ forceStopSsh =<< enumSocketFiles
 
-forceStopSsh :: FilePath -> Annex ()
+forceStopSsh :: OsPath -> Annex ()
 forceStopSsh socketfile = withNullHandle $ \nullh -> do
 	let (dir, base) = splitFileName socketfile
 	let p = (proc "ssh" $ toCommand $
 		[ Param "-O", Param "stop" ] ++ 
-		sshConnectionCachingParams base ++ 
+		sshConnectionCachingParams (fromOsPath base) ++ 
 		[Param "localhost"])
-		{ cwd = Just dir
+		{ cwd = Just (fromOsPath dir)
 		-- "ssh -O stop" is noisy on stderr even with -q
 		, std_out = UseHandle nullh
 		, std_err = UseHandle nullh
 		}
 	void $ liftIO $ catchMaybeIO $ withCreateProcess p $ \_ _ _ pid ->
 		forceSuccessProcess p pid
-	liftIO $ removeWhenExistsWith R.removeLink (toRawFilePath socketfile)
+	liftIO $ removeWhenExistsWith removeFile socketfile
 
 {- This needs to be as short as possible, due to limitations on the length
  - of the path to a socket file. At the same time, it needs to be unique
  - for each host.
  -}
-hostport2socket :: SshHost -> Maybe Integer -> RawFilePath
+hostport2socket :: SshHost -> Maybe Integer -> OsPath
 hostport2socket host Nothing = hostport2socket' $ fromSshHost host
 hostport2socket host (Just port) = hostport2socket' $
 	fromSshHost host ++ "!" ++ show port
-hostport2socket' :: String -> RawFilePath
+hostport2socket' :: String -> OsPath
 hostport2socket' s
-	| length s > lengthofmd5s = toRawFilePath $ show $ md5 $ encodeBL s
-	| otherwise = toRawFilePath s
+	| length s' > lengthofmd5s =
+		toOsPath $ hashByteString $ digestToHash $ md5 $ encodeBL s'
+	| otherwise = toOsPath s'
   where
 	lengthofmd5s = 32
+	-- ssh parses the socket filename as a ControlPath, so it can
+	-- contain eg "%h". We don't want that here, and it's possible
+	-- for a hostname to itself contain a '%', eg a IPV6 link-local
+	-- address with a zone ID.
+	s' = filter (/= '%') s
 
-socket2lock :: FilePath -> RawFilePath
-socket2lock socket = toRawFilePath (socket ++ lockExt)
+socket2lock :: OsPath -> OsPath
+socket2lock socket = socket <> lockExt
 
-isLock :: FilePath -> Bool
-isLock f = lockExt `isSuffixOf` f
+isLock :: OsPath -> Bool
+isLock f = lockExt `OS.isSuffixOf` f
 
-lockExt :: String
-lockExt = ".lock"
+lockExt :: OsPath
+lockExt = literalOsPath ".lock"
 
 {- This is the size of the sun_path component of sockaddr_un, which
  - is the limit to the total length of the filename of a unix socket.
@@ -374,8 +381,9 @@ sizeof_sockaddr_un_sun_path = 100
 
 {- Note that this looks at the true length of the path in bytes, as it will
  - appear on disk. -}
-valid_unix_socket_path :: RawFilePath -> Int -> Bool
-valid_unix_socket_path f n = S.length f + n < sizeof_sockaddr_un_sun_path
+valid_unix_socket_path :: OsPath -> Int -> Bool
+valid_unix_socket_path f n = 
+	SBS.length (fromOsPath f) + n < sizeof_sockaddr_un_sun_path
 
 {- Parses the SSH port, and returns the other OpenSSH options. If
  - several ports are found, the last one takes precedence. -}
@@ -407,7 +415,7 @@ fromSshOptionsEnv = map Param . lines
 {- Enables ssh caching for git push/pull to a particular
  - remote git repo. (Can safely be used on non-ssh remotes.)
  -
- - Also propigates any configured ssh-options.
+ - Also propagates any configured ssh-options.
  -
  - Like inRepo, the action is run with the local git repo.
  - But here it's a modified version, with gitEnv to set GIT_SSH=git-annex,
@@ -432,7 +440,7 @@ sshOptionsTo remote gc localr
 			( unchanged
 			, do
 				let port = Git.Url.port remote
-				let sshhost = either error id (mkSshHost host)
+				let sshhost = either giveup id (mkSshHost host)
 				(msockfile, cacheparams) <- sshCachingInfo (sshhost, port)
 				case msockfile of
 					Nothing -> use []
@@ -461,7 +469,7 @@ sshOptionsTo remote gc localr
 				liftIO $ do
 					localr' <- addGitEnv localr sshOptionsEnv
 						(toSshOptionsEnv sshopts)
-					addGitEnv localr' gitSshEnv command
+					addGitEnv localr' gitSshEnv (fromOsPath command)
 
 runSshOptions :: [String] -> String -> IO ()
 runSshOptions args s = do
@@ -477,4 +485,4 @@ sshAskPassEnv :: String
 sshAskPassEnv = "GIT_ANNEX_SSHASKPASS"
 
 runSshAskPass :: FilePath -> IO ()
-runSshAskPass passfile = putStrLn =<< readFile passfile
+runSshAskPass passfile = putStrLn =<< readFileString (toOsPath passfile)

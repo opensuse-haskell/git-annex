@@ -1,6 +1,6 @@
 # NAME
 
-git-annex status - show the working tree status
+git-annex status - show the working tree status (deprecated)
 
 # SYNOPSIS
 
@@ -29,7 +29,7 @@ modified (M), added but not committed (A), and type changed/unlocked (T).
 * `--json-error-messages`
 
   Messages that would normally be output to standard error are included in
-  the json instead.
+  the JSON instead.
 
 * Also the [[git-annex-common-options]](1) can be used.
 

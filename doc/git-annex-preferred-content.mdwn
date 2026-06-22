@@ -7,8 +7,8 @@ git-annex-preferred-content - which files are wanted in a repository
 Each repository has a preferred content setting, which specifies content
 that the repository wants to have present. These settings can be configured
 using `git annex vicfg` or `git annex wanted`.
-They are used by the `--auto` option, by `git annex sync --content`,
-and by the git-annex assistant.
+They are used by the `--wanted` and `--auto` options, 
+by `git annex sync --content`, by clusters, and by the git-annex assistant.
 
 While preferred content expresses a preference, it can be overridden
 by simply using `git annex drop`. On the other hand, required content
@@ -30,6 +30,9 @@ a file matches, the repository wants to store its content. If it doesn't,
 the repository wants to drop its content (if there are enough copies
 elsewhere to allow removing it).
 
+An empty preferred content expression is treated the same as preferred
+content not being configured.
+
 # EXPRESSIONS
 
 * `include=glob` / `exclude=glob`
@@ -39,6 +42,13 @@ elsewhere to allow removing it).
   While the command-line options --include=glob and --exclude=glob match
   files relative to the current directory, preferred content expressions
   match files relative to the top of the git repository.
+
+  A glob is something like `foo.*` or `b?r`. 
+  Globs can also contain character classes, 
+  like `foo[Bb]ar`, as well as additional POSIX character classes like
+  `[[:space:]]`. Which is useful, since a glob in a preferred content
+  expression cannot contain spaces. See the `glob(7)` man page for more
+  about globs.
 
   For example, suppose you put files into `archive` directories
   when you're done with them. Then you could configure your laptop to prefer
@@ -116,6 +126,12 @@ elsewhere to allow removing it).
   Matches only files that git-annex believes are present in all repositories
   in the specified group.
 
+* `onlyingroup=groupname`
+
+  Matches files that git-annex believes are present in at least one
+  repository that is in the specified group, and are not present in any
+  repositories that are not in the specified group.
+
 * `smallerthan=size` / `largerthan=size`
 
   Matches only files whose content is smaller than, or larger than the
@@ -130,6 +146,13 @@ elsewhere to allow removing it).
   matches the glob. The values of metadata fields are matched case
   insensitively.
 
+  A glob is something like `foo.*` or `b?r`. 
+  Globs can also contain character classes, 
+  like `foo[Bb]ar`, as well as additional POSIX character classes like
+  `[[:space:]]`. Which is useful, since a glob in a preferred content
+  expression cannot contain spaces. See the `glob(7)` man page for more
+  about globs.
+
   To match a tag "done", use `metadata=tag=done`
 
   To match author metadata, use `metadata=author=*Smith`
@@ -143,6 +166,11 @@ elsewhere to allow removing it).
   To match PDFs with between 100 and 200 pages (assuming something has set
   that metadata), use `metadata=pagecount>=100 and metadata=pagecount<=200`
 
+* `url=glob`
+
+  Matches when the content is recorded as being present in an url that
+  matches the glob. 
+
 * `present`
 
   Makes content be wanted if it's present, but not otherwise.
@@ -152,9 +180,11 @@ elsewhere to allow removing it).
   settings from affecting a subdirectory. For example:
   `auto/* or (include=ad-hoc/* and present)`
 
-  Note that `not present` is a very bad thing to put in a preferred content 
-  expression. It'll make it want to get content that's not present, and
-  drop content that is present! Don't go there..
+  Note that `not present` is not a reasonable thing to put in a preferred
+  content expression. It says to get content that's not present, but then
+  drop it! If that somehow gets into a preferred content expression,
+  git-annex will recognize that the preferred content expression is not stable,
+  and make it never match.
 
 * `inpreferreddir`
 
@@ -242,6 +272,129 @@ elsewhere to allow removing it).
   says it wants them. (Or, if annex.expireunused is set, it may just delete
   them.)
 
+* `balanced=groupname[:number|:lackingcopies]`
+
+  Makes content be evenly balanced amoung repositories in the group.
+  
+  The number is the number of repositories in the group that will
+  want each file. When not specified, the default is 1.
+  
+  For example, "balanced=backup:2", when there are 3 members of the backup
+  group, will make each backup repository want 2/3rds of the files.
+
+  Using "lackingcopies" rather than a number makes each file be balanced
+  amoung as many repositories in the group as are needed to satisfy
+  its numcopies configuration. Eg, "balanced=backup:lackingcopies", when
+  numcopies is 3 and there is 1 other copy will behave the same as
+  "balanced=backup:2".
+
+  For balancing to work, each repository in the group should have its
+  preferred content set to the same expression. Using `groupwanted` is a
+  good way to do that.
+
+  The sizes of files are not taken into account, so it's possible for
+  one repository to get larger than usual files and so fill up before
+  the other repositories. But files are only wanted by repositories that
+  have enough free space to hold them. So once a repository is full,
+  the remaining repositories will have any additional files balanced
+  amoung them. For git-annex to know when a repository is full, 
+  you must use [[git-annex-maxsize]](1) to specify the size of each
+  repository in the group.
+
+  This usually avoids moving files between repositories, even
+  if that means that things are not optimally balanced. Some of the ways
+  that it can get out of balance include adding a new repository to the
+  group, or a file getting copied into more repositories in the
+  group than the specified number, or some of the repositories filling up.
+
+  Running git-annex commands with the `--rebalance` option will make this
+  expression instead behave like the `fullybalanced` expression, which will
+  make repositories want to move files around as necessary in order to get
+  fully balanced.
+
+  Using this in a preferred content expression makes git-annex need to do
+  some additional work to keep track of how full repositories are. Usually
+  that won't affect performance much. However, the first time git-annex
+  processes this expression in a given git repository, it will need to
+  calculate the sizes of all repositories, which can be slow when there are
+  a lot of files. When this causes git-annex to do a lot of work, it will
+  display "(calculating repository sizes)".
+
+  Note that `not balanced` not a reasonable thing to use in a preferred
+  content expression for the same reasons as `not present`.
+
+* `fullybalanced=groupname[:number|:lackingcopies]`
+
+  This is like `balanced`, but allows moving content between repositories
+  in the group at any time to keep it fully balanced.
+
+  Normally "balanced=groupname:number" is the same as 
+  "(fullybalanced=groupname:number and not copies=groupname:number) or present"
+
+  When the `--rebalance` option is used, `balanced` is the same as
+  `fullybalanced`.
+
+  When the specified number is greater than 1, and too many repositories
+  in the group are more than 90% full (as configured by
+  annex.fullybalancedthreshhold), this behaves like `fullysizebalanced`.
+
+  For example, `fullybalanced=foo:3`, when group foo has 5 repositories,
+  two 50% full and three 99% full, will make some content move from the
+  full repositories to the others. Moving content like that is expensive,
+  but it allows new files to continue to be stored on the specified number
+  of repositories.
+
+* `sizebalanced=groupname[:number|:lackingcopies]`
+
+  Distributes content amoung repositories in the group, keeping
+  repositories proportionally full. 
+  
+  The number is the number of repositories in the group that will
+  want each file. When not specified, the default is 1.
+
+  For this to work, you must use [[git-annex-maxsize]](1) to specify
+  the size of each repository in the group. When a repository's
+  maxsize has not been specified, it will not want any files.
+
+  For example, if one repository in the group has a maximum size of
+  100 gb with 60 gb used, and another has a maximum size of 50 gb with
+  25 gb used, the smaller one will want files (that fit in it),
+  and the larger one won't want any files 
+  (that would fit in the smaller one)
+  until the smaller one gets equally full.
+
+  Note that, once a repository contains a file, it will continue to want
+  it, even if it's more full than other repositories. This is to avoid
+  churn in moving files around.
+  
+  This is more likely to get out of balance than the `balanced=` expression
+  is, because git-annex does not always have a consistent knowledge of 
+  how full repositories are. Consider for example if a laptop and a desktop
+  are each sending a new file to the group. They will both pick whichever
+  repository was least full, but that means both files go to the same
+  repository, when a better solution might have been to send the smaller
+  file to a different repository. When using `balanced=` in the same
+  situation, it's less likely that a repository will want both files.
+  
+  Running git-annex commands with the `--rebalance` option will make this
+  expression instead behave like the `fullysizebalanced` expression, which
+  will make repositories want to move files around as necessary in order to
+  get fully balanced.
+
+  Note that `not sizebalanced` not a reasonable thing to use in a preferred
+  content expression for the same reasons as `not present`.
+
+* `fullysizebalanced=groupname[:number|:lackingcopies]`
+
+  This is like `sizebalanced`, but allows moving content between repositories
+  in the group at any time to keep it fully balanced.
+
+  Normally "sizebalanced=groupname:number" is the same as 
+  "(fullysizebalanced=groupname:number and not copies=groupname:number) or present"
+
+  When the `--rebalance` option is used, `sizebalanced` is the same as
+  `fullysizebalanced`.
+
 * `anything`
 
   Always matches.
@@ -266,8 +419,15 @@ preferred content settings, you can use the --want-get and --want-drop
 options.
 
 For example, git annex find --want-get --not --in . will find all the files
-that git annex get --auto will want to get, and git annex find --want-drop --in
-. will find all the files that git annex drop --auto will want to drop.
+that git annex get --wanted will want to get, and git annex find --want-drop --in
+. will find all the files that git annex drop --wanted will want to drop.
+
+The --explain option can be used to understand why a complex preferred
+content expression matches or fails to match. The expression will
+be displayed, with each term followed by "[TRUE]" or "[FALSE]" to indicate
+the value. Irrelevant terms will be ommitted from the explanation,
+for example `"exclude=* and copies=1"` will be displayed as 
+`"exclude=*[FALSE]"`
 
 # SEE ALSO
 
@@ -276,6 +436,8 @@ that git annex get --auto will want to get, and git annex find --want-drop --in
 [[git-annex-vicfg]](1)
 
 [[git-annex-wanted]](1)
+
+[[git-annex-maxsize]](1)
 
 <https://git-annex.branchable.com/preferred_content/>
 

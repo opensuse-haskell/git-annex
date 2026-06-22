@@ -1,6 +1,6 @@
 {- Persistent sqlite database initialization
  -
- - Copyright 2015-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2015-2023 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -10,16 +10,14 @@
 module Database.Init where
 
 import Annex.Common
-import qualified Annex
 import Annex.Perms
 import Utility.FileMode
-import Utility.Directory.Create
 import qualified Utility.RawFilePath as R
+import Database.RawFilePath
 
 import Database.Persist.Sqlite
 import Lens.Micro
 import qualified Data.Text as T
-import qualified System.FilePath.ByteString as P
 
 {- Ensures that the database is freshly initialized. Deletes any
  - existing database. Pass the migration action for the database.
@@ -29,28 +27,22 @@ import qualified System.FilePath.ByteString as P
  - file causes Sqlite to always use the same permissions for additional
  - files it writes later on
  -}
-initDb :: P.RawFilePath -> SqlPersistM () -> Annex ()
+initDb :: OsPath -> SqlPersistM () -> Annex ()
 initDb db migration = do
-	let dbdir = P.takeDirectory db
-	let tmpdbdir = dbdir <> ".tmp"
-	let tmpdb = tmpdbdir P.</> "db"
-	let tdb = T.pack (fromRawFilePath tmpdb)
-	gc <- Annex.getGitConfig
-	top <- parentDir <$> fromRepo gitAnnexDir
-	let tops = case annexDbDir gc of
-		Just topdbdir -> [top, parentDir (parentDir topdbdir)]
-		Nothing -> [top]
-	liftIO $ do
-		createDirectoryUnder tops tmpdbdir
-		runSqliteInfo (enableWAL tdb) migration
+	let dbdir = takeDirectory db
+	let tmpdbdir = dbdir <> literalOsPath ".tmp"
+	let tmpdb = tmpdbdir </> literalOsPath "db"
+	let tmpdb' = fromOsPath tmpdb
+	createAnnexDirectory tmpdbdir
+	liftIO $ runSqliteInfo' tmpdb' (enableWAL tmpdb) migration
 	setAnnexDirPerm tmpdbdir
 	-- Work around sqlite bug that prevents it from honoring
 	-- less restrictive umasks.
-	liftIO $ R.setFileMode tmpdb =<< defaultFileMode
+	liftIO $ R.setFileMode tmpdb' =<< defaultFileMode
 	setAnnexFilePerm tmpdb
 	liftIO $ do
-		void $ tryIO $ removeDirectoryRecursive (fromRawFilePath dbdir)
-		R.rename tmpdbdir dbdir
+		void $ tryIO $ removeDirectoryRecursive dbdir
+		R.rename (fromOsPath tmpdbdir) (fromOsPath dbdir)
 
 {- Make sure that the database uses WAL mode, to prevent readers
  - from blocking writers, and prevent a writer from blocking readers.
@@ -60,6 +52,6 @@ initDb db migration = do
  -
  - Note that once WAL mode is enabled, it will persist whenever the
  - database is opened. -}
-enableWAL :: T.Text -> SqliteConnectionInfo
+enableWAL :: OsPath -> SqliteConnectionInfo
 enableWAL db = over walEnabled (const True) $ 
-	mkSqliteConnectionInfo db
+	mkSqliteConnectionInfo (T.pack (fromOsPath db))

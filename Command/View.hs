@@ -1,13 +1,16 @@
 {- git-annex command
  -
- - Copyright 2014 Joey Hess <id@joeyh.name>
+ - Copyright 2014-2023 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE OverloadedStrings #-}
+
 module Command.View where
 
 import Command
+import qualified Annex
 import qualified Git
 import qualified Git.Command
 import qualified Git.Ref
@@ -18,8 +21,8 @@ import Git.Status
 import Types.View
 import Annex.View
 import Logs.View
-
-import qualified System.FilePath.ByteString as P
+import Types.AdjustedBranch
+import Annex.AdjustedBranch.Name
 
 cmd :: Command
 cmd = notBareRepo $
@@ -33,16 +36,16 @@ start :: [String] -> CommandStart
 start [] = giveup "Specify metadata to include in view"
 start ps = ifM safeToEnterView
 	( do
-		view <- mkView ps
-		go view  =<< currentView
+		(view, madj) <- mkView ps
+		go view madj =<< currentView
 	, giveup "Not safe to enter view."
 	)
   where
 	ai = ActionItemOther Nothing
 	si = SeekInput ps
-	go view Nothing = starting "view" ai si $
-		perform view
-	go view (Just v)
+	go view madj Nothing = starting "view" ai si $
+		perform view madj
+	go view _ (Just (v, _madj))
 		| v == view = stop
 		| otherwise = giveup "Already in a view. Use the vfilter and vadd commands to further refine this view."
 
@@ -71,26 +74,32 @@ safeToEnterView = do
 	-- view.
 	dangerous (StagedUnstaged { unstaged = Just _ }) = True
 
-perform :: View -> CommandPerform
-perform view = do
+perform :: View -> Maybe Adjustment -> CommandPerform
+perform view madj = do
 	showAction "searching"
-	next $ checkoutViewBranch view applyView
+	next $ checkoutViewBranch view madj applyView
 
 paramView :: String
-paramView = paramRepeating "FIELD=VALUE"
+paramView = paramRepeating "TAG FIELD=GLOB ?TAG FIELD?=GLOB FIELD!=VALUE"
 
-mkView :: [String] -> Annex View
+mkView :: [String] -> Annex (View, Maybe Adjustment)
 mkView ps = go =<< inRepo Git.Branch.current
   where
 	go Nothing = giveup "not on any branch!"
-	go (Just b) = return $ fst $ refineView (View b []) $
-		map parseViewParam $ reverse ps
+	go (Just b) = case adjustedToOriginal b of
+		Nothing -> go' b Nothing
+		Just (adj, b') -> go' b' (Just adj)
+	go' b madj = do
+		vu <- annexViewUnsetDirectory <$> Annex.getGitConfig
+		let v = fst $ refineView (View b []) $
+			map (parseViewParam vu) (reverse ps)
+		return (v, madj)
 
-checkoutViewBranch :: View -> (View -> Annex Git.Branch) -> CommandCleanup
-checkoutViewBranch view mkbranch = do
+checkoutViewBranch :: View -> Maybe Adjustment -> (View -> Maybe Adjustment -> Annex Git.Branch) -> CommandCleanup
+checkoutViewBranch view madj mkbranch = do
 	here <- liftIO getCurrentDirectory
 
-	branch <- mkbranch view
+	branch <- mkbranch view madj
 	
 	showOutput
 	ok <- inRepo $ Git.Command.runBool
@@ -101,7 +110,7 @@ checkoutViewBranch view mkbranch = do
 		setView view
 		{- A git repo can easily have empty directories in it,
 		 - and this pollutes the view, so remove them.
-		 - (However, emptry directories used by submodules are not
+		 - (However, empty directories used by submodules are not
 		 - removed.) -}
 		top <- liftIO . absPath =<< fromRepo Git.repoPath
 		(l, cleanup) <- inRepo $
@@ -109,13 +118,12 @@ checkoutViewBranch view mkbranch = do
 		forM_ l (removeemptydir top)
 		liftIO $ void cleanup
 		unlessM (liftIO $ doesDirectoryExist here) $ do
-			showLongNote (cwdmissing (fromRawFilePath top))
+			showLongNote $ UnquotedString $ cwdmissing (fromOsPath top)
 	return ok
   where
 	removeemptydir top d = do
 		p <- inRepo $ toTopFilePath d
-		liftIO $ tryIO $ removeDirectory $
-			fromRawFilePath $ (top P.</> getTopFilePath p)
+		liftIO $ tryIO $ removeDirectory $ top </> getTopFilePath p
 	cwdmissing top = unlines
 		[ "This view does not include the subdirectory you are currently in."
 		, "Perhaps you should:  cd " ++ top

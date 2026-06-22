@@ -1,6 +1,6 @@
 {- File mode utilities.
  -
- - Copyright 2010-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2023 Joey Hess <id@joeyh.name>
  -
  - License: BSD-2-clause
  -}
@@ -16,30 +16,36 @@ module Utility.FileMode (
 import System.IO
 import Control.Monad
 import System.PosixCompat.Types
-import System.PosixCompat.Files (unionFileModes, intersectFileModes, stdFileMode, nullFileMode, setFileCreationMask, groupReadMode, ownerReadMode, ownerWriteMode, ownerExecuteMode, groupWriteMode, groupExecuteMode, otherReadMode, otherWriteMode, otherExecuteMode, fileMode)
+import System.PosixCompat.Files (unionFileModes, intersectFileModes, stdFileMode, nullFileMode, groupReadMode, ownerReadMode, ownerWriteMode, ownerExecuteMode, groupWriteMode, groupExecuteMode, otherReadMode, otherWriteMode, otherExecuteMode, fileMode)
+#ifndef mingw32_HOST_OS
+import System.PosixCompat.Files (setFileCreationMask)
+#endif
 import Control.Monad.IO.Class
 import Foreign (complement)
 import Control.Monad.Catch
 
 import Utility.Exception
-import Utility.FileSystemEncoding
 import qualified Utility.RawFilePath as R
+import qualified Utility.FileIO as F
+import Utility.OsPath
 
 {- Applies a conversion function to a file's mode. -}
-modifyFileMode :: RawFilePath -> (FileMode -> FileMode) -> IO ()
+modifyFileMode :: OsPath -> (FileMode -> FileMode) -> IO ()
 modifyFileMode f convert = void $ modifyFileMode' f convert
 
-modifyFileMode' :: RawFilePath -> (FileMode -> FileMode) -> IO FileMode
+modifyFileMode' :: OsPath -> (FileMode -> FileMode) -> IO FileMode
 modifyFileMode' f convert = do
-	s <- R.getFileStatus f
+	s <- R.getFileStatus f'
 	let old = fileMode s
 	let new = convert old
 	when (new /= old) $
-		R.setFileMode f new
+		R.setFileMode f' new
 	return old
+  where
+	f' = fromOsPath f
 
 {- Runs an action after changing a file's mode, then restores the old mode. -}
-withModifiedFileMode :: RawFilePath -> (FileMode -> FileMode) -> IO a -> IO a
+withModifiedFileMode :: OsPath -> (FileMode -> FileMode) -> IO a -> IO a
 withModifiedFileMode file convert a = bracket setup cleanup go
   where
 	setup = modifyFileMode' file convert
@@ -72,15 +78,15 @@ otherGroupModes =
 	]
 
 {- Removes the write bits from a file. -}
-preventWrite :: RawFilePath -> IO ()
+preventWrite :: OsPath -> IO ()
 preventWrite f = modifyFileMode f $ removeModes writeModes
 
 {- Turns a file's owner write bit back on. -}
-allowWrite :: RawFilePath -> IO ()
+allowWrite :: OsPath -> IO ()
 allowWrite f = modifyFileMode f $ addModes [ownerWriteMode]
 
 {- Turns a file's owner read bit back on. -}
-allowRead :: RawFilePath -> IO ()
+allowRead :: OsPath -> IO ()
 allowRead f = modifyFileMode f $ addModes [ownerReadMode]
 
 {- Allows owner and group to read and write to a file. -}
@@ -90,7 +96,7 @@ groupSharedModes =
 	, ownerReadMode, groupReadMode
 	]
 
-groupWriteRead :: RawFilePath -> IO ()
+groupWriteRead :: OsPath -> IO ()
 groupWriteRead f = modifyFileMode f $ addModes groupSharedModes
 
 checkMode :: FileMode -> FileMode -> Bool
@@ -100,16 +106,19 @@ checkMode checkfor mode = checkfor `intersectFileModes` mode == checkfor
 isExecutable :: FileMode -> Bool
 isExecutable mode = combineModes executeModes `intersectFileModes` mode /= 0
 
-{- Runs an action without that pesky umask influencing it, unless the
- - passed FileMode is the standard one. -}
-noUmask :: (MonadIO m, MonadMask m) => FileMode -> m a -> m a
-#ifndef mingw32_HOST_OS
-noUmask mode a
-	| mode == stdFileMode = a
-	| otherwise = withUmask nullFileMode a
-#else
-noUmask _ a = a
-#endif
+data ModeSetter = ModeSetter FileMode (OsPath -> IO ())
+
+{- Runs an action which should create the file, passing it the desired
+ - initial file mode. Then runs the ModeSetter's action on the file, which
+ - can adjust the initial mode if umask prevented the file from being
+ - created with the right mode. -}
+applyModeSetter :: Maybe ModeSetter -> OsPath -> (Maybe FileMode -> IO a) -> IO a
+applyModeSetter (Just (ModeSetter mode modeaction)) file a = do
+	r <- a (Just mode)
+	void $ tryIO $ modeaction file
+	return r
+applyModeSetter Nothing _ a = 
+	a Nothing
 
 withUmask :: (MonadIO m, MonadMask m) => FileMode -> m a -> m a
 #ifndef mingw32_HOST_OS
@@ -151,7 +160,7 @@ isSticky = checkMode stickyMode
 stickyMode :: FileMode
 stickyMode = 512
 
-setSticky :: RawFilePath -> IO ()
+setSticky :: OsPath -> IO ()
 setSticky f = modifyFileMode f $ addModes [stickyMode]
 #endif
 
@@ -162,17 +171,20 @@ setSticky f = modifyFileMode f $ addModes [stickyMode]
  - When possible, this is done using the umask.
  -
  - On a filesystem that does not support file permissions, this is the same
- - as writeFile.
+ - as writeFileString.
  -}
-writeFileProtected :: RawFilePath -> String -> IO ()
+writeFileProtected :: OsPath -> String -> IO ()
 writeFileProtected file content = writeFileProtected' file 
 	(\h -> hPutStr h content)
 
-writeFileProtected' :: RawFilePath -> (Handle -> IO ()) -> IO ()
-writeFileProtected' file writer = protectedOutput $
-	withFile (fromRawFilePath file) WriteMode $ \h -> do
+writeFileProtected' :: OsPath -> (Handle -> IO ()) -> IO ()
+writeFileProtected' file writer = bracket setup cleanup writer
+  where
+	setup = do
+		h <- protectedOutput $ F.openFile file WriteMode
 		void $ tryIO $ modifyFileMode file $ removeModes otherGroupModes
-		writer h
+		return h
+	cleanup = hClose
 
 protectedOutput :: IO a -> IO a
 protectedOutput = withUmask 0o0077

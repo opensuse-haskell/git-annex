@@ -1,4 +1,4 @@
-git-annex now has experimental support for tuning a repository for
+git-annex now has support for tuning a repository for
 different work loads. 
 
 For example, a repository with a very large number of files in it may work
@@ -16,7 +16,7 @@ in `.git/annex/objects`:
 
 It's very important to keep in mind that this makes a nonstandard format
 git-annex repository. In general, this cannot safely be used with
-git-annex older than version 5.20150128. Older version of git-annex will
+git-annex older than version 5.20150128. Older versions of git-annex will
 not understand and will get confused and perhaps do bad things.
 
 Also, it's not safe to merge two separate git repositories that have been
@@ -24,8 +24,6 @@ tuned differently (or one tuned and the other one not). git-annex will
 prevent merging their git-annex branches together, but it cannot prevent
 `git merge remote/master` merging two branches, and the result will be ugly
 at best (`git annex fix` can fix up the mess somewhat).
-
-Again, tuned repositories are an experimental feature; use with caution!
 
 The following tuning parameters are available:
 

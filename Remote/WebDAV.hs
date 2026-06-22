@@ -72,7 +72,7 @@ gen r u rc gc rs = do
 	c <- parsedRemoteConfig remote rc
 	new
 		<$> pure c
-		<*> remoteCost gc expensiveRemoteCost
+		<*> remoteCost gc c expensiveRemoteCost
 		<*> mkDavHandleVar c gc u
   where
 	new c cst hdl = Just $ specialRemote c
@@ -88,6 +88,7 @@ gen r u rc gc rs = do
 			, name = Git.repoDescribe r
 			, storeKey = storeKeyDummy
 			, retrieveKeyFile = retrieveKeyFileDummy
+			, retrieveKeyFileInOrder = pure True
 			, retrieveKeyFileCheap = Nothing
 			-- HttpManagerRestricted is used here, so this is
 			-- secure.
@@ -101,14 +102,14 @@ gen r u rc gc rs = do
 				, retrieveExport = retrieveExportDav hdl
 				, checkPresentExport = checkPresentExportDav hdl this
 				, removeExport = removeExportDav hdl
-				, versionedExport = False
 				, removeExportDirectory = Just $
 					removeExportDirectoryDav hdl
-				, renameExport = renameExportDav hdl
+				, renameExport = Just $ renameExportDav hdl
 				}
 			, importActions = importUnsupported
 			, whereisKey = Nothing
 			, remoteFsck = Nothing
+			, repairKey = Nothing
 			, repairRepo = Nothing
 			, config = c
 			, getRepo = return r
@@ -117,7 +118,7 @@ gen r u rc gc rs = do
 			, readonly = False
 			, appendonly = False
 			, untrustworthy = False
-			, availability = GloballyAvailable
+			, availability = pure GloballyAvailable
 			, remotetype = remote
 			, mkUnavailable = gen r u (M.insert urlField (Proposed "http://!dne!/") rc) gc rs
 			, getInfo = includeCredsInfo c (davCreds u) $
@@ -128,16 +129,18 @@ gen r u rc gc rs = do
 			}
 		chunkconfig = getChunkConfig c
 
-webdavSetup :: SetupStage -> Maybe UUID -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
-webdavSetup ss mu mcreds c gc = do
+webdavSetup :: SetupStage -> Maybe UUID -> RemoteName -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
+webdavSetup ss mu _ mcreds c gc = do
 	u <- maybe (liftIO genUUID) return mu
 	url <- maybe (giveup "Specify url=")
 		(return . fromProposedAccepted)
 		(M.lookup urlField c)
-	(c', encsetup) <- encryptionSetup c gc
+	(c', encsetup) <- encryptionSetup ss c gc
 	pc <- either giveup return . parseRemoteConfig c' =<< configParser remote c'
 	creds <- maybe (getCreds pc gc u) (return . Just) mcreds
-	testDav url creds
+	case ss of
+		Init -> testDav url creds
+		_ -> noop
 	gitConfigSpecialRemote u c' [("webdav", "true")]
 	c'' <- setRemoteCredPair ss encsetup pc gc (davCreds u) creds
 	return (c'', u)
@@ -174,18 +177,18 @@ retrieve hv cc = fileRetriever' $ \d k p iv ->
 		LegacyChunks _ -> do
 			-- Not doing incremental verification for chunks.
 			liftIO $ maybe noop unableIncrementalVerifier iv
-			retrieveLegacyChunked (fromRawFilePath d) k p dav
+			retrieveLegacyChunked (fromOsPath d) k p dav
 		_ -> liftIO $ goDAV dav $
-			retrieveHelper (keyLocation k) (fromRawFilePath d) p iv
+			retrieveHelper (keyLocation k) d p iv
 
-retrieveHelper :: DavLocation -> FilePath -> MeterUpdate -> Maybe IncrementalVerifier -> DAVT IO ()
+retrieveHelper :: DavLocation -> OsPath -> MeterUpdate -> Maybe IncrementalVerifier -> DAVT IO ()
 retrieveHelper loc d p iv = do
 	debugDav $ "retrieve " ++ loc
 	inLocation loc $
 		withContentM $ httpBodyRetriever d p iv
 
 remove :: DavHandleVar -> Remover
-remove hv k = withDavHandle hv $ \dav -> liftIO $ goDAV dav $
+remove hv _proof k = withDavHandle hv $ \dav -> liftIO $ goDAV dav $
 	-- Delete the key's whole directory, including any
 	-- legacy chunked files, etc, in a single action.
 	removeHelper (keyDir k)
@@ -211,14 +214,14 @@ checkKey hv chunkconfig k = withDavHandle hv $ \dav ->
 				existsDAV (keyLocation k)
 			either giveup return v
 
-storeExportDav :: DavHandleVar -> FilePath -> Key -> ExportLocation -> MeterUpdate -> Annex ()
+storeExportDav :: DavHandleVar -> OsPath -> Key -> ExportLocation -> MeterUpdate -> Annex ()
 storeExportDav hdl f k loc p = case exportLocation loc of
 	Right dest -> withDavHandle hdl $ \h -> runExport h $ \dav -> do
 		reqbody <- liftIO $ httpBodyStorer f p
 		storeHelper dav (exportTmpLocation loc k) dest reqbody
 	Left err -> giveup err
 
-retrieveExportDav :: DavHandleVar -> Key -> ExportLocation -> FilePath -> MeterUpdate -> Annex Verification
+retrieveExportDav :: DavHandleVar -> Key -> ExportLocation -> OsPath -> MeterUpdate -> Annex Verification
 retrieveExportDav hdl  k loc d p = case exportLocation loc of
 	Right src -> verifyKeyContentIncrementally AlwaysVerify k  $ \iv ->
 		withDavHandle hdl $ \h -> runExport h $ \_dav ->
@@ -237,7 +240,7 @@ removeExportDav hdl _k loc = case exportLocation loc of
 	Right p -> withDavHandle hdl $ \h -> runExport h $ \_dav ->
 		removeHelper p
 	-- When the exportLocation is not legal for webdav,
-	-- the content is certianly not stored there, so it's ok for
+	-- the content is certainly not stored there, so it's ok for
 	-- removal to succeed. This allows recovery after failure to store
 	-- content there, as the user can rename the problem file and
 	-- this will be called to make sure it's gone.
@@ -245,7 +248,7 @@ removeExportDav hdl _k loc = case exportLocation loc of
 
 removeExportDirectoryDav :: DavHandleVar -> ExportDirectory -> Annex ()
 removeExportDirectoryDav hdl dir = withDavHandle hdl $ \h -> runExport h $ \_dav -> do
-	let d = fromRawFilePath $ fromExportDirectory dir
+	let d = fromOsPath $ fromExportDirectory dir
 	debugDav $ "delContent " ++ d
 	inLocation d delContentM
 
@@ -321,7 +324,7 @@ testDav url (Just (u, p)) = do
 
 	user = toDavUser u
 	pass = toDavPass p
-testDav _ Nothing = error "Need to configure webdav username and password."
+testDav _ Nothing = giveup "Need to configure webdav username and password."
 
 {- Tries to make all the parent directories in the WebDAV urls's path,
  - right down to the root.
@@ -407,7 +410,7 @@ choke :: IO (Either String a) -> IO a
 choke f = do
 	x <- f
 	case x of
-		Left e -> error e
+		Left e -> giveup e
 		Right r -> return r
 
 data DavHandle = DavHandle DAVContext DavUser DavPass URLString
@@ -479,7 +482,7 @@ storeLegacyChunked annexrunner chunksize k dav b =
 	finalizer tmp' dest' = goDAV dav $ 
 		finalizeStore dav tmp' (fromJust $ locationParent dest')
 
-	tmp = addTrailingPathSeparator $ keyTmpLocation k
+	tmp = fromOsPath $ addTrailingPathSeparator $ toOsPath $ keyTmpLocation k
 	dest = keyLocation k
 
 retrieveLegacyChunked :: FilePath -> Key -> MeterUpdate -> DavHandle -> Annex ()
@@ -491,11 +494,11 @@ retrieveLegacyChunked d k p dav = liftIO $
 				inLocation l $
 					snd <$> getContentM
   where
-	onerr = error "download failed"
+	onerr = giveup "download failed"
 
 checkKeyLegacyChunked :: DavHandle -> CheckPresent
 checkKeyLegacyChunked dav k = liftIO $
-	either error id <$> withStoredFilesLegacyChunked k dav onerr check
+	either giveup id <$> withStoredFilesLegacyChunked k dav onerr check
   where
 	check [] = return $ Right True
 	check (l:ls) = do

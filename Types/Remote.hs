@@ -2,7 +2,7 @@
  -
  - Most things should not need this, using Types instead
  -
- - Copyright 2011-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -25,11 +25,13 @@ module Types.Remote
 	, ExportActions(..)
 	, ImportActions(..)
 	, ByteSize
+	, SafeDropProof
 	)
 	where
 
 import Data.Ord
 
+import Common
 import qualified Git
 import Types.Key
 import Types.UUID
@@ -42,11 +44,10 @@ import Types.NumCopies
 import Types.Export
 import Types.Import
 import Types.RemoteConfig
-import Utility.Hash (IncrementalVerifier)
+import Utility.Hash.Incremental
 import Config.Cost
 import Utility.Metered
 import Git.Types (RemoteName)
-import Utility.SafeCommand
 import Utility.Url
 import Utility.DataUnits
 
@@ -64,7 +65,7 @@ data RemoteTypeA a = RemoteType
 	-- parse configs of remotes of this type
 	, configParser :: RemoteConfig -> a RemoteConfigParser
 	-- initializes or enables a remote
-	, setup :: SetupStage -> Maybe UUID -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> a (RemoteConfig, UUID)
+	, setup :: SetupStage -> Maybe UUID -> RemoteName -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> a (RemoteConfig, UUID)
 	-- check if a remote of this type is able to support export
 	, exportSupported :: ParsedRemoteConfig -> RemoteGitConfig -> a Bool
 	-- check if a remote of this type is able to support import
@@ -88,25 +89,35 @@ data RemoteA a = Remote
 	-- Remotes have a use cost; higher is more expensive
 	, cost :: Cost
 	-- Transfers a key's contents from disk to the remote.
+	-- The optional OsPath is the location of the key's object file.
+	-- When not provided, uses the annex object file.
 	-- The key should not appear to be present on the remote until
 	-- all of its contents have been transferred.
 	-- Throws exception on failure.
-	, storeKey :: Key -> AssociatedFile -> MeterUpdate -> a ()
+	, storeKey :: Key -> AssociatedFile -> Maybe OsPath -> MeterUpdate -> a ()
 	-- Retrieves a key's contents to a file.
 	-- (The MeterUpdate does not need to be used if it writes
 	-- sequentially to the file.)
 	-- Throws exception on failure.
-	, retrieveKeyFile :: Key -> AssociatedFile -> FilePath -> MeterUpdate -> VerifyConfigA a -> a Verification
+	, retrieveKeyFile :: Key -> AssociatedFile -> OsPath -> MeterUpdate -> VerifyConfigA a -> a Verification
+	{- Will retrieveKeyFile write to the file in order? -}
+	, retrieveKeyFileInOrder :: a Bool
 	-- Retrieves a key's contents to a tmp file, if it can be done cheaply.
 	-- It's ok to create a symlink or hardlink.
 	-- Throws exception on failure.
-	, retrieveKeyFileCheap :: Maybe (Key -> AssociatedFile -> FilePath -> a ())
+	, retrieveKeyFileCheap :: Maybe (Key -> AssociatedFile -> OsPath -> a ())
 	-- Security policy for reteiving keys from this remote.
 	, retrievalSecurityPolicy :: RetrievalSecurityPolicy
 	-- Removes a key's contents (succeeds even the contents are not present)
 	-- Can throw exception if unable to access remote, or if remote
-	-- refuses to remove the content.
-	, removeKey :: Key -> a ()
+	-- refuses to remove the content, or if the proof is expired.
+	--
+	-- The proof is verified not to have expired shortly
+	-- before calling this. But, if the remote's lockContent returns
+	-- LockedCopy, the proof's expiry should be checked on the remote,
+	-- so that a delay in communicating with the remote does not
+	-- cause the removal to happen after the proof expires.
+	, removeKey :: Maybe SafeDropProof -> Key -> a ()
 	-- Uses locking to prevent removal of a key's contents,
 	-- thus producing a VerifiedCopy, which is passed to the callback.
 	-- If unable to lock, does not run the callback, and throws an
@@ -129,6 +140,10 @@ data RemoteA a = Remote
 	-- without transferring all the data to the local repo
 	-- The parameters are passed to the fsck command on the remote.
 	, remoteFsck :: Maybe ([CommandParam] -> a (IO Bool))
+	-- Fsck calls this when it finds a problem with a key on a remote.
+	-- If the remote is able to repair the problem, so that the key can
+	-- once more be downloaded from it, it can return True.
+	, repairKey :: Maybe (Key -> a Bool)
 	-- Runs an action to repair the remote's git repository.
 	, repairRepo :: Maybe (a Bool -> a (IO Bool))
 	-- a Remote has a persistent configuration store
@@ -137,8 +152,8 @@ data RemoteA a = Remote
 	, getRepo :: a Git.Repo
 	-- a Remote's configuration from git
 	, gitconfig :: RemoteGitConfig
-	-- a Remote can be assocated with a specific local filesystem path
-	, localpath :: Maybe FilePath
+	-- a Remote can be associated with a specific local filesystem path
+	, localpath :: Maybe OsPath
 	-- a Remote can be known to be readonly
 	, readonly :: Bool
 	-- a Remote can allow writes but not have a way to delete content
@@ -152,7 +167,8 @@ data RemoteA a = Remote
 	-- decide.
 	, untrustworthy :: Bool
 	-- a Remote can be globally available. (Ie, "in the cloud".)
-	, availability :: Availability
+	-- Some Remotes can mark themselves unavailable.
+	, availability :: a Availability
 	-- the type of the remote
 	, remotetype :: RemoteTypeA a
 	-- For testing, makes a version of this remote that is not
@@ -260,24 +276,19 @@ data ExportActions a = ExportActions
 	-- The exported file should not appear to be present on the remote
 	-- until all of its contents have been transferred.
 	-- Throws exception on failure.
-	{ storeExport :: FilePath -> Key -> ExportLocation -> MeterUpdate -> a ()
+	{ storeExport :: OsPath -> Key -> ExportLocation -> MeterUpdate -> a ()
 	-- Retrieves exported content to a file.
 	-- (The MeterUpdate does not need to be used if it writes
 	-- sequentially to the file.)
 	-- Throws exception on failure.
-	, retrieveExport :: Key -> ExportLocation -> FilePath -> MeterUpdate -> a Verification
+	, retrieveExport :: Key -> ExportLocation -> OsPath -> MeterUpdate -> a Verification
 	-- Removes an exported file (succeeds if the contents are not present)
 	-- Can throw exception if unable to access remote, or if remote
 	-- refuses to remove the content.
 	, removeExport :: Key -> ExportLocation -> a ()
-	-- Set when the remote is versioned, so once a Key is stored
-	-- to an ExportLocation, a subsequent deletion of that
-	-- ExportLocation leaves the key still accessible to retrieveKeyFile
-	-- and checkPresent.
-	, versionedExport :: Bool
 	-- Removes an exported directory. Typically the directory will be
 	-- empty, but it could possibly contain files or other directories,
-	-- and it's ok to delete those (but not required to). 
+	-- and it's ok to delete those (but better to avoid doing so). 
 	-- If the remote does not use directories, or automatically cleans
 	-- up empty directories, this can be Nothing.
 	--
@@ -301,7 +312,7 @@ data ExportActions a = ExportActions
 	--
 	-- Throws an exception if the remote cannot be accessed, or
 	-- the file doesn't exist or cannot be renamed.
-	, renameExport :: Key -> ExportLocation -> ExportLocation -> a (Maybe ())
+	, renameExport :: Maybe (Key -> ExportLocation -> ExportLocation -> a (Maybe ()))
 	}
 
 data ImportActions a = ImportActions
@@ -346,7 +357,7 @@ data ImportActions a = ImportActions
 		:: ExportLocation
 		-> [ContentIdentifier]
 		-- file to write content to
-		-> FilePath
+		-> OsPath
 		-- Either the key, or when it's not yet known, a callback
 		-- that generates a key from the downloaded content.
 		-> Either Key (a Key)
@@ -354,10 +365,6 @@ data ImportActions a = ImportActions
 		-> a (Key, Verification)
 	-- Exports content to an ExportLocation, and returns the
 	-- ContentIdentifier corresponding to the content it stored.
-	--
-	-- This is used rather than storeExport when a special remote
-	-- supports imports, since files on such a special remote can be
-	-- changed at any time.
 	--
 	-- Since other things can modify the same file on the special
 	-- remote, this must take care to not overwrite such modifications,
@@ -371,7 +378,7 @@ data ImportActions a = ImportActions
 	--
 	-- Throws exception on failure.
 	, storeExportWithContentIdentifier
-		:: FilePath
+		:: OsPath
 		-> Key
 		-> ExportLocation
 		-- old content that it's safe to overwrite

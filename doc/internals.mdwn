@@ -2,6 +2,8 @@ In the world of git, we're not scared about internal implementation
 details, and sometimes we like to dive in and tweak things by hand. Here's
 some documentation to that end.
 
+[[!toc ]]
+
 ## The .git/ directory
 
 ### `.git/annex/objects/aa/bb/*/*`
@@ -27,10 +29,6 @@ This directory contains partially transferred objects.
 ### `.git/annex/othertmp/`
 
 This is a temp directory for miscellaneous other temp files.
-
-While .git/annex/objects and .git/annex/tmp can be put on different
-filesystems if desired, .git/annex/othertmp 
-has to be on the same filesystem as the work tree and git repository.
 
 ### `.git/annex/bad/`
 
@@ -70,7 +68,7 @@ internal tracking of information about git-annex repositories and annexed
 objects.
 
 The files stored in this branch are all designed to be auto-merged
-using git's [[union merge driver|git-union-merge]]. So each line
+by simply concacenating them together. So each line
 has a timestamp, to allow the most recent information to be identified.
 
 ### `uuid.log`
@@ -178,6 +176,16 @@ The file format is one line per group, starting with a timestamp, then a
 space, then the group name followed by a space and then the preferred
 content expression.
 
+## `maxsize.log`
+
+Records the maximum combined size of annexed files that can be stored in
+a repository.
+
+The file format is a timestamp, followed by the UUID of a repository,
+followed by the size in bytes. For example:
+
+	1317929189.157237s e605dca6-446a-11e0-8b2a-002170d25c55 100000000000
+
 ## `export.log`
 
 Tracks what trees have been exported to special remotes by
@@ -226,6 +234,13 @@ Example:
 These log files record urls used by the
 [[web_special_remote|special_remotes/web]] and sometimes by other remotes.
 Their format is similar to the location tracking files, but with urls
+rather than UUIDs.
+
+## `aaa/bbb/*.log.ek`
+
+These log files record other keys that are equivilant to the key
+used in the filename. This is currently used for the `VURL` backend.
+Their format is similar to the location tracking files, but with keys
 rather than UUIDs.
 
 ## `aaa/bbb/*.log.rmt`
@@ -283,7 +298,7 @@ For example:
 These log files store per-remote content identifiers for keys.
 A given key may have any number of content identifiers.
 
-The format is a timestamp, followed by the uuid of the remote,
+The format is a timestamp, followed by the UUID of the remote,
 followed by the content identifiers which are separated by colons.
 If a content identifier contains a colon or \r or \n, it will be base64
 encoded. Base64 encoded values are indicated by prefixing them with "!".
@@ -302,6 +317,33 @@ For example, this logs that a remote has an object stored using both
 	1287290776.765153s e605dca6-446a-11e0-8b2a-002170d25c55:102400 1
 
 (When those chunks are removed from the remote, the 9 is changed to 0.)
+
+## `proxy.log`
+
+Used to record what repositories are accessible via a proxy.
+
+Each line starts with a timestamp, then the UUID of the repository
+that can serve as a proxy, and then a list of the remotes that it can
+proxy to, separated by spaces.
+
+Each remote in the list consists of a repository's UUID, 
+followed by a colon (`:`) and then a remote name.
+
+For example:
+
+    1317929100.012345s e605dca6-446a-11e0-8b2a-002170d25c55 26339d22-446b-11e0-9101-002170d25c55:foo c076460c-2290-11ef-be53-b7f0d194c863:bar
+
+## `cluster.log`
+
+Used to record the UUIDs of clusters, and the UUIDs of the nodes
+comprising each cluster. 
+
+Each line starts with a timestamp, then the UUID the cluster,
+followed by a list of the UUIDs of its nodes, separated by spaces.
+
+For example:
+
+    1317929100.012345s 5b070cc8-29b8-11ef-80e1-0fd524be241b 5c0c97d2-29b8-11ef-b1d2-5f3d1c80940d 5c40375e-29b8-11ef-814d-872959d2c013
 
 ## `schedule.log`
 
@@ -350,3 +392,19 @@ Example:
 ## `multicast.log`
 
 Records uftp public key fingerprints, for use by [[git-annex-multicast]].
+
+## `migrate.tree/old` and `migrate.tree/new`
+
+These are used to record migrations done by `git-annex migrate`. By diffing
+between the two, the old and new keys can be determined. This lets
+migrations be recorded while using a minimum of space in the git
+repository. The filenames in these trees have no connection to the names
+of actual annexed files.
+
+These trees are recorded in history of the git-annex branch, but the
+head of the git-annex branch will never contain them.
+
+## Other internals documentation
+
+* [[git-remote-annex]] documents how git repositories are stored
+  on special remotes when using git with "annex::" urls.

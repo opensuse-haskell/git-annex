@@ -39,13 +39,13 @@ empty, but the separating spaces are still required in that case.
 The special remote is responsible for sending the first message, indicating
 the version of the protocol it is using.
 
-	VERSION 1
+	VERSION 2
 
 Recent versions of git-annex respond with a message indicating
 protocol extensions that it supports. Older versions of
 git-annex do not send this message.
 
-	EXTENSIONS INFO ASYNC GETGITREMOTENAME
+	EXTENSIONS INFO ASYNC GETGITREMOTENAME UNAVAILABLERESPONSE TRANSFER-RETRIEVE-URL CHECKPRESENT-URL DELEGATE
 
 The special remote can respond to that with its own EXTENSIONS message, listing
 any extensions it wants to use. 
@@ -55,8 +55,8 @@ any extensions it wants to use.
 
 Next, git-annex will generally send a message telling the special
 remote to start up. (Or it might send an INITREMOTE or EXPORTSUPPORTED or
-LISTCONFIGS, or perhaps other things in the future, so don't hardcode this
-order.)
+LISTCONFIGS, or perhaps other things in the future, so don't
+hardcode this order.)
 
 	PREPARE
 
@@ -118,7 +118,7 @@ The following requests *must* all be supported by the special remote.
 * `PREPARE`  
   Tells the remote that it's time to prepare itself to be used.  
   Only a few requests for details about the remote can come before this
-  (EXTENSIONS, INITREMOTE, EXPORTSUPPORTED, and LISTCONFIGS,
+  (EXTENSIONS, INITREMOTE, EXPORTSUPPORTED and LISTCONFIGS,
   but others may be added later).
   * `PREPARE-SUCCESS`  
     Sent as a response to PREPARE once the special remote is ready for use.
@@ -143,6 +143,14 @@ The following requests *must* all be supported by the special remote.
     Indicates the transfer completed successfully.
   * `TRANSFER-FAILURE STORE|RETRIEVE Key ErrorMsg`  
     Indicates the transfer failed.
+  * `TRANSFER-RETRIEVE-URL Key Url`  
+    Rather than the special remote downloading content from an url itself,
+    this lets it offload that work to git-annex. This response is a protocol
+    extension; it's only safe to send it to git-annex after it sent an
+    `EXTENSIONS` that included `TRANSFER-RETRIEVE-URL`.
+  * `DELEGATE type=value [params]`  
+    Delegate this request to a different type of special remote.
+    See [[delegate_appendix]].
 * `CHECKPRESENT Key`  
   Requests the remote to check if a key is present in it.  
   It's important that, while a key is being transferred to a remote,
@@ -157,6 +165,14 @@ The following requests *must* all be supported by the special remote.
   * `CHECKPRESENT-UNKNOWN Key ErrorMsg`  
     Indicates that it is not currently possible to verify if the key is
     present in the remote. (Perhaps the remote cannot be contacted.)
+  * `CHECKPRESENT-URL Key Url`  
+    Rather than the special remote checking an url itself, 
+    this lets it offload that work to git-annex. This response is a protocol
+    extension; it's only safe to send it to git-annex after it sent an
+    `EXTENSIONS` that included `CHECKPRESENT-URL`.
+  * `DELEGATE type=value [params]`  
+    Delegate this request to a different type of special remote.
+    See [[delegate_appendix]].
 * `REMOVE Key`  
   Requests the remote to remove a key's contents.
   * `REMOVE-SUCCESS Key`  
@@ -164,6 +180,9 @@ The following requests *must* all be supported by the special remote.
     the remote didn't have the key at the point removal was requested.
   * `REMOVE-FAILURE Key ErrorMsg`  
     Indicates that the key was unable to be removed from the remote.
+  * `DELEGATE type=value [params]`  
+    Delegate this request to a different type of special remote.
+    See [[delegate_appendix]].
 
 Special remotes can optionally support tree exports and imports,
 which makes the [[git-annex-export]] and [[git-annex-import]] commands
@@ -189,8 +208,9 @@ the special remote can reply with `UNSUPPORTED-REQUEST`.
   a list of settings with descriptions. Note that the user is not required
   to provided all the settings listed here. A block of responses
   can be made to this, which must always end with `CONFIGEND`.  
-  (Do not include settings like "encryption" that are common to all external
-  special remotes.)
+  (Do not include config like "encryption" that are common to all external
+  special remotes. Also avoid including a config named "versioning"
+  unless using it as described in the [[export_and_import_appendix]].)
   * `CONFIG Name Description`  
     Indicates the name and description of a config setting. The description
     should be reasonably short. Example:
@@ -202,14 +222,33 @@ the special remote can reply with `UNSUPPORTED-REQUEST`.
   (See Config/Cost.hs for some standard costs.)
   * `COST Int`  
     Indicates the cost of the remote.
+* `GETORDERED`  
+  Asks the remote if it will always write files in order when performing a
+  `TRANSFER RETRIEVE`. Writing in order lets a proxy stream content from
+  the remote. When this is not implemented, git-annex assumes the
+  remote may write parts of the file out of order.
+  * `ORDERED`
+    Indicates that files are written in order.
+  * `UNORDERED`
+    Indicates that files are not written in order.
 * `GETAVAILABILITY`  
   Asks the remote if it is locally or globally available.
   (Ie stored in the cloud vs on a local disk.)  
   If the remote replies with `UNSUPPORTED-REQUEST`, its availability
   is assumed to be global. So, only remotes that are only reachable
-  locally need to worry about implementing this.
+  locally need to worry about implementing this.  
+  This is queried at remote startup, so should avoid doing anything that
+  can take long to run or is expensive. Checking if a directory where the
+  remote stores files is currently mounted is the kind of thing it makes
+  sense to do here.
   * `AVAILABILITY GLOBAL|LOCAL`  
     Indicates if the remote is globally or only locally available.
+  * `AVAILABILITY UNAVAILABLE`  
+    Indicates that the remote is not currently available.  
+    This will prevent some git-annex commands like `git-annex sync` from
+    trying to use the remote.  
+    Older versions of git-annex do not support this response, so avoid
+    sending it unless the `UNAVAILABLERESPONSE` extension is enabled.
 * `CLAIMURL Url`  
   Asks the remote if it wishes to claim responsibility for downloading
   an url.
@@ -249,6 +288,9 @@ the special remote can reply with `UNSUPPORTED-REQUEST`.
     Indicates that no location is known for a key.
     This is not needed when `SETURIPRESENT` is used, since such uris are
     automatically displayed by `git annex whereis`.  
+  * `DELEGATE type=value [params]`  
+    Delegate this request to a different type of special remote.
+    See [[delegate_appendix]].
 * `GETINFO`  
   Requests the remote to send some information describing its
   configuration, for display by `git annex info`. A block of responses
@@ -271,7 +313,7 @@ These messages may be sent by the special remote at any time that it's
 handling a request.
 
 * `VERSION Int`  
-  Supported protocol version. Current version is 1. Must be sent first
+  Supported protocol version. Current version is 2. Must be sent first
   thing at startup, as until it sees this git-annex does not know how to
   talk with the special remote program!  
   (git-annex does not send a reply to this message, but may give up if it
@@ -352,9 +394,12 @@ handling a request.
   passed to `git-annex initremote` and `enableremote`, but it is possible
   for git remotes to be renamed, and this will provide the remote's current
   name.  
+  If this is used during INITREMOTE, the git remote may not be
+  configured yet. (Older versions of git-annex responded with an ERROR
+  when this is used during INITREMOTE.)  
   (git-annex replies with VALUE followed by the name.)  
   This message is a protocol extension; it's only safe to send it to
-  git-annex after it sent an EXTENSIONS that included GETGITREMOTENAME.
+  git-annex after it sent an `EXTENSIONS` that included `GETGITREMOTENAME`.
 * `SETWANTED PreferredContentExpression`  
   Can be used to set the preferred content of a repository. Normally
   this is not configured by a special remote, but it may make sense
@@ -413,7 +458,7 @@ handling a request.
   When git-annex is in --json mode, the message will be emitted immediately
   in its own json object, with an "info" field.  
   This message is a protocol extension; it's only safe to send it to
-  git-annex after it sent an EXTENSIONS that included INFO.  
+  git-annex after it sent an `EXTENSIONS` that included `INFO`.  
   (git-annex does not send a reply to this message.)  
 
 ## general messages
@@ -428,18 +473,44 @@ remote.
   git-annex will not talk to it any further. If the program receives
   an ERROR from git-annex, it can exit with its own ERROR.
 
+## protocol versions
+
+Currently git-annex supports `VERSION 1` and `VERSION 2`.
+The two protocol versions are actually identical. 
+
+Old versions of git-annex that supported only `VERSION 1`
+had a bug in their implementation of the 
+part of the protocol documented in the [[export_and_import_appendix]].
+The bug could result in content being exported to the wrong file.
+External special remotes that implement that should use `VERSION 2` to
+avoid talking to the buggy old version of git-annex.
+
 ## extensions
 
 These protocol extensions are currently supported.
 
 * `INFO`  
-  This makes the `INFO` message available to use.
+  This allows using the `INFO` message.
 * `ASYNC`  
   This lets multiple actions be performed at the same time by
   a single external special remote program, rather than starting multiple
   programs. See the [[async_appendix]] for details.
 * `GETGITREMOTENAME`  
-  This makes the `GETGITREMOTENAME` message available to use.
+  This allows using the `GETGITREMOTENAME` message.
+* `UNAVAILABLERESPONSE`  
+  This allows the `AVAILABILITY UNAVAILABLE` response to be used
+  in reply to `GETAVAILABILITY`.
+* `TRANSFER-RETRIEVE-URL`  
+  This allows the `TRANSFER-RETRIEVE-URL` response to be used
+  in reply to `TRANSFER` and `TRANSFEREXPORT`.
+* `CHECKPRESENT-URL`  
+  This allows the `CHECKPRESENT-URL` response to be used
+  in reply to `CHECKPRESENT` and `CHECKPRESENTEXPORT`.
+* `DELEGATE`  
+  This allows the `DELEGATE` response to be used in reply to many requests.
+  That causes the request to be handled by a delegate special remote,
+  which is initialized as needed. See [[delegate_appendix]]
+  for details.
 
 ## signals
 

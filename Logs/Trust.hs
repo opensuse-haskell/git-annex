@@ -1,6 +1,6 @@
 {- git-annex trust log
  -
- - Copyright 2010-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2025 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -18,16 +18,13 @@ module Logs.Trust (
 	trustMapLoad,
 ) where
 
-import qualified Data.Map as M
-import Data.Default
-
 import Annex.Common
 import Types.TrustLevel
-import qualified Annex
 import Logs
 import Remote.List
-import qualified Types.Remote
 import Logs.Trust.Basic as X
+
+import qualified Data.Map as M
 
 {- Returns a list of UUIDs that the trustLog indicates have the
  - specified trust level.
@@ -63,24 +60,8 @@ trustExclude level ls = snd <$> trustPartition level ls
 {- trustLog in a map, overridden with any values from forcetrust or
  - the git config. The map is cached for speed. -}
 trustMap :: Annex TrustMap
-trustMap = maybe trustMapLoad return =<< Annex.getState Annex.trustmap
+trustMap = trustMap' =<< remoteList
 
 {- Loads the map, updating the cache, -}
 trustMapLoad :: Annex TrustMap
-trustMapLoad = do
-	forceoverrides <- Annex.getState Annex.forcetrust
-	l <- remoteList
-	let untrustoverrides = M.fromList $
-		map (\r -> (Types.Remote.uuid r, UnTrusted))
-		(filter Types.Remote.untrustworthy l)
-	logged <- trustMapRaw
-	let configured = M.fromList $ mapMaybe configuredtrust l
-	let m = M.unionWith min untrustoverrides $
-		M.union forceoverrides $
-		M.union configured logged
-	Annex.changeState $ \s -> s { Annex.trustmap = Just m }
-	return m
-  where
-	configuredtrust r = (\l -> Just (Types.Remote.uuid r, l))
-		=<< readTrustLevel 
-		=<< remoteAnnexTrustLevel (Types.Remote.gitconfig r)
+trustMapLoad = trustMapLoad' =<< remoteList

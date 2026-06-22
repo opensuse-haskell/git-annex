@@ -5,7 +5,7 @@
  -
  - It's possible for a single object to be stored multiple times on the
  - same remote using different chunk sizes. So, while this is a MapLog, it
- - is not a normal UUIDBased log. Intead, it's a map from UUID and chunk
+ - is not a normal UUIDBased log. Instead, it's a map from UUID and chunk
  - size to number of chunks.
  -
  - Format: "timestamp uuid:chunksize chunkcount"
@@ -54,3 +54,4 @@ getCurrentChunks u k = do
 		. map (\((_ku, m), l) -> (m, value l))
 		. M.toList
 		. M.filterWithKey (\(ku, _m) _ -> ku == u)
+		. fromMapLog

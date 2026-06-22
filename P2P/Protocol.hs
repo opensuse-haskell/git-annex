@@ -2,13 +2,15 @@
  -
  - See doc/design/p2p_protocol.mdwn
  -
- - Copyright 2016-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2016-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
 {-# LANGUAGE DeriveFunctor, TemplateHaskell, FlexibleContexts #-}
 {-# LANGUAGE TypeSynonymInstances, FlexibleInstances, RankNTypes #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module P2P.Protocol where
@@ -19,29 +21,33 @@ import Types.Key
 import Types.UUID
 import Types.Transfer
 import Types.Remote (Verification(..))
-import Utility.Hash (IncrementalVerifier(..))
+import Utility.Hash.Incremental
 import Utility.AuthToken
 import Utility.Applicative
 import Utility.PartialPrelude
 import Utility.Metered
-import Utility.FileSystemEncoding
+import Utility.MonotonicClock
+import Utility.OsPath
+import qualified Utility.OsString as OS
 import Git.FilePath
 import Annex.ChangedRefs (ChangedRefs)
+import Types.NumCopies
 
 import Control.Monad
 import Control.Monad.Free
 import Control.Monad.Free.TH
 import Control.Monad.Catch
-import System.FilePath
 import System.Exit (ExitCode(..))
 import System.IO
 import qualified Data.ByteString.Lazy as L
+import qualified Data.Set as S
 import Data.Char
-import Control.Applicative
-import Prelude
+import Data.Maybe
+import Data.Time.Clock.POSIX
+import Control.DeepSeq
 
 newtype Offset = Offset Integer
-	deriving (Show)
+	deriving (Show, Eq, NFData, Num, Real, Ord, Enum, Integral)
 
 newtype Len = Len Integer
 	deriving (Show)
@@ -53,7 +59,17 @@ defaultProtocolVersion :: ProtocolVersion
 defaultProtocolVersion = ProtocolVersion 0
 
 maxProtocolVersion :: ProtocolVersion
-maxProtocolVersion = ProtocolVersion 1
+maxProtocolVersion = ProtocolVersion 4
+
+-- In order from newest to oldest.
+allProtocolVersions :: [ProtocolVersion]
+allProtocolVersions =
+	[ ProtocolVersion 4
+	, ProtocolVersion 3
+	, ProtocolVersion 2
+	, ProtocolVersion 1
+	, ProtocolVersion 0
+	] 
 
 newtype ProtoAssociatedFile = ProtoAssociatedFile AssociatedFile
 	deriving (Show)
@@ -64,6 +80,9 @@ data Service = UploadPack | ReceivePack
 
 data Validity = Valid | Invalid
 	deriving (Show)
+	
+newtype Bypass = Bypass (S.Set UUID)
+	deriving (Show, Monoid, Semigroup)
 
 -- | Messages in the protocol. The peer that makes the connection
 -- always initiates requests, and the other peer makes responses to them.
@@ -80,14 +99,22 @@ data Message
 	| LOCKCONTENT Key
 	| UNLOCKCONTENT
 	| REMOVE Key
+	| REMOVE_BEFORE MonotonicTimestamp Key
+	| GETTIMESTAMP
 	| GET Offset ProtoAssociatedFile Key
 	| PUT ProtoAssociatedFile Key
 	| PUT_FROM Offset
 	| ALREADY_HAVE
+	| ALREADY_HAVE_PLUS [UUID]
 	| SUCCESS
+	| SUCCESS_PLUS [UUID]
 	| FAILURE
+	| FAILURE_PLUS [UUID]
+	| BYPASS Bypass
 	| DATA Len -- followed by bytes of data
+	| DATA_PRESENT
 	| VALIDITY Validity
+	| TIMESTAMP MonotonicTimestamp
 	| ERROR String
 	deriving (Show)
 
@@ -104,15 +131,23 @@ instance Proto.Sendable Message where
 	formatMessage (LOCKCONTENT key) = ["LOCKCONTENT", Proto.serialize key]
 	formatMessage UNLOCKCONTENT = ["UNLOCKCONTENT"]
 	formatMessage (REMOVE key) = ["REMOVE", Proto.serialize key]
+	formatMessage (REMOVE_BEFORE ts key) = ["REMOVE-BEFORE", Proto.serialize ts, Proto.serialize key]
+	formatMessage GETTIMESTAMP = ["GETTIMESTAMP"]
 	formatMessage (GET offset af key) = ["GET", Proto.serialize offset, Proto.serialize af, Proto.serialize key]
 	formatMessage (PUT af key) = ["PUT", Proto.serialize af, Proto.serialize key]
 	formatMessage (PUT_FROM offset) = ["PUT-FROM", Proto.serialize offset]
 	formatMessage ALREADY_HAVE = ["ALREADY-HAVE"]
+	formatMessage (ALREADY_HAVE_PLUS uuids) = ("ALREADY-HAVE-PLUS":map Proto.serialize uuids)
 	formatMessage SUCCESS = ["SUCCESS"]
+	formatMessage (SUCCESS_PLUS uuids) = ("SUCCESS-PLUS":map Proto.serialize uuids)
 	formatMessage FAILURE = ["FAILURE"]
+	formatMessage (FAILURE_PLUS uuids) = ("FAILURE-PLUS":map Proto.serialize uuids)
+	formatMessage (BYPASS (Bypass uuids)) = ("BYPASS":map Proto.serialize (S.toList uuids))
+	formatMessage (DATA len) = ["DATA", Proto.serialize len]
+	formatMessage DATA_PRESENT = ["DATA-PRESENT"]
 	formatMessage (VALIDITY Valid) = ["VALID"]
 	formatMessage (VALIDITY Invalid) = ["INVALID"]
-	formatMessage (DATA len) = ["DATA", Proto.serialize len]
+	formatMessage (TIMESTAMP ts) = ["TIMESTAMP", Proto.serialize ts]
 	formatMessage (ERROR err) = ["ERROR", Proto.serialize err]
 
 instance Proto.Receivable Message where
@@ -128,16 +163,24 @@ instance Proto.Receivable Message where
 	parseCommand "LOCKCONTENT" = Proto.parse1 LOCKCONTENT
 	parseCommand "UNLOCKCONTENT" = Proto.parse0 UNLOCKCONTENT
 	parseCommand "REMOVE" = Proto.parse1 REMOVE
+	parseCommand "REMOVE-BEFORE" = Proto.parse2 REMOVE_BEFORE
+	parseCommand "GETTIMESTAMP" = Proto.parse0 GETTIMESTAMP
 	parseCommand "GET" = Proto.parse3 GET
 	parseCommand "PUT" = Proto.parse2 PUT
 	parseCommand "PUT-FROM" = Proto.parse1 PUT_FROM
 	parseCommand "ALREADY-HAVE" = Proto.parse0 ALREADY_HAVE
+	parseCommand "ALREADY-HAVE-PLUS" = Proto.parseList ALREADY_HAVE_PLUS
 	parseCommand "SUCCESS" = Proto.parse0 SUCCESS
+	parseCommand "SUCCESS-PLUS" = Proto.parseList SUCCESS_PLUS
 	parseCommand "FAILURE" = Proto.parse0 FAILURE
+	parseCommand "FAILURE-PLUS" = Proto.parseList FAILURE_PLUS
+	parseCommand "BYPASS" = Proto.parseList (BYPASS . Bypass . S.fromList)
 	parseCommand "DATA" = Proto.parse1 DATA
-	parseCommand "ERROR" = Proto.parse1 ERROR
+	parseCommand "DATA-PRESENT" = Proto.parse0 DATA_PRESENT
 	parseCommand "VALID" = Proto.parse0 (VALIDITY Valid)
 	parseCommand "INVALID" = Proto.parse0 (VALIDITY Invalid)
+	parseCommand "TIMESTAMP" = Proto.parse1 TIMESTAMP
+	parseCommand "ERROR" = Proto.parse1 ERROR
 	parseCommand _ = Proto.parseFail
 
 instance Proto.Serializable ProtocolVersion where
@@ -152,6 +195,10 @@ instance Proto.Serializable Len where
 	serialize (Len n) = show n
 	deserialize = Len <$$> readish
 
+instance Proto.Serializable MonotonicTimestamp where
+	serialize (MonotonicTimestamp n) = show n
+	deserialize = MonotonicTimestamp <$$> readish
+
 instance Proto.Serializable Service where
 	serialize UploadPack = "git-upload-pack"
 	serialize ReceivePack = "git-receive-pack"
@@ -163,27 +210,32 @@ instance Proto.Serializable Service where
 -- its serialization cannot contain any whitespace. This is handled
 -- by replacing whitespace with '%' (and '%' with '%%')
 --
--- When deserializing an AssociatedFile from a peer, it's sanitized,
--- to avoid any unusual characters that might cause problems when it's
--- displayed to the user.
+-- When deserializing an AssociatedFile from a peer, that escaping is
+-- reversed. Unfortunately, an input tab will be deescaped to a space
+-- though. And it's sanitized, to avoid any control characters that might
+-- cause problems when it's displayed to the user.
 --
--- These mungings are ok, because a ProtoAssociatedFile is only ever displayed
--- to the user and does not need to match a file on disk.
+-- These mungings are ok, because a ProtoAssociatedFile is normally
+-- only displayed to the user and so does not need to match a file on disk.
+-- It may also be used in checking preferred content, which is very
+-- unlikely to care about spaces vs tabs or control characters.
 instance Proto.Serializable ProtoAssociatedFile where
 	serialize (ProtoAssociatedFile (AssociatedFile Nothing)) = ""
 	serialize (ProtoAssociatedFile (AssociatedFile (Just af))) = 
-		decodeBS $ toInternalGitPath $ encodeBS $ concatMap esc $ fromRawFilePath af
+		fromOsPath $ toInternalGitPath $
+			OS.concat $ map esc $ OS.unpack af
 	  where
-		esc '%' = "%%"
-		esc c 
-			| isSpace c = "%"
-			| otherwise = [c]
+	  	esc c = case OS.toChar c of
+			'%' -> literalOsPath "%%"
+			c' | isSpace c' -> literalOsPath "%"
+			_ -> OS.singleton c
 	
-	deserialize s = case fromRawFilePath $ fromInternalGitPath $ toRawFilePath $ deesc [] s of
-		[] -> Just $ ProtoAssociatedFile $ AssociatedFile Nothing
+	deserialize s = case fromInternalGitPath $ toOsPath $ deesc [] s of
 		f
+			| OS.null f -> Just $ ProtoAssociatedFile $
+				AssociatedFile Nothing
 			| isRelative f -> Just $ ProtoAssociatedFile $ 
-				AssociatedFile $ Just $ toRawFilePath f
+				AssociatedFile $ Just f
 			| otherwise -> Nothing
 	  where
 	  	deesc b [] = reverse b
@@ -213,9 +265,9 @@ data NetF c
 	-- ^ Sends exactly Len bytes of data. (Any more or less will
 	-- confuse the receiver.)
 	| ReceiveBytes Len MeterUpdate (L.ByteString -> c)
-	-- ^ Lazily reads bytes from peer. Stops once Len are read,
-	-- or if connection is lost, and in either case returns the bytes
-	-- that were read. This allows resuming interrupted transfers.
+	-- ^ Streams bytes from peer. Stops once Len are read,
+	-- or if connection is lost. This allows resuming
+	-- interrupted transfers.
 	| CheckAuthToken UUID AuthToken (Bool -> c)
 	| RelayService Service c
 	-- ^ Runs a service, relays its output to the peer, and data
@@ -228,6 +280,7 @@ data NetF c
 	| SetProtocolVersion ProtocolVersion c
 	--- ^ Called when a new protocol version has been negotiated.
 	| GetProtocolVersion (ProtocolVersion -> c)
+	| GetMonotonicTimestamp (MonotonicTimestamp -> c)
 	deriving (Functor)
 
 type Net = Free NetF
@@ -238,12 +291,12 @@ data LocalF c
 	= TmpContentSize Key (Len -> c)
 	-- ^ Gets size of the temp file where received content may have
 	-- been stored. If not present, returns 0.
-	| FileSize FilePath (Len -> c)
+	| FileSize OsPath (Len -> c)
 	-- ^ Gets size of the content of a file. If not present, returns 0.
 	| ContentSize Key (Maybe Len -> c)
 	-- ^ Gets size of the content of a key, when the full content is
 	-- present.
-	| ReadContent Key AssociatedFile Offset (L.ByteString -> Proto Validity -> Proto Bool) (Bool -> c)
+	| ReadContent Key AssociatedFile (Maybe OsPath) Offset (L.ByteString -> Proto Validity -> Proto (Maybe [UUID])) (Maybe [UUID] -> c)
 	-- ^ Reads the content of a key and sends it to the callback.
 	-- Must run the callback, or terminate the protocol connection.
 	--
@@ -262,20 +315,26 @@ data LocalF c
 	-- so, terminate the protocol connection.
 	--
 	-- If the validity check is provided and fails, the content was
-	-- changed while it was being sent, so verificiation of the
+	-- changed while it was being sent, so verification of the
 	-- received content should be forced.
 	--
 	-- Note: The ByteString may not contain the entire remaining content
 	-- of the key. Only once the temp file size == Len has the whole
 	-- content been transferred.
-	| StoreContentTo FilePath (Maybe IncrementalVerifier) Offset Len (Proto L.ByteString) (Proto (Maybe Validity)) ((Bool, Verification) -> c)
+	| StoreContentTo OsPath (Maybe IncrementalVerifier) Offset Len (Proto L.ByteString) (Proto (Maybe Validity)) ((Bool, Verification) -> c)
 	-- ^ Like StoreContent, but stores the content to a temp file.
+	| SendContentWith (L.ByteString -> Annex (Maybe Validity -> Annex Bool)) (Proto L.ByteString) (Proto (Maybe Validity)) (Bool -> c)
+	-- ^ Reads content from the Proto L.ByteString and sends it to the
+	-- callback. The callback must consume the whole lazy ByteString,
+	-- before it returns a validity checker.
 	| SetPresent Key UUID c
 	| CheckContentPresent Key (Bool -> c)
 	-- ^ Checks if the whole content of the key is locally present.
-	| RemoveContent Key (Bool -> c)
+	| RemoveContent Key (Maybe MonotonicTimestamp) (Bool -> c)
 	-- ^ If the content is not present, still succeeds.
 	-- May fail if not enough copies to safely drop, etc.
+	-- After locking the content for removal, checks if it's later
+	-- than the MonotonicTimestamp, and fails.
 	| TryLockContent Key (Bool -> Proto ()) c
 	-- ^ Try to lock the content of a key,  preventing it
 	-- from being deleted, while running the provided protocol
@@ -288,6 +347,8 @@ data LocalF c
 	-- not known until the data is being received.
 	| RunValidityCheck (Annex Validity) (Validity -> c)
 	-- ^ Runs a deferred validity check.
+	| GetLocalCurrentTime (POSIXTime -> c)
+	-- ^ Gets the local time.
 	deriving (Functor)
 
 type Local = Free LocalF
@@ -320,13 +381,22 @@ negotiateProtocolVersion preferredversion = do
 	case r of
 		Just (VERSION v) -> net $ setProtocolVersion v
 		-- Old server doesn't know about the VERSION command.
-		Just (ERROR _) -> return ()
+		Just (ERROR _) -> net $ setProtocolVersion (ProtocolVersion 0)
 		_ -> net $ sendMessage (ERROR "expected VERSION")
 
-checkPresent :: Key -> Proto Bool
+sendBypass :: Bypass -> Proto ()
+sendBypass bypass@(Bypass s)
+	| S.null s = return ()
+	| otherwise = do
+		ver <- net getProtocolVersion
+		if ver >= ProtocolVersion 2
+			then net $ sendMessage (BYPASS bypass)
+			else return ()
+
+checkPresent :: Key -> Proto (Either String Bool)
 checkPresent key = do
 	net $ sendMessage (CHECKPRESENT key)
-	checkSuccess
+	checkSuccess'
 
 {- Locks content to prevent it from being dropped, while running an action.
  -
@@ -348,29 +418,109 @@ lockContentWhile runproto key a = bracket setup cleanup a
 	cleanup True = runproto () $ net $ sendMessage UNLOCKCONTENT
 	cleanup False = return ()
 
-remove :: Key -> Proto Bool
-remove key = do
-	net $ sendMessage (REMOVE key)
-	checkSuccess
+remove :: Maybe SafeDropProof -> Key -> Proto (Either String Bool, Maybe [UUID])
+remove proof key = 
+	case safeDropProofEndTime =<< proof of
+		Nothing -> removeanytime
+		Just endtime -> do
+			ver <- net getProtocolVersion
+			if ver >= ProtocolVersion 3
+				then removeBefore endtime key
+				-- Peer is too old to support REMOVE-BEFORE
+				else removeanytime
+  where
+	removeanytime = do
+		net $ sendMessage (REMOVE key)
+		checkSuccessFailurePlus
 
-get :: FilePath -> Key -> Maybe IncrementalVerifier -> AssociatedFile -> Meter -> MeterUpdate -> Proto (Bool, Verification)
+getTimestamp :: Proto (Either String MonotonicTimestamp)
+getTimestamp = do
+	net $ sendMessage GETTIMESTAMP
+	net receiveMessage >>= \case
+		Just (TIMESTAMP ts) -> return (Right ts)
+		Just (ERROR err) -> return (Left err)
+		_ -> do
+			net $ sendMessage (ERROR "expected TIMESTAMP")
+			return (Left "protocol error")
+
+removeBefore :: POSIXTime -> Key -> Proto (Either String Bool, Maybe [UUID])
+removeBefore endtime key = getTimestamp >>= \case
+	Right remotetime -> 
+		canRemoveBefore endtime remotetime (local getLocalCurrentTime) >>= \case
+			Just remoteendtime -> 
+				removeBeforeRemoteEndTime remoteendtime key
+			Nothing ->
+				return (Right False, Nothing)
+	Left err -> return (Left err, Nothing)
+
+{- The endtime is the last local time at which the key can be removed.
+ - To tell the remote how long it has to remove the key, get its current
+ - timestamp, and add to it the number of seconds from the current local
+ - time until the endtime.
+ -
+ - Order of retrieving timestamps matters. Getting the local time after the
+ - remote timestamp means that, if there is some delay in getting the
+ - response from the remote, that is reflected in the local time, and so
+ - reduces the allowed time.
+ -}
+canRemoveBefore :: Monad m => POSIXTime -> MonotonicTimestamp -> m POSIXTime -> m (Maybe MonotonicTimestamp)
+canRemoveBefore endtime remotetime getlocaltime = do
+	localtime <- getlocaltime
+	let timeleft = endtime - localtime
+	let timeleft' = MonotonicTimestamp (floor timeleft)
+	let remoteendtime = remotetime + timeleft'
+	return $ if timeleft <= 0
+		then Nothing
+		else Just remoteendtime
+
+removeBeforeRemoteEndTime :: MonotonicTimestamp -> Key -> Proto (Either String Bool, Maybe [UUID])
+removeBeforeRemoteEndTime remoteendtime key = do
+	net $ sendMessage $
+		REMOVE_BEFORE remoteendtime key
+	checkSuccessFailurePlus	
+
+get :: OsPath -> Key -> Maybe IncrementalVerifier -> AssociatedFile -> Meter -> MeterUpdate -> Proto (Bool, Verification)
 get dest key iv af m p = 
-	receiveContent (Just m) p sizer storer $ \offset ->
+	receiveContent (Just m) p sizer storer noothermessages $ \offset ->
 		GET offset (ProtoAssociatedFile af) key
   where
 	sizer = fileSize dest
 	storer = storeContentTo dest iv
+	noothermessages = const Nothing
 
-put :: Key -> AssociatedFile -> MeterUpdate -> Proto Bool
-put key af p = do
+put :: Key -> AssociatedFile -> MeterUpdate -> Proto (Maybe [UUID])
+put key af p = put' key af $ \offset ->
+	sendContent key af Nothing offset p
+
+put' :: Key -> AssociatedFile -> (Offset -> Proto (Maybe [UUID])) -> Proto (Maybe [UUID])
+put' key af sender = do
 	net $ sendMessage (PUT (ProtoAssociatedFile af) key)
 	r <- net receiveMessage
 	case r of
-		Just (PUT_FROM offset) -> sendContent key af offset p
-		Just ALREADY_HAVE -> return True
+		Just (PUT_FROM offset) -> sender offset
+		Just ALREADY_HAVE -> return (Just [])
+		Just (ALREADY_HAVE_PLUS uuids) -> return (Just uuids)
 		_ -> do
 			net $ sendMessage (ERROR "expected PUT_FROM or ALREADY_HAVE")
-			return False
+			return Nothing
+
+-- The protocol does not have a way to get the PUT offset
+-- without sending DATA, so send an empty bytestring and indicate
+-- it is not valid.
+getPutOffset :: Key -> AssociatedFile -> Proto (Either [UUID] Offset)
+getPutOffset key af = do
+	net $ sendMessage (PUT (ProtoAssociatedFile af) key)
+	r <- net receiveMessage
+	case r of
+		Just (PUT_FROM offset) -> do
+			void $ sendContent' nullMeterUpdate (Len 0) L.empty $
+				return Invalid
+			return (Right offset)
+		Just ALREADY_HAVE -> return (Left [])
+		Just (ALREADY_HAVE_PLUS uuids) -> return (Left uuids)
+		_ -> do
+			net $ sendMessage (ERROR "expected PUT_FROM or ALREADY_HAVE")
+			return (Left [])
 
 data ServerHandler a
 	= ServerGot a
@@ -379,24 +529,31 @@ data ServerHandler a
 
 -- Server loop, getting messages from the client and handling them
 serverLoop :: (Message -> Proto (ServerHandler a)) -> Proto (Maybe a)
-serverLoop a = do
+serverLoop a = serveOneMessage a serverLoop
+
+-- Get one message from the client and handle it.
+serveOneMessage
+	:: (Message -> Proto (ServerHandler a))
+	-> ((Message -> Proto (ServerHandler a)) -> Proto (Maybe a)) 
+	-> Proto (Maybe a)
+serveOneMessage a cont = do
 	mcmd <- net receiveMessage
 	case mcmd of
 		-- When the client sends ERROR to the server, the server
 		-- gives up, since it's not clear what state the client
 		-- is in, and so not possible to recover.
 		Just (ERROR _) -> return Nothing
-		-- When the client sends an unparseable message, the server
-		-- responds with an error message, and loops. This allows
+		-- When the client sends an unparsable message, the server
+		-- responds with an error message, and continues. This allows
 		-- expanding the protocol with new messages.
 		Nothing -> do
 			net $ sendMessage (ERROR "unknown command")
-			serverLoop a
+			cont a
 		Just cmd -> do
 			v <- a cmd
 			case v of
 				ServerGot r -> return (Just r)
-				ServerContinue -> serverLoop a
+				ServerContinue -> cont a
 				-- If the client sends an unexpected message,
 				-- the server will respond with ERROR, and
 				-- always continues processing messages.
@@ -408,7 +565,7 @@ serverLoop a = do
 				-- support some new feature, and fall back.
 				ServerUnexpected -> do
 					net $ sendMessage (ERROR "unexpected command")
-					serverLoop a
+					cont a
 
 -- | Serve the protocol, with an unauthenticated peer. Once the peer
 -- successfully authenticates, returns their UUID.
@@ -433,14 +590,23 @@ data ServerMode
 	-- ^ Allow reading, and storing new objects, but not deleting objects.
 	| ServeReadWrite
 	-- ^ Full read and write access.
-	deriving (Eq, Ord)
+	deriving (Show, Eq, Ord)
 
 -- | Serve the protocol, with a peer that has authenticated.
 serveAuthed :: ServerMode -> UUID -> Proto ()
-serveAuthed servermode myuuid = void $ serverLoop handler
+serveAuthed servermode myuuid = void $ serverLoop $
+	serverHandler servermode myuuid
+
+-- | Serve a single command in the protocol, the same as serveAuthed,
+-- but without looping to handle the next command.
+serveOneCommandAuthed :: ServerMode -> UUID -> Proto ()
+serveOneCommandAuthed servermode myuuid = fromMaybe () <$>
+	serveOneMessage (serverHandler servermode myuuid) 
+		(const $ pure Nothing)
+
+serverHandler :: ServerMode -> UUID -> Message -> Proto (ServerHandler ())
+serverHandler servermode myuuid = handler
   where
-	readonlyerror = net $ sendMessage (ERROR "this repository is read-only; write access denied")
-	appendonlyerror = net $ sendMessage (ERROR "this repository is append-only; removal denied")
 	handler (VERSION theirversion) = do
 		let v = min theirversion maxProtocolVersion
 		net $ setProtocolVersion v
@@ -458,45 +624,42 @@ serveAuthed servermode myuuid = void $ serverLoop handler
 	handler (CHECKPRESENT key) = do
 		sendSuccess =<< local (checkContentPresent key)
 		return ServerContinue
-	handler (REMOVE key) = case servermode of
-		ServeReadWrite -> do
-			sendSuccess =<< local (removeContent key)
-			return ServerContinue
-		ServeAppendOnly -> do
-			appendonlyerror
-			return ServerContinue
-		ServeReadOnly -> do
-			readonlyerror
-			return ServerContinue
-	handler (PUT (ProtoAssociatedFile af) key) = case servermode of
-		ServeReadWrite -> handleput af key
-		ServeAppendOnly -> handleput af key
-		ServeReadOnly -> do
-			readonlyerror
-			return ServerContinue
+	handler (REMOVE key) =
+		handleremove key Nothing
+	handler (REMOVE_BEFORE ts key) =
+		handleremove key (Just ts)
+	handler GETTIMESTAMP = do
+		ts <- net getMonotonicTimestamp
+		net $ sendMessage $ TIMESTAMP ts
+		return ServerContinue
+	handler (PUT (ProtoAssociatedFile af) key) =
+		checkPUTServerMode servermode $ \case
+			Nothing -> handleput af key
+			Just notallowed -> do
+				notallowed
+				return ServerContinue
 	handler (GET offset (ProtoAssociatedFile af) key) = do
-		void $ sendContent key af offset nullMeterUpdate
+		void $ sendContent key af Nothing offset nullMeterUpdate
 		-- setPresent not called because the peer may have
 		-- requested the data but not permanently stored it.
 		return ServerContinue
 	handler (CONNECT service) = do
-		let goahead = net $ relayService service
-		case (servermode, service) of
-			(ServeReadWrite, _) -> goahead
-			(ServeAppendOnly, UploadPack) -> goahead
-			-- git protocol could be used to overwrite
-			-- refs or something, so don't allow
-			(ServeAppendOnly, ReceivePack) -> readonlyerror
-			(ServeReadOnly, UploadPack) -> goahead
-			(ServeReadOnly, ReceivePack) -> readonlyerror
 		-- After connecting to git, there may be unconsumed data
 		-- from the git processes hanging around (even if they
 		-- exited successfully), so stop serving this connection.
-		return $ ServerGot ()
+		let endit = return $ ServerGot ()
+		checkCONNECTServerMode service servermode $ \case
+			Nothing -> do
+				net $ relayService service
+				endit
+			Just notallowed -> do
+				notallowed
+				endit
 	handler NOTIFYCHANGE = do
 		refs <- local waitRefChange
 		net $ sendMessage (CHANGED refs)
 		return ServerContinue
+	handler (BYPASS _) = return ServerContinue
 	handler _ = return ServerUnexpected
 
 	handleput af key = do
@@ -506,31 +669,87 @@ serveAuthed servermode myuuid = void $ serverLoop handler
 			else do
 				let sizer = tmpContentSize key
 				let storer = storeContent key af
-				v <- receiveContent Nothing nullMeterUpdate sizer storer PUT_FROM
+				ver <- net getProtocolVersion
+				let handleothermessages
+					| ver >= ProtocolVersion 4 = \case
+						DATA_PRESENT -> Just $
+							checkContentPresent key
+						_ -> Nothing
+					| otherwise = const Nothing
+				v <- receiveContent Nothing nullMeterUpdate 
+					sizer storer handleothermessages 
+					PUT_FROM
 				when (observeBool v) $
 					local $ setPresent key myuuid
 		return ServerContinue
+		
+	handleremove key mts =
+		checkREMOVEServerMode servermode $ \case
+			Nothing -> do
+				sendSuccess =<< local (removeContent key mts)
+				return ServerContinue			
+			Just notallowed -> do
+				notallowed
+				return ServerContinue
 
-sendContent :: Key -> AssociatedFile -> Offset -> MeterUpdate -> Proto Bool
-sendContent key af offset@(Offset n) p = go =<< local (contentSize key)
+sendReadOnlyError :: Proto ()
+sendReadOnlyError = net $ sendMessage $
+	ERROR "this repository is read-only; write access denied"
+
+sendAppendOnlyError :: Proto ()
+sendAppendOnlyError = net $ sendMessage $
+	ERROR "this repository is append-only; removal denied"
+			
+checkPUTServerMode :: Monad m => ServerMode -> (Maybe (Proto ()) -> m a) -> m a
+checkPUTServerMode servermode a =
+	case servermode of
+		ServeReadWrite -> a Nothing
+		ServeAppendOnly -> a Nothing
+		ServeReadOnly -> a (Just sendReadOnlyError)
+
+checkREMOVEServerMode :: Monad m => ServerMode -> (Maybe (Proto ()) -> m a) -> m a
+checkREMOVEServerMode servermode a =
+	case servermode of
+		ServeReadWrite -> a Nothing
+		ServeAppendOnly -> a (Just sendAppendOnlyError)
+		ServeReadOnly -> a (Just sendReadOnlyError)
+
+checkCONNECTServerMode :: Monad m => Service -> ServerMode -> (Maybe (Proto ()) -> m a) -> m a
+checkCONNECTServerMode service servermode a =
+	case (servermode, service) of
+		(ServeReadWrite, _) -> a Nothing
+		(ServeAppendOnly, UploadPack) -> a Nothing
+		-- git protocol could be used to overwrite
+		-- refs or something, so don't allow
+		(ServeAppendOnly, ReceivePack) -> a (Just sendReadOnlyError)
+		(ServeReadOnly, UploadPack) -> a Nothing
+		(ServeReadOnly, ReceivePack) -> a (Just sendReadOnlyError)
+
+sendContent :: Key -> AssociatedFile -> Maybe OsPath -> Offset -> MeterUpdate -> Proto (Maybe [UUID])
+sendContent key af o offset@(Offset n) p = go =<< local (contentSize key)
   where
 	go (Just (Len totallen)) = do
 		let len = totallen - n
 		if len <= 0
 			then sender (Len 0) L.empty (return Valid)
-			else local $ readContent key af offset $
+			else local $ readContent key af o offset $
 				sender (Len len)
 	-- Content not available to send. Indicate this by sending
-	-- empty data and indlicate it's invalid.
+	-- empty data and indicate it's invalid.
  	go Nothing = sender (Len 0) L.empty (return Invalid)
-	sender len content validitycheck = do
-		let p' = offsetMeterUpdate p (toBytesProcessed n)
-		net $ sendMessage (DATA len)
-		net $ sendBytes len content p'
-		ver <- net getProtocolVersion
-		when (ver >= ProtocolVersion 1) $
-			net . sendMessage . VALIDITY =<< validitycheck
-		checkSuccess
+
+	sender = sendContent' p'
+	
+	p' = offsetMeterUpdate p (toBytesProcessed n)
+
+sendContent' :: MeterUpdate -> Len -> L.ByteString -> Proto Validity -> Proto (Maybe [UUID])
+sendContent' p len content validitycheck = do
+	net $ sendMessage (DATA len)
+	net $ sendBytes len content p
+	ver <- net getProtocolVersion
+	when (ver >= ProtocolVersion 1) $
+		net . sendMessage . VALIDITY =<< validitycheck
+	checkSuccessPlus
 
 receiveContent
 	:: Observable t
@@ -538,9 +757,10 @@ receiveContent
 	-> MeterUpdate
 	-> Local Len
 	-> (Offset -> Len -> Proto L.ByteString -> Proto (Maybe Validity) -> Local t)
+	-> (Message -> Maybe (Local t))
 	-> (Offset -> Message)
 	-> Proto t
-receiveContent mm p sizer storer mkmsg = do
+receiveContent mm p sizer storer handleothermessages mkmsg = do
 	Len n <- local sizer
 	let p' = offsetMeterUpdate p (toBytesProcessed n)
 	let offset = Offset n
@@ -559,24 +779,65 @@ receiveContent mm p sizer storer mkmsg = do
 						net $ sendMessage (ERROR "expected VALID or INVALID")
 						return Nothing
 				else return Nothing
-			v <- local $ storer offset len
+			sendresultof $ storer offset len
 				(net (receiveBytes len p'))
 				validitycheck
-			sendSuccess (observeBool v)
-			return v
-		_ -> do
-			net $ sendMessage (ERROR "expected DATA")
+		Just (ERROR _err) ->
 			return observeFailure
+		Just msg -> 
+			maybe unsupportedmessage sendresultof
+				(handleothermessages msg)
+		Nothing -> unsupportedmessage
+  where
+	unsupportedmessage = do
+		net $ sendMessage (ERROR "expected DATA")
+		return observeFailure
+	sendresultof a = do
+		v <- local a
+		sendSuccess (observeBool v)
+		return v
 
 checkSuccess :: Proto Bool
-checkSuccess = do
+checkSuccess = either (const False) id <$> checkSuccess'
+
+checkSuccess' :: Proto (Either String Bool)
+checkSuccess' = do
 	ack <- net receiveMessage
 	case ack of
-		Just SUCCESS -> return True
-		Just FAILURE -> return False
+		Just SUCCESS -> return (Right True)
+		Just FAILURE -> return (Right False)
+		Just (ERROR err) -> return (Left err)
 		_ -> do
 			net $ sendMessage (ERROR "expected SUCCESS or FAILURE")
-			return False
+			return (Right False)
+
+checkSuccessPlus :: Proto (Maybe [UUID])
+checkSuccessPlus =
+	checkSuccessFailurePlus >>= return . \case
+		(Right True, v) -> v
+		(Right False, _) -> Nothing
+		(Left _, _) -> Nothing
+
+checkSuccessFailurePlus :: Proto (Either String Bool, Maybe [UUID])
+checkSuccessFailurePlus = do
+	ver <- net getProtocolVersion
+	if ver >= ProtocolVersion 2
+		then do
+			ack <- net receiveMessage
+			case ack of
+				Just SUCCESS -> return (Right True, Just [])
+				Just (SUCCESS_PLUS l) -> return (Right True, Just l)
+				Just FAILURE -> return (Right False, Nothing)
+				Just (FAILURE_PLUS l) -> return (Right False, Just l)
+				Just (ERROR err) -> return (Left err, Nothing)
+				_ -> do
+					net $ sendMessage (ERROR "expected SUCCESS or SUCCESS-PLUS or FAILURE or FAILURE-PLUS")
+					return (Right False, Nothing)
+		else do
+			ok <- checkSuccess
+			if ok
+				then return (Right True, Just [])
+				else return (Right False, Nothing)
 
 sendSuccess :: Bool -> Proto ()
 sendSuccess True = net $ sendMessage SUCCESS
@@ -620,3 +881,4 @@ relayToPeer (RelayToPeer b) = do
 	sendMessage (DATA len)
 	sendBytes len b nullMeterUpdate
 relayToPeer (RelayFromPeer _) = return ()
+

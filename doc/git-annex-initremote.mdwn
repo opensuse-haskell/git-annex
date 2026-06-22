@@ -38,6 +38,11 @@ want to use `git annex renameremote`.
 
 # OPTIONS
 
+* `--with-url`
+
+  This configures the remote with an "annex::" url, which allows
+  git to push to and pull from it, using [[git-remote-annex]].
+
 * `--whatelse` / `-w`
 
   Describe additional configuration parameters that you could specify.
@@ -46,6 +51,8 @@ want to use `git annex renameremote`.
   configure it:
 
 	git annex initremote mys3 type=S3 --whatelse
+
+  For a machine-readable list of the parameters, use this with `--json`.
 
 * `--fast`
 
@@ -80,6 +87,21 @@ want to use `git annex renameremote`.
   branch. The special remote will only be usable from the repository where
   it was created.
 
+  When used in combination with `--sameas=foo`, the configuration of the
+  new special remote is kept private. But when files are sent to the new
+  special remote, it will be public that they are present in remote "foo",
+  unless it is also private.
+
+* `--json`
+
+  Enable JSON output. This is intended to be parsed by programs that use
+  git-annex.
+
+* `--json-error-messages`
+
+  Messages that would normally be output to standard error are included in
+  the JSON instead.
+
 * Also the [[git-annex-common-options]](1) can be used.
 
 # COMMON CONFIGURATION PARAMETERS
@@ -106,6 +128,12 @@ want to use `git annex renameremote`.
   when the special remote does not need anything special to be done to get
   it enabled.
 
+* `cost`
+
+  Specify this to override the default cost of the special remote.
+  This configuration can be overridden by the local git config,
+  eg remote.name.annex-cost.
+
 * `uuid`
 
   Normally, git-annex initremote generates a new UUID for the new special
@@ -119,7 +147,11 @@ want to use `git annex renameremote`.
 
 [[git-annex-enableremote]](1)
 
+[[git-annex-configremote]](1)
+
 [[git-annex-renameremote]](1)
+
+[[git-annex-disableremote]](1)
 
 # AUTHOR
 

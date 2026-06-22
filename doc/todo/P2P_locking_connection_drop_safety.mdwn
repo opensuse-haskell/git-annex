@@ -1,0 +1,98 @@
+The P2P protocol's LOCKCONTENT assumes that the P2P connection does not get
+closed unexpectedly. If the P2P connection does close before the drop
+happens, the remote's lock will be released, but the git-annex that is
+doing the dropping does not have a way to find that out.
+
+This in particular affects drops from remotes. Drops from the local
+repository have a ContentRemovalLock that doesn't have this problem.
+
+This was discussed in [[!commit 73a6b9b51455f2ae8483a86a98e9863fffe9ebac]]
+(2016). There I concluded:
+
+	Probably this needs to be fixed by eg, making lockContentWhile catch any
+	exceptions due to the connection closing, and in that case, wait a
+	significantly long time before dropping the lock.
+
+I'm inclined to agree with past me. While the P2P protocol could be
+extended with a way to verify that the connection is still open, there
+is a point where git-annex has told the remote to drop, and is relying on
+the locks remaining locked until the drop finishes.
+--[[Joey]]
+
+Worst case, I can imagine that the local git-annex process takes the remote
+locks. Then it's put to sleep for a day. Then it wakes up and drops from
+the other remote. The P2P connections for the locks have long since closed.
+Consider for example, a ssh password prompt on connection to the remote to
+drop the content, and the user taking a long time to respond.
+
+It seems that LOCKCONTENT needs to guarantee that the content remains
+locked for some amount of time. Then local git-annex would know it
+has at most that long to drop the content. But it's the remote that's
+dropping that really needs to know. So, extend the P2P protocol with a
+REMOVE-BEFORE Timestamp Key and a GETTIMESTAMP.
+
+How long to lock for? 10 minutes is arbitrary, but seems in the right
+ballpark. Since this will cause drops to fail if they timeout sitting at a
+ssh password prompt, it needs to be more than a few minutes. But making it
+too long, eg an hour can result in content being stuck locked on a remote
+for a long time, preventing a later legitimate drop. It could be made
+configurable, if needed, by extending the P2P protocol so LOCKCONTENT was
+passed the amount of time.
+
+Having lockContentWhile catch all exceptions and keep the content locked
+for the time period won't work though. Systemd reaps processes on ssh
+connection close. And if the P2P protocol is served by `git annex
+remotedaemon` for tor, or something similar for future P2P over HTTP
+(either a HTTP daemon or a CGI script), nothing guarantees that such a
+process is kept running. An admin may bounce the HTTP server at any point,
+or the whole system reboot.
+
+## retention locking
+
+So, this needs a way to make lockContentShared guarentee it remains
+locked for an amount of time even after the process has exited.
+
+In a v10 repo, the content lock file is separate from the content file,
+and it is currently an empty file. So a timestamp could be put in there.
+It seems ok to only fix this in v10, because by the time the fixed
+git-annex gets installed, a user is likely to have been using git-annex
+10.x long enough (1 year) for their repo to have been upgraded to v10.
+
+OTOH putting the timestamp in the lock file may be hard (eg on Windows).
+
+> Status: Content retention files implemented on `p2p_locking` branch.
+> P2P LOCKCONTENT uses a 10 minute retention in case it gets killed,
+> but other values can be used in the future safely.
+
+## clusters
+
+How to handle this when proxying to a cluster? In a cluster, each node
+has a different clock. So GETTIMESTAMP will return a bunch of times.
+The cluster can get its own current time, and return that to the client.
+Then REMOVE Key Timestamp can have the timestamp adjusted when it's sent
+out to each client, by calling GETTIMESTAMP again and applying the offsets
+between the cluster's clock and each node's clock.
+
+> done
+
+## future flag day
+
+There is a potential future flag day where
+p2pDefaultLockContentRetentionDuration is not assumed, but is probed
+using the P2P protocol, and peers that don't support it can no longer
+produce a LockedCopy. And P2P.Protocol.remove does not fall back to REMOVE
+when the peer does not support REMOVE-WHEN and there's a proof expiry time.
+
+Until that flag day, when git-annex is
+communicating with older peers there is a risk of data loss when
+a ssh connection closes during LOCKCONTENT.
+
+I think that now is not the right time for that flag day, because it will
+cause disruption. Everyone would have to upgrade remote git-annex versions
+in order to drop content from those remotes, or with content locked on
+those remotes. This problem is not likely enough to occur to seem worth
+that disruption.
+
+A flag day might be worth doing in a couple of years though. --[[Joey]]
+
+> [[done]] --[[Joey]]

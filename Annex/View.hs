@@ -1,6 +1,6 @@
 {- metadata based branch views
  -
- - Copyright 2014 Joey Hess <id@joeyh.name>
+ - Copyright 2014-2023 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -12,14 +12,18 @@ module Annex.View where
 import Annex.Common
 import Annex.View.ViewedFile
 import Types.View
+import Types.AdjustedBranch
 import Types.MetaData
 import Annex.MetaData
 import qualified Annex
+import qualified Annex.Branch
 import qualified Git
 import qualified Git.DiffTree as DiffTree
 import qualified Git.Branch
 import qualified Git.LsFiles
+import qualified Git.LsTree
 import qualified Git.Ref
+import Git.CatFile
 import Git.UpdateIndex
 import Git.Sha
 import Git.Types
@@ -28,18 +32,21 @@ import Annex.WorkTree
 import Annex.GitOverlay
 import Annex.Link
 import Annex.CatFile
+import Annex.Concurrent
+import Annex.Content.Presence
+import Logs
 import Logs.MetaData
 import Logs.View
 import Utility.Glob
 import Types.Command
 import CmdLine.Action
-import qualified Utility.RawFilePath as R
+import qualified Utility.OsString as OS
 
 import qualified Data.Text as T
 import qualified Data.ByteString as B
 import qualified Data.Set as S
 import qualified Data.Map as M
-import qualified System.FilePath.ByteString as P
+import Control.Concurrent.Async
 import "mtl" Control.Monad.Writer
 
 {- Each visible ViewFilter in a view results in another level of
@@ -56,18 +63,22 @@ viewTooLarge view = visibleViewSize view > 5
 visibleViewSize :: View -> Int
 visibleViewSize = length . filter viewVisible . viewComponents
 
-{- Parses field=value, field!=value, tag, and !tag
+{- Parses field=value, field!=value, field?=value, tag, !tag, and ?tag
  -
  - Note that the field may not be a legal metadata field name,
  - but it's let through anyway.
  - This is useful when matching on directory names with spaces,
  - which are not legal MetaFields.
  -}
-parseViewParam :: String -> (MetaField, ViewFilter)
-parseViewParam s = case separate (== '=') s of
+parseViewParam :: ViewUnset -> String -> (MetaField, ViewFilter)
+parseViewParam vu s = case separate (== '=') s of
 	('!':tag, []) | not (null tag) ->
 		( tagMetaField
 		, mkExcludeValues tag
+		)
+	('?':tag, []) | not (null tag) ->
+		( tagMetaField
+		, mkFilterOrUnsetValues tag
 		)
 	(tag, []) ->
 		( tagMetaField
@@ -78,15 +89,22 @@ parseViewParam s = case separate (== '=') s of
 			( mkMetaFieldUnchecked (T.pack (beginning field))
 			, mkExcludeValues wanted
 			)
+		| end field == "?" ->
+			( mkMetaFieldUnchecked (T.pack (beginning field))
+			, mkFilterOrUnsetValues wanted
+			)
 		| otherwise ->
 			( mkMetaFieldUnchecked (T.pack field)
 			, mkFilterValues wanted
 			)
   where
+	mkExcludeValues = ExcludeValues . S.singleton . toMetaValue . encodeBS
 	mkFilterValues v
 		| any (`elem` v) ['*', '?'] = FilterGlob v
 		| otherwise = FilterValues $ S.singleton $ toMetaValue $ encodeBS v
-	mkExcludeValues = ExcludeValues . S.singleton . toMetaValue . encodeBS
+	mkFilterOrUnsetValues v
+		| any (`elem` v) ['*', '?'] = FilterGlobOrUnset v vu
+		| otherwise = FilterValuesOrUnset (S.singleton $ toMetaValue $ encodeBS v) vu
 
 data ViewChange = Unchanged | Narrowing | Widening
 	deriving (Ord, Eq, Show)
@@ -136,18 +154,8 @@ filterView v vs = v { viewComponents = viewComponents f' ++ viewComponents v}
 	toinvisible c = c { viewVisible = False }
 
 {- Combine old and new ViewFilters, yielding a result that matches
- - either old+new, or only new.
- -
- - If we have FilterValues and change to a FilterGlob,
- - it's always a widening change, because the glob could match other
- - values. OTOH, going the other way, it's a Narrowing change if the old
- - glob matches all the new FilterValues.
- -
- - With two globs, the old one is discarded, and the new one is used.
- - We can tell if that's a narrowing change by checking if the old
- - glob matches the new glob. For example, "*" matches "foo*",
- - so that's narrowing. While "f?o" does not match "f??", so that's
- - widening.
+ - either old+new, or only new. Which depends on the types of things
+ - being combined.
  -}
 combineViewFilter :: ViewFilter -> ViewFilter -> (ViewFilter, ViewChange)
 combineViewFilter old@(FilterValues olds) (FilterValues news)
@@ -160,19 +168,74 @@ combineViewFilter old@(ExcludeValues olds) (ExcludeValues news)
 	| otherwise = (combined, Narrowing)
   where
 	combined = ExcludeValues (S.union olds news)
+{- If we have FilterValues and change to a FilterGlob,
+ - it's always a widening change, because the glob could match other
+ - values. OTOH, going the other way, it's a Narrowing change if the old
+ - glob matches all the new FilterValues. -}
 combineViewFilter (FilterValues _) newglob@(FilterGlob _) =
 	(newglob, Widening)
 combineViewFilter (FilterGlob oldglob) new@(FilterValues s)
-	| all (matchGlob (compileGlob oldglob CaseInsensative (GlobFilePath False)) . decodeBS . fromMetaValue) (S.toList s) = (new, Narrowing)
+	| all (matchGlob (compileGlob oldglob CaseInsensitive (GlobFilePath False)) . decodeBS . fromMetaValue) (S.toList s) = (new, Narrowing)
 	| otherwise = (new, Widening)
+{- With two globs, the old one is discarded, and the new one is used.
+ - We can tell if that's a narrowing change by checking if the old
+ - glob matches the new glob. For example, "*" matches "foo*",
+ - so that's narrowing. While "f?o" does not match "f??", so that's
+ - widening. -}
 combineViewFilter (FilterGlob old) newglob@(FilterGlob new)
 	| old == new = (newglob, Unchanged)
-	| matchGlob (compileGlob old CaseInsensative (GlobFilePath False)) new = (newglob, Narrowing)
+	| matchGlob (compileGlob old CaseInsensitive (GlobFilePath False)) new = (newglob, Narrowing)
 	| otherwise = (newglob, Widening)
+{- Combining FilterValuesOrUnset and FilterGlobOrUnset with FilterValues
+ - and FilterGlob maintains the OrUnset if the second parameter has it,
+ - and is otherwise the same as combining without OrUnset, except that
+ - eliminating the OrUnset can be narrowing, and adding it can be widening. -}
+combineViewFilter old@(FilterValuesOrUnset olds _) (FilterValuesOrUnset news newvu)
+	| combined == old = (combined, Unchanged)
+	| otherwise = (combined, Widening)
+  where
+	combined = FilterValuesOrUnset (S.union olds news) newvu
+combineViewFilter (FilterValues olds) (FilterValuesOrUnset news vu) =
+	(combined, Widening)
+  where
+	combined = FilterValuesOrUnset (S.union olds news) vu
+combineViewFilter old@(FilterValuesOrUnset olds _) (FilterValues news)
+	| combined == old = (combined, Narrowing)
+	| otherwise = (combined, Widening)
+  where
+	combined = FilterValues (S.union olds news)
+combineViewFilter (FilterValuesOrUnset _ _) newglob@(FilterGlob _) =
+	(newglob, Widening)
+combineViewFilter (FilterGlob _) new@(FilterValuesOrUnset _ _) =
+	(new, Widening)
+combineViewFilter (FilterValues _) newglob@(FilterGlobOrUnset _ _) =
+	(newglob, Widening)
+combineViewFilter (FilterValuesOrUnset _ _) newglob@(FilterGlobOrUnset _ _) =
+	(newglob, Widening)
+combineViewFilter (FilterGlobOrUnset oldglob _) new@(FilterValues _) =
+	combineViewFilter (FilterGlob oldglob) new
+combineViewFilter (FilterGlobOrUnset oldglob _) new@(FilterValuesOrUnset _ _) =
+	let (_, viewchange) = combineViewFilter (FilterGlob oldglob) new
+	in (new, viewchange)
+combineViewFilter (FilterGlobOrUnset old _) newglob@(FilterGlobOrUnset new _)
+	| old == new = (newglob, Unchanged)
+	| matchGlob (compileGlob old CaseInsensitive (GlobFilePath False)) new = (newglob, Narrowing)
+	| otherwise = (newglob, Widening)
+combineViewFilter (FilterGlob _) newglob@(FilterGlobOrUnset _ _) =
+	(newglob, Widening)
+combineViewFilter (FilterGlobOrUnset _ _) newglob@(FilterGlob _) =
+	(newglob, Narrowing)
+{- There is not a way to filter a value and also apply an exclude. So:
+ - When adding an exclude to a filter, use only the exclude.
+ - When adding a filter to an exclude, use only the filter. -}
 combineViewFilter (FilterGlob _) new@(ExcludeValues _) = (new, Narrowing)
 combineViewFilter (ExcludeValues _) new@(FilterGlob _) = (new, Widening)
 combineViewFilter (FilterValues _) new@(ExcludeValues _) = (new, Narrowing)
 combineViewFilter (ExcludeValues _) new@(FilterValues _) = (new, Widening)
+combineViewFilter (FilterValuesOrUnset _ _) new@(ExcludeValues _) = (new, Narrowing)
+combineViewFilter (ExcludeValues _) new@(FilterValuesOrUnset _ _) = (new, Widening)
+combineViewFilter (FilterGlobOrUnset _ _) new@(ExcludeValues _) = (new, Narrowing)
+combineViewFilter (ExcludeValues _) new@(FilterGlobOrUnset _ _) = (new, Widening)
 
 {- Generates views for a file from a branch, based on its metadata
  - and the filename used in the branch.
@@ -187,7 +250,7 @@ combineViewFilter (ExcludeValues _) new@(FilterValues _) = (new, Widening)
  - evaluate this function with the view parameter and reuse
  - the result. The globs in the view will then be compiled and memoized.
  -}
-viewedFiles :: View -> MkViewedFile -> FilePath -> MetaData -> [ViewedFile]
+viewedFiles :: View -> MkViewedFile -> OsPath -> MetaData -> [ViewedFile]
 viewedFiles view = 
 	let matchers = map viewComponentMatcher (viewComponents view)
 	in \mkviewedfile file metadata ->
@@ -196,7 +259,8 @@ viewedFiles view =
 			then []
 			else 
 				let paths = pathProduct $
-					map (map toViewPath) (visible matches)
+					map (map (toOsPath . toviewpath))
+						(visible matches)
 				in if null paths
 					then [mkviewedfile file]
 					else map (</> mkviewedfile file) paths
@@ -204,28 +268,40 @@ viewedFiles view =
 	visible = map (fromJust . snd) .
 		filter (viewVisible . fst) .
 		zip (viewComponents view)
+	
+	toviewpath (MatchingMetaValue v) = toViewPath v
+	toviewpath (MatchingUnset v) = toViewPath (toMetaValue (encodeBS v))
+
+data MatchingValue = MatchingMetaValue MetaValue | MatchingUnset String
 
 {- Checks if metadata matches a ViewComponent filter, and if so
  - returns the value, or values that match. Self-memoizing on ViewComponent. -}
-viewComponentMatcher :: ViewComponent -> (MetaData -> Maybe [MetaValue])
+viewComponentMatcher :: ViewComponent -> (MetaData -> Maybe [MatchingValue])
 viewComponentMatcher viewcomponent = \metadata -> 
-	matcher (currentMetaDataValues metafield metadata)
+	matcher Nothing (viewFilter viewcomponent)
+		(currentMetaDataValues metafield metadata)
   where
 	metafield = viewField viewcomponent
-	matcher = case viewFilter viewcomponent of
-		FilterValues s -> \values -> setmatches $
-			S.intersection s values
-		FilterGlob glob ->
-			let cglob = compileGlob glob CaseInsensative (GlobFilePath False)
-			in \values -> setmatches $
-				S.filter (matchGlob cglob . decodeBS . fromMetaValue) values
-		ExcludeValues excludes -> \values -> 
+	matcher matchunset (FilterValues s) = 
+		\values -> setmatches matchunset $ S.intersection s values
+	matcher matchunset (FilterGlob glob) =
+		let cglob = compileGlob glob CaseInsensitive (GlobFilePath False)
+		in \values -> setmatches matchunset $
+			S.filter (matchGlob cglob . decodeBS . fromMetaValue) values
+	matcher _ (ExcludeValues excludes) = 
+		\values -> 
 			if S.null (S.intersection values excludes)
 				then Just []
 				else Nothing
-	setmatches s
-		| S.null s = Nothing
-		| otherwise = Just (S.toList s)
+	matcher _ (FilterValuesOrUnset s (ViewUnset u)) =
+		matcher (Just [MatchingUnset u]) (FilterValues s)
+	matcher _ (FilterGlobOrUnset glob (ViewUnset u)) =
+		matcher (Just [MatchingUnset u]) (FilterGlob glob)
+
+	setmatches matchunset s
+		| S.null s = matchunset 
+		| otherwise = Just $
+			map MatchingMetaValue (S.toList s)
 
 -- This is '∕', a unicode character that displays the same as '/' but is
 -- not it. It is encoded using the filesystem encoding, which allows it
@@ -270,7 +346,7 @@ fromViewPath = toMetaValue . encodeBS . deescapepseudo []
 prop_viewPath_roundtrips :: MetaValue -> Bool
 prop_viewPath_roundtrips v = fromViewPath (toViewPath v) == v
 
-pathProduct :: [[FilePath]] -> [FilePath]
+pathProduct :: [[OsPath]] -> [OsPath]
 pathProduct [] = []
 pathProduct (l:ls) = foldl combinel l ls
   where
@@ -282,14 +358,25 @@ pathProduct (l:ls) = foldl combinel l ls
  - Derived metadata is excluded.
  -}
 fromView :: View -> ViewedFile -> MetaData
-fromView view f = MetaData $
-	M.fromList (zip fields values) `M.difference` derived
+fromView view f = MetaData $ m `M.difference` derived
   where
+	m = M.fromList $ map convfield $
+		filter (not . isviewunset) (zip visible values)
 	visible = filter viewVisible (viewComponents view)
-	fields = map viewField visible
 	paths = splitDirectories (dropFileName f)
-	values = map (S.singleton . fromViewPath) paths
+	values = map (S.singleton . fromViewPath . fromOsPath) paths
 	MetaData derived = getViewedFileMetaData f
+	convfield (vc, v) = (viewField vc, v)
+
+	-- When a directory is the one used to hold files that don't
+	-- have the metadata set, don't include it in the MetaData.
+	isviewunset (vc, v) = case viewFilter vc of
+		FilterValues {} -> False
+		FilterGlob {} -> False
+		ExcludeValues {} -> False
+		FilterValuesOrUnset _ (ViewUnset vu) -> isviewunset' vu v
+		FilterGlobOrUnset _ (ViewUnset vu) -> isviewunset' vu v
+	isviewunset' vu v = S.member (fromViewPath vu) v
 
 {- Constructing a view that will match arbitrary metadata, and applying
  - it to a file yields a set of ViewedFile which all contain the same
@@ -298,9 +385,9 @@ fromView view f = MetaData $
 prop_view_roundtrips :: AssociatedFile -> MetaData -> Bool -> Bool
 prop_view_roundtrips (AssociatedFile Nothing) _ _ = True
 prop_view_roundtrips (AssociatedFile (Just f)) metadata visible = or
-	[ B.null (P.takeFileName f) && B.null (P.takeDirectory f)
+	[ OS.null (takeFileName f) && OS.null (takeDirectory f)
 	, viewTooLarge view
-	, all hasfields (viewedFiles view viewedFileFromReference (fromRawFilePath f) metadata)
+	, all hasfields (viewedFiles view (viewedFileFromReference' Nothing Nothing) f metadata)
 	]
   where
 	view = View (Git.Ref "foo") $
@@ -315,33 +402,35 @@ prop_view_roundtrips (AssociatedFile (Just f)) metadata visible = or
  - Note that this may generate MetaFields that legalField rejects.
  - This is necessary to have a 1:1 mapping between directory names and
  - fields. So this MetaData cannot safely be serialized. -}
-getDirMetaData :: FilePath -> MetaData
+getDirMetaData :: OsPath -> MetaData
 getDirMetaData d = MetaData $ M.fromList $ zip fields values
   where
 	dirs = splitDirectories d
-	fields = map (mkMetaFieldUnchecked . T.pack . addTrailingPathSeparator . joinPath)
+	fields = map (mkMetaFieldUnchecked . T.pack . fromOsPath . addTrailingPathSeparator . joinPath)
 		(inits dirs)
 	values = map (S.singleton . toMetaValue . encodeBS . fromMaybe "" . headMaybe)
-		(tails dirs)
+		(tails (map fromOsPath dirs))
 
-getWorkTreeMetaData :: FilePath -> MetaData
+getWorkTreeMetaData :: OsPath -> MetaData
 getWorkTreeMetaData = getDirMetaData . dropFileName
 
-getViewedFileMetaData :: FilePath -> MetaData
+getViewedFileMetaData :: OsPath -> MetaData
 getViewedFileMetaData = getDirMetaData . dirFromViewedFile . takeFileName
 
 {- Applies a view to the currently checked out branch, generating a new
  - branch for the view.
  -}
-applyView :: View -> Annex Git.Branch
-applyView = applyView' viewedFileFromReference getWorkTreeMetaData
+applyView :: View -> Maybe Adjustment -> Annex Git.Branch
+applyView v ma = do
+	gc <- Annex.getGitConfig
+	applyView' (viewedFileFromReference gc) getWorkTreeMetaData v ma
 
 {- Generates a new branch for a View, which must be a more narrow
  - version of the View originally used to generate the currently
  - checked out branch. That is, it must match a subset of the files
  - in view, not any others.
  -}
-narrowView :: View -> Annex Git.Branch
+narrowView :: View -> Maybe Adjustment -> Annex Git.Branch
 narrowView = applyView' viewedFileReuse getViewedFileMetaData
 
 {- Go through each staged file.
@@ -349,41 +438,147 @@ narrowView = applyView' viewedFileReuse getViewedFileMetaData
  - or a file in a dotdir in the top. 
  - Look up the metadata of annexed files, and generate any ViewedFiles,
  - and stage them.
- -
- - Must be run from top of repository.
  -}
-applyView' :: MkViewedFile -> (FilePath -> MetaData) -> View -> Annex Git.Branch
-applyView' mkviewedfile getfilemetadata view = do
+applyView' :: MkViewedFile -> (OsPath -> MetaData) -> View -> Maybe Adjustment -> Annex Git.Branch
+applyView' mkviewedfile getfilemetadata view madj = do
 	top <- fromRepo Git.repoPath
 	(l, clean) <- inRepo $ Git.LsFiles.inRepoDetails [] [top]
-	liftIO . removeWhenExistsWith R.removeLink =<< fromRepo gitAnnexViewIndex
-	viewg <- withViewIndex gitRepo
-	withUpdateIndex viewg $ \uh -> do
-		forM_ l $ \(f, sha, mode) -> do
+	applyView'' mkviewedfile getfilemetadata view madj l clean $ 
+		\(f, sha, mode) -> do
 			topf <- inRepo (toTopFilePath f)
-			go uh topf sha (toTreeItemType mode) =<< lookupKey f
-		liftIO $ void clean
-	genViewBranch view
+			k <- lookupKey f
+			return (topf, sha, toTreeItemType mode, k)
+	genViewBranch view madj
+
+applyView''
+	:: MkViewedFile
+	-> (OsPath -> MetaData)
+	-> View
+	-> Maybe Adjustment
+	-> [t]
+	-> IO Bool
+	-> (t -> Annex (TopFilePath, Sha, Maybe TreeItemType, Maybe Key))
+	-> Annex ()
+applyView'' mkviewedfile getfilemetadata view madj l clean conv = do
+	viewg <- withNewViewIndex gitRepo
+	withUpdateIndex viewg $ \uh -> do
+		g <- Annex.gitRepo
+		gc <- Annex.getGitConfig
+		-- Streaming the metadata like this is an optimisation.
+		catObjectStream g $ \mdfeeder mdcloser mdreader -> do
+			tid <- liftIO . async =<< forkState
+				(getmetadata gc mdfeeder mdcloser l)
+			process uh mdreader
+			join (liftIO (wait tid))
+			liftIO $ void clean
   where
 	genviewedfiles = viewedFiles view mkviewedfile -- enables memoization
 
-	go uh topf _sha _mode (Just k) = do
-		metadata <- getCurrentMetaData k
-		let f = fromRawFilePath $ getTopFilePath topf
-		let metadata' = getfilemetadata f `unionMetaData` metadata
-		forM_ (genviewedfiles f metadata') $ \fv -> do
-			f' <- fromRepo (fromTopFilePath $ asTopFilePath $ toRawFilePath fv)
-			stagesymlink uh f' =<< calcRepo (gitAnnexLink f' k)
-	go uh topf sha (Just treeitemtype) Nothing
-		| "." `B.isPrefixOf` getTopFilePath topf =
+	getmetadata _ _ mdcloser [] = liftIO mdcloser
+	getmetadata gc mdfeeder mdcloser (t:ts) = do
+		v@(topf, _sha, _treeitemtype, mkey) <- conv t
+		let feed mdlogf = liftIO $ mdfeeder
+			(v, Git.Ref.branchFileRef Annex.Branch.fullname mdlogf)
+		case mkey of
+			Just key -> feed (metaDataLogFile gc key)
+			Nothing
+				-- Handle toplevel dotfiles that are not
+				-- annexed files by feeding through a query
+				-- for dummy metadata. Calling
+				-- Git.UpdateIndex.streamUpdateIndex'
+				-- here would race with process's calls
+				-- to it.
+				| literalOsPath "." `OS.isPrefixOf` getTopFilePath topf ->
+					feed (literalOsPath "dummy")
+				| otherwise -> noop
+		getmetadata gc mdfeeder mdcloser ts
+
+	process uh mdreader = liftIO mdreader >>= \case
+		Just ((topf, _, mtreeitemtype, Just k), mdlog) -> do
+			let metadata = maybe emptyMetaData parseCurrentMetaData mdlog
+			let f = getTopFilePath topf
+			let metadata' = getfilemetadata f `unionMetaData` metadata
+			forM_ (genviewedfiles f metadata') $ \fv -> do
+				f' <- fromRepo (fromTopFilePath $ asTopFilePath fv)
+				stagefile uh f' k mtreeitemtype
+			process uh mdreader
+		Just ((topf, sha, Just treeitemtype, Nothing), _) -> do
 			liftIO $ Git.UpdateIndex.streamUpdateIndex' uh $
 				pureStreamer $ updateIndexLine sha treeitemtype topf
-	go _ _ _ _  _ = noop
+			process uh mdreader
+		Just _ -> process uh mdreader
+		Nothing -> return ()
+	
+	stagefile uh f k mtreeitemtype = case madj of
+		Nothing -> stagesymlink uh f k
+		Just (LinkAdjustment UnlockAdjustment) ->
+			stagepointerfile uh f k mtreeitemtype
+		Just (LockUnlockPresentAdjustment UnlockPresentAdjustment) ->
+			ifM (inAnnex k)
+				( stagepointerfile uh f k mtreeitemtype
+				, stagesymlink uh f k
+				)
+		Just (PresenceAdjustment HideMissingAdjustment (Just UnlockAdjustment)) ->
+			whenM (inAnnex k) $
+				stagepointerfile uh f k mtreeitemtype
+		Just (PresenceAdjustment HideMissingAdjustment _) ->
+			whenM (inAnnex k) $
+				stagesymlink uh f k
+		_ -> stagesymlink uh f k
 
-	stagesymlink uh f linktarget = do
+	stagesymlink uh f k = do
+		linktarget <- fromOsPath <$> calcRepo (gitAnnexLink f k)
 		sha <- hashSymlink linktarget
 		liftIO . Git.UpdateIndex.streamUpdateIndex' uh
 			=<< inRepo (Git.UpdateIndex.stageSymlink f sha)
+	
+	stagepointerfile uh f k mtreeitemtype = do
+		let treeitemtype = if mtreeitemtype == Just TreeExecutable
+			then TreeExecutable
+			else TreeFile
+		sha <- hashPointerFile k
+		liftIO . Git.UpdateIndex.streamUpdateIndex' uh
+			=<< inRepo (Git.UpdateIndex.stageFile sha treeitemtype f)
+
+{- Updates the current view with any changes that have been made to its
+ - parent branch or the metadata since the view was created or last updated.
+ -
+ - When there were changes, returns a ref to a commit for the updated view.
+ - Does not update the view branch with it.
+ -
+ - This is not very optimised. An incremental update would be possible to
+ - implement and would be faster, but more complicated.
+ -}
+updateView :: View -> Maybe Adjustment -> Annex (Maybe Git.Ref)
+updateView view madj = do
+	(l, clean) <- inRepo $ Git.LsTree.lsTree
+		Git.LsTree.LsTreeRecursive
+		(Git.LsTree.LsTreeLong True)
+		(viewParentBranch view)
+	gc <- Annex.getGitConfig
+	applyView'' (viewedFileFromReference gc) getWorkTreeMetaData view madj l clean $
+		\ti -> do
+			let ref = Git.Ref.branchFileRef (viewParentBranch view)
+				(getTopFilePath (Git.LsTree.file ti))
+			k <- case Git.LsTree.size ti of
+				Nothing -> catKey ref
+				Just sz -> catKey' ref sz
+			return
+				( (Git.LsTree.file ti)
+				, (Git.LsTree.sha ti)
+				, (toTreeItemType (Git.LsTree.mode ti))
+				, k
+				)
+	oldcommit <- inRepo $ Git.Ref.sha (branchView view madj)
+	oldtree <- maybe (pure Nothing) (inRepo . Git.Ref.tree) oldcommit
+	newtree <- withViewIndex $ inRepo Git.Branch.writeTree
+	if oldtree /= Just newtree
+		then Just <$> do
+			cmode <- annexCommitMode <$> Annex.getGitConfig
+			let msg = "updated " ++ fromRef (branchView view madj)
+			let parent = catMaybes [oldcommit]
+			inRepo (Git.Branch.commitTree cmode [msg] parent newtree)
+		else return Nothing
 
 {- Diff between currently checked out branch and staged changes, and
  - update metadata to reflect the changes that are being committed to the
@@ -414,7 +609,7 @@ withViewChanges addmeta removemeta = do
 				=<< catKey (DiffTree.dstsha item)
 		| otherwise = noop
 	handlechange item a = maybe noop
-		(void . commandAction . a (fromRawFilePath $ getTopFilePath $ DiffTree.file item))
+		(void . commandAction . a (getTopFilePath $ DiffTree.file item))
 
 {- Runs an action using the view index file.
  - Note that the file does not necessarily exist, or can contain
@@ -422,15 +617,21 @@ withViewChanges addmeta removemeta = do
 withViewIndex :: Annex a -> Annex a
 withViewIndex = withIndexFile ViewIndexFile . const
 
+withNewViewIndex :: Annex a -> Annex a
+withNewViewIndex a = do
+	liftIO . removeWhenExistsWith removeFile
+		=<< fromRepo gitAnnexViewIndex
+	withViewIndex a
+
 {- Generates a branch for a view, using the view index file
  - to make a commit to the view branch. The view branch is not
  - checked out, but entering it will display the view. -}
-genViewBranch :: View -> Annex Git.Branch
-genViewBranch view = withViewIndex $ do
-	let branch = branchView view
+genViewBranch :: View -> Maybe Adjustment -> Annex Git.Branch
+genViewBranch view madj = withViewIndex $ do
+	let branch = branchView view madj
 	cmode <- annexCommitMode <$> Annex.getGitConfig
 	void $ inRepo $ Git.Branch.commit cmode True (fromRef branch) branch []
 	return branch
 
-withCurrentView :: (View -> Annex a) -> Annex a
-withCurrentView a = maybe (giveup "Not in a view.") a =<< currentView
+withCurrentView :: (View -> Maybe Adjustment -> Annex a) -> Annex a
+withCurrentView a = maybe (giveup "Not in a view.") (uncurry a) =<< currentView

@@ -1,0 +1,44 @@
+This is the remainder of my todo list while I was building the
+compute special remote. --[[Joey]]
+
+* Support parallel get of input files. The design allows for this,
+  but how much parallelism makes sense? Would it be possible to use the
+  usual worker pool?
+
+* compute on input files in submodules
+
+* annex.diskreserve can be violated if getting a file computes it but also
+  some other output files, which get added to the annex. This can't be
+  avoided at addcomputed time, but when getting later from the compute
+  remote, it could check (but not when using VURL without size information)
+
+* annex.diskreserve can also be violated if computing a file gets source
+  files that are larger than the disk reserve. This could be checked.
+
+* Maybe add a file matching options, eg:
+
+        git-annex find --computeinputof=remote:file
+        git-annex find --computeoutputof=remote:file
+
+* allow git-annex enableremote with program= explicitly specified,
+  without checking annex.security.allowed-compute-programs
+
+* recompute could ingest keys for other files than the one being
+  recomputed, and remember them. Then recomputing those files could just
+  use those keys, without re-running a computation. (Better than --others
+  which got removed.)
+
+* `git-annex recompute foo bar baz`, when foo depends on bar which depends
+  on baz, and when baz has changed, will not recompute foo, because bar has
+  not changed. It then recomputes bar. So running the command again is
+  needed to recompute foo. 
+
+  What it could do is, after it recomputes bar, notice that it already
+  considered foo, and revisit foo, and recompute it then. It could either
+  use a bloom filter to remember the files it considered but did not
+  compute, or it could just notice that the command line includes foo
+  (or includes a directory that contains foo), and then foo is not
+  modified.
+
+  Or it could build a DAG and traverse it, but building a DAG of a large
+  directory tree has its own problems.

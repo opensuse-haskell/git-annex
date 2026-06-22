@@ -14,7 +14,7 @@ import Utility.HumanTime
 cmd :: Command
 cmd = notBareRepo $
 	command "watch" SectionCommon 
-		"watch for changes and autocommit"
+		"daemon to watch for changes and autocommit"
 		paramNothing (seek <$$> const (parseDaemonOptions True))
 
 seek :: DaemonOptions -> CommandSeek
@@ -24,5 +24,12 @@ start :: Bool -> DaemonOptions -> Maybe Duration -> CommandStart
 start assistant o startdelay = do
 	if stopDaemonOption o
 		then stopDaemon
-		else startDaemon assistant (foregroundDaemonOption o) startdelay Nothing Nothing Nothing -- does not return
+		else startDaemon assistant 
+			(foregroundDaemonOption o)
+			startdelay
+			Nothing 
+			Nothing
+			Nothing
+			Nothing
+			-- does not return
 	stop

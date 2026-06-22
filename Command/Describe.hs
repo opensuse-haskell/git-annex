@@ -14,8 +14,8 @@ import Logs.UUID
 cmd :: Command
 cmd = command "describe" SectionSetup
 	"change description of a repository"
-	(paramPair paramRemote paramDesc)
-	(withParams seek)
+	(paramPair paramRepository paramDesc)
+	(withParams' seek completeRemotes)
 
 seek :: CmdParams -> CommandSeek
 seek = withWords (commandAction . start)
@@ -23,10 +23,10 @@ seek = withWords (commandAction . start)
 start :: [String] -> CommandStart
 start (name:description) | not (null description) = do
 	u <- Remote.nameToUUID name
+	let ai = ActionItemUUID u (UnquotedString name)
 	starting "describe" ai si $
 		perform u $ unwords description
   where
-	ai = ActionItemOther (Just name)
 	si = SeekInput [name]
 start _ = giveup "Specify a repository and a description."	
 

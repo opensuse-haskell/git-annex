@@ -1,6 +1,6 @@
 {- git ref stuff
  -
- - Copyright 2011-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2024 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -15,6 +15,7 @@ import Git.Command
 import Git.Sha
 import Git.Types
 import Git.FilePath
+import qualified Utility.FileIO as F
 
 import Data.Char (chr, ord)
 import qualified Data.ByteString as S
@@ -23,11 +24,12 @@ import qualified Data.ByteString.Char8 as S8
 headRef :: Ref
 headRef = Ref "HEAD"
 
-headFile :: Repo -> FilePath
-headFile r = fromRawFilePath (localGitDir r) </> "HEAD"
+headFile :: Repo -> OsPath
+headFile r = localGitDir r </> literalOsPath "HEAD"
 
 setHeadRef :: Ref -> Repo -> IO ()
-setHeadRef ref r = S.writeFile (headFile r) ("ref: " <> fromRef' ref)
+setHeadRef ref r = 
+	F.writeFile' (headFile r) ("ref: " <> fromRef' ref)
 
 {- Converts a fully qualified git ref into a user-visible string. -}
 describe :: Ref -> String
@@ -67,7 +69,7 @@ branchRef = underBase "refs/heads"
  - 
  - If the input file is located outside the repository, returns Nothing.
  -}
-fileRef :: RawFilePath -> Repo -> IO (Maybe Ref)
+fileRef :: OsPath -> Repo -> IO (Maybe Ref)
 fileRef f repo = do
 	-- The filename could be absolute, or contain eg "../repo/file",
 	-- neither of which work in a ref, so convert it to a minimal
@@ -77,12 +79,13 @@ fileRef f repo = do
  		-- Prefixing the file with ./ makes this work even when in a
 		-- subdirectory of a repo. Eg, ./foo in directory bar refers
 		-- to bar/foo, not to foo in the top of the repository.
-		then Just $ Ref $ ":./" <> toInternalGitPath f'
+		then Just $ Ref $ ":./" <> fromOsPath (toInternalGitPath f')
 		else Nothing
 
 {- A Ref that can be used to refer to a file in a particular branch. -}
-branchFileRef :: Branch -> RawFilePath -> Ref
-branchFileRef branch f = Ref $ fromRef' branch <> ":" <> toInternalGitPath f
+branchFileRef :: Branch -> OsPath -> Ref
+branchFileRef branch f = Ref $ fromOsPath $
+	toOsPath (fromRef' branch) <> literalOsPath ":" <> toInternalGitPath f
 
 {- Converts a Ref to refer to the content of the Ref on a given date. -}
 dateRef :: Ref -> RefDate -> Ref
@@ -93,7 +96,7 @@ dateRef r (RefDate d) = Ref $ fromRef' r <> "@" <> encodeBS d
  -
  - If the file path is located outside the repository, returns Nothing.
  -}
-fileFromRef :: Ref -> RawFilePath -> Repo -> IO (Maybe Ref)
+fileFromRef :: Ref -> OsPath -> Repo -> IO (Maybe Ref)
 fileFromRef r f repo = fileRef f repo >>= return . \case
 	Just (Ref fr) -> Just (Ref (fromRef' r <> fr))
 	Nothing -> Nothing
@@ -110,8 +113,8 @@ exists ref = runBool
 
 {- The file used to record a ref. (Git also stores some refs in a
  - packed-refs file.) -}
-file :: Ref -> Repo -> FilePath
-file ref repo = fromRawFilePath (localGitDir repo) </> fromRef ref
+file :: Ref -> Repo -> OsPath
+file ref repo = localGitDir repo </> toOsPath (fromRef' ref)
 
 {- Checks if HEAD exists. It generally will, except for in a repository
  - that was just created. -}
@@ -165,14 +168,45 @@ matchingUniq refs repo = nubBy uniqref <$> matching refs repo
 list :: Repo -> IO [(Sha, Ref)]
 list = matching' [] []
 
-{- Deletes a ref. This can delete refs that are not branches, 
- - which git branch --delete refuses to delete. -}
+{- Lists refs using for-each-ref.  -}
+forEachRef :: [CommandParam] -> Repo -> IO [(Sha, Branch)]
+forEachRef ps repo = map gen . S8.lines <$>
+	pipeReadStrict (Param "for-each-ref" : ps ++ [format]) repo
+  where
+	format = Param "--format=%(objectname) %(refname)"
+	gen l = let (r, b) = separate' (== fromIntegral (ord ' ')) l
+		in (Ref r, Ref b)
+
+{- Deletes a ref when it contains the specified sha. 
+ -
+ - This can delete refs that are not branches, which git branch --delete
+ - refuses to delete.
+ -
+ - Displays a warning on stderr if the ref does not contain the specified sha.
+ -}
 delete :: Sha -> Ref -> Repo -> IO ()
 delete oldvalue ref = run
 	[ Param "update-ref"
 	, Param "-d"
 	, Param $ fromRef ref
 	, Param $ fromRef oldvalue
+	]
+
+{- Like delete, but with no output on stderr. -}
+deleteQuiet :: Sha -> Ref -> Repo -> IO ()
+deleteQuiet oldvalue ref r = void $ tryNonAsync $ runQuiet
+	[ Param "update-ref"
+	, Param "-d"
+	, Param $ fromRef ref
+	, Param $ fromRef oldvalue
+	] r
+
+{- Deletes a ref no matter what it contains. -}
+delete' :: Ref -> Repo -> IO ()
+delete' ref = run
+	[ Param "update-ref"
+	, Param "-d"
+	, Param $ fromRef ref
 	]
 
 {- Gets the sha of the tree a ref uses. 
@@ -191,6 +225,19 @@ tree (Ref ref) = extractSha <$$> pipeReadStrict
 		then ref
 		-- de-reference commit objects to the tree
 		else ref <> ":"
+
+{- Check if the first ref is an ancestor of the second ref. 
+ -
+ - Note that if the two refs point to the same commit, it is considered
+ - to be an ancestor of itself.
+ -}
+isAncestor :: Ref -> Ref -> Repo -> IO Bool
+isAncestor r1 r2 = runBool
+	[ Param "merge-base"
+	, Param "--is-ancestor"
+	, Param (fromRef r1)
+	, Param (fromRef r2)
+	]
 
 {- Checks if a String is a legal git ref name.
  -

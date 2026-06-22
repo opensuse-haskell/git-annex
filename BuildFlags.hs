@@ -26,11 +26,6 @@ buildFlags = filter (not . null)
 #else
 #warning Building without the webapp.
 #endif
-#ifdef WITH_PAIRING
-	, "Pairing"
-#else
-#warning Building without local pairing.
-#endif
 #ifdef WITH_INOTIFY
 	, "Inotify"
 #endif
@@ -64,6 +59,22 @@ buildFlags = filter (not . null)
 	, "Testsuite"
 	, "S3"
 	, "WebDAV"
+	, "Servant"
+#ifdef WITH_OSPATH
+	, "OsPath"
+#else 
+#warning Building without the OsPath build flag set results in slower filename manipulation and is not recommended.
+#endif
+#ifdef WITH_BOTAN
+	, "Botan"
+#else 
+#warning Consider building with the Botan build flag set, it speeds up checksumming by up 4x to 8x.
+#endif
+#ifdef WITH_BLAKE3
+	, "Blake3"
+#else
+#warning Building without Blake3 support.
+#endif
 	]
 
 -- Not a complete list, let alone a listing transitive deps, but only
@@ -74,8 +85,7 @@ dependencyVersions = map fmt $ sortBy (comparing (CI.mk . fst))
 	, ("uuid", VERSION_uuid)
 	, ("bloomfilter", VERSION_bloomfilter)
 	, ("http-client", VERSION_http_client)
-	, ("persistent-sqlite", VERSION_persistent_sqlite)
-	, ("cryptonite", VERSION_cryptonite)
+	, ("crypton", VERSION_crypton)
 	, ("aws", VERSION_aws)
 	, ("DAV", VERSION_DAV)
 #ifdef WITH_TORRENTPARSER

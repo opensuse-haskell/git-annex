@@ -1,7 +1,8 @@
 This special remote type stores file contents in a bucket in Amazon S3
 or a similar service.
 
-See [[tips/using_Amazon_S3]], 
+See [[tips/using_Amazon_S3]],
+[[tips/using_Amazon_S3_with_DEEP_ARCHIVE_and_GLACIER]],
 [[tips/Internet_Archive_via_S3]], and [[tips/using_Google_Cloud_Storage]]
 for usage examples.
 
@@ -25,7 +26,7 @@ the S3 remote.
 * `chunk` - Enables [[chunking]] when storing large files.
   `chunk=1MiB` is a good starting point for chunking.
 
-* `embedcreds` - Optional. Set to "yes" embed the login credentials inside
+* `embedcreds` - Optional. Set to "yes" to embed the login credentials inside
   the git repository, which allows other clones to also access them. This is
   the default when gpg encryption is enabled; the credentials are stored
   encrypted and only those with the repository's keys can access them.
@@ -34,9 +35,15 @@ the S3 remote.
   Think carefully about who can access your repository before using
   embedcreds without gpg encryption.
 
-* `datacenter` - Defaults to "US". Other values include "EU" (which is EU/Ireland),
-  "us-west-1", "us-west-2", "ap-southeast-1", "ap-southeast-2", and
-  "sa-east-1".
+* `onlyencryptcreds` - Optional. Set to "yes" to make the `encryption`
+  only be used for the embedded login credentials, but not used to encrypt
+  the content stored on the special remote.
+
+* `datacenter` - Specifies which Amazon datacenter
+  to use when creating a bucket. Defaults to "US". Other values include "EU"
+  (which is EU/Ireland), "us-west-1", "us-west-2", etc. See Amazon's
+  documentation for a complete list. Configuring this is equivilant to
+  configuring both `host` and `region`.
 
 * `storageclass` - Default is "STANDARD".  
   Consult S3 provider documentation for pricing details and available
@@ -45,23 +52,41 @@ the S3 remote.
   When using Amazon S3,
   if the remote will be used for backup or archival,
   and so its files are Infrequently Accessed, `STANDARD_IA` is a
-  good choice to save money (requires a git-annex built with aws-0.13.0).
+  good choice to save money.
   If you have configured git-annex to preserve
   multiple [[copies]], also consider setting this to `ONEZONE_IA`
   to save even more money.
 
-  Amazon S3's `DEEP_ARCHIVE` is similar to Amazon Glacier. For that,
-  use the [[glacier]] special remote, rather than this one.
+  Amazon S3's `GLACIER` and `DEEP_ARCHIVE` and similar storage classes
+  that do not provide real-time access to files can also be used, but
+  you must  set `restore=yes` when using them.
 
   When using Google Cloud Storage, to make a nearline bucket, set this to
-  `NEARLINE`. (Requires a git-annex built with aws-0.13.0)
+  `NEARLINE`.
 
   Note that changing the storage class of an existing S3 remote will
   affect new objects sent to the remote, but not objects already
   stored there.
 
-* `host` - Specify in order to use a different, S3 compatable
+* `restore` - Optional. Set to "yes" to make git-annex try to initiate a
+  restore of a file when it is not currently accessible in the S3
+  bucket. This is needed when using Amazon S3's `DEEP_ARCHIVE` and
+  similar storage classes.
+
+  When a S3 special remote is configured this way, commands like 
+  "git-annex get" trigger the restore, and will fail due to the data not
+  being available. You can then wait a while, re-run the same command,
+  and this time, it will actually download the data.
+
+  The git configs `annex.s3-restore-tier` and `annex.s3-restore-days`
+  (and similar per-remote configs) can be used to control the retrival
+  tier and how many days to keep the restored file available.
+
+* `host` - Specify in order to use a different, S3 compatible
   service.
+
+* `region` - Specify the region to use. Only makes sense to use when
+  you also set `host`.
 
 * `protocol` - Either "http" (the default) or "https". Setting
   protocol=https implies port=443. 
@@ -80,9 +105,8 @@ the S3 remote.
   indication that you need to use this.
 
 * `signature` - This controls the S3 signature version to use.
-  "v2" is currently the default, "v4" is needed to use some S3 services.
-  If you get some kind of authentication error, try "v4".
-  To access a S3 bucket anonymously, use "anonymous".
+  The default is "v4" when using Amazon S3, but "v2" when using other
+  hosts. To access a S3 bucket anonymously, use "anonymous".
 
 * `bucket` - S3 requires that buckets have a globally unique name, 
   so by default, a bucket name is chosen based on the remote name
@@ -118,15 +142,23 @@ the S3 remote.
   When versioning is not enabled, this risks data loss, and so git-annex
   will not let you enable a remote with that configuration unless forced.
 
-* `public` - Set to "yes" to allow public read access to files sent
-  to the S3 remote. This is accomplished by setting an ACL when each 
-  file is uploaded to the remote. So, changes to this setting will
-  only affect subseqent uploads.
+* `annexobjects` - When set to "yes" along with "exporttree=yes",
+  this allows storing other objects in the remote along with the
+  exported tree. They will be stored under .git/annex/objects/ in the
+  remote.
 
 * `publicurl` - Configure the URL that is used to download files
-  from the bucket. Using this in combination with public=yes allows
-  git-annex to download files from the S3 remote without needing to
-  know the S3 credentials.
+  from the bucket. Using this with a S3 bucket that has been configured
+  to allow anyone to download its content allows git-annex to download
+  files from the S3 remote without needing to know the S3 credentials.
+
+  To configure the S3 bucket to allow anyone to download its content,
+  refer to S3 documentation to set a Bucket Policy.
+
+* `public` - Deprecated. This enables public read access to files sent to
+  the S3 remote using ACLs. Note that Amazon S3 buckets created after April
+  2023 do not support using ACLs in this way and a Bucket Policy must instead
+  be used. This should only be set for older buckets.
 
 * `partsize` - Amazon S3 only accepts uploads up to a certian file size,
   and storing larger files requires a multipart upload process.
@@ -146,10 +178,14 @@ the S3 remote.
   and to "bar/" in another special remote, and both special remotes could
   then use the same bucket.
 
-* `x-amz-meta-*` are passed through as http headers when storing keys
-  in S3.
+* `x-amz-meta-*` are passed through as http headers
+  when storing keys in S3.
 
 * `x-archive-meta-*` are passed through as http headers when storing keys
   in the Internet Archive. See
   [the Internet Archive S3 interface documentation](https://archive.org/help/abouts3.txt)
   for example headers.
+
+* `x-amz-tagging` is passed through as a http header
+  when storing keys in S3. (Needs git-annex 10.20251118 or newer
+  built with aws-0.25. Otherwise, the header will *not* be sent.)

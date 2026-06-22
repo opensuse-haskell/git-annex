@@ -22,7 +22,7 @@ finds files in the current directory and its subdirectories.
   currently present. Specifying any of the matching options will override
   this default behavior.
 
-  To list all annexed files, present or not, specify `--include "*"`.
+  To list all annexed files, present or not, specify `--anything`.
 
   To list annexed files whose content is not present, specify `--not --in=here`
 
@@ -41,7 +41,8 @@ finds files in the current directory and its subdirectories.
   The value is a format string, in which '${var}' is expanded to the
   value of a variable. To right-justify a variable with whitespace,
   use '${var;width}' ; to left-justify a variable, use '${var;-width}';
-  to escape unusual characters in a variable, use '${escaped_var}'
+  to escape unusual characters (including control characters)
+  in a variable, use '${escaped_var}'
 
   These variables are available for use in formats: file, key, backend,
   bytesize, humansize, keyname, hashdirlower, hashdirmixed, mtime (for
@@ -49,7 +50,8 @@ finds files in the current directory and its subdirectories.
 
   Also, '\\n' is a newline, '\\000' is a NULL, etc.
 
-  The default output format is the same as `--format='${file}\\n'`
+  The default output format is the same as `--format='${file}\\n'`,
+  except when outputting to a terminal, control characters will be escaped.
 
 * `--json`
 
@@ -61,7 +63,7 @@ finds files in the current directory and its subdirectories.
 * `--json-error-messages`
 
   Messages that would normally be output to standard error are included in
-  the json instead.
+  the JSON instead.
 
 * `--batch`
 
@@ -85,7 +87,7 @@ finds files in the current directory and its subdirectories.
 
 [[git-annex-whereis]](1)
 
-[[git-annex-list]](1)
+[[git-annex-findkeys]](1)
 
 # AUTHOR
 

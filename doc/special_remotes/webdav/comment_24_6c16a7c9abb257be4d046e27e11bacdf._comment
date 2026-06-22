@@ -1,0 +1,9 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""Re: read-only webdav access"""
+ date="2025-01-07T18:51:26Z"
+ content="""
+Update: Since I posted this comment, enableremote of an existing webdav
+special remote has been made to work even if you cannot write to it. So
+there is no need to use httpalso and no need for a readonly=true.
+"""]]

@@ -1,6 +1,6 @@
 # NAME
 
-git-annex assistant - automatically sync changes
+git-annex assistant - daemon to add files and automatically sync changes
 
 # SYNOPSIS
 
@@ -9,7 +9,17 @@ git annex assistant
 # DESCRIPTION
 
 Watches for changes to files in the current directory and its subdirectories,
-and automatically syncs them to other remotes.
+and automatically syncs them to other remotes. This includes adding new
+files. New files published to remotes by others are also automatically
+downloaded.
+
+By default, all new files in the directory will be added to the repository.
+(Including dotfiles.) To block some files from being added, use
+`.gitignore` files.
+  
+By default, all files that are added are added to the annex, the same
+as when you run `git annex add`. If you configure annex.largefiles,
+files that it does not match will instead be added with `git add`.
 
 # OPTIONS
 
@@ -47,6 +57,8 @@ and automatically syncs them to other remotes.
 [[git-annex]](1)
 
 [[git-annex-watch]](1)
+
+[[git-annex-assist]](1)
 
 [[git-annex-schedule]](1)
 
