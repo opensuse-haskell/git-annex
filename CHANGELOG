@@ -1,6 +1,10 @@
 git-annex (10.20260602) UNRELEASED; urgency=medium
 
-  * Added Botan build flag, which speeds up checksumming significantly.
+  * Added Botan build flag, which speeds up checksumming significantly
+    for most existing hash backends.
+  * Added Blake3 build flag, which is the fastest available hash in
+    git-annex now.
+    Thanks to edef for their patches.
   * Improve handling of synced/master and similar branches, by
     only creating such branches when necessary to push to a non-bare
     remote, and by removing the local synced branch once its changes
