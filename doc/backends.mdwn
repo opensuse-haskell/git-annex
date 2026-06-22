@@ -76,7 +76,8 @@ in `.gitattributes`:
 ## non-cryptograpgically secure backends
 
 The backends below do not guarantee cryptographically that the
-content of an annexed file remains unchanged.
+content of an annexed file remains unchanged. git-annex can be configured
+to not allow these, by the `annex.securehashesonly` git-config setting.
 
 * `SHA1`, `SHA1E`, `MD5`, `MD5E` -- Smaller hashes than `SHA256`
    for those who want a checksum but are not concerned about security.
