@@ -1,0 +1,9 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 7"""
+ date="2026-06-22T15:22:32Z"
+ content="""
+This would still be worth doing despite git-annex supporting BLAKE3 now.
+XXHASH is even faster, due to not needing to do the work to be
+cryptographically secure.
+"""]]
