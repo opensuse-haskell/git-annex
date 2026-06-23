@@ -337,7 +337,9 @@ Executable git-annex
     Other-Modules:
       Utility.Hash.Botan
 
-  if flag(Blake3)
+  -- Disabled on arm until this issue is resolved:
+  -- https://github.com/k0001/hs-blake3/issues/8
+  if flag(Blake3) && (! arch(aarch64) && ! arch(arm))
     Build-Depends: blake3 (>= 0.3)
     CPP-Options: -DWITH_BLAKE3
     Other-Modules:
