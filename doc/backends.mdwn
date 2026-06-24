@@ -64,7 +64,10 @@ in `.gitattributes`:
   Unlike the Blake2 family, Blake3 is a single variant optimised for many platforms.
   It is still faster than Blake2 in most cases.  
   This is only supported when git-annex is built with the Blake3 build
-  flag.
+  flag.  
+  When the `b3sum` program is in the PATH, it is used rather than the
+  built-in Blake3 library. It is significantly faster due to
+  multithreading.
 
 ### Other
 

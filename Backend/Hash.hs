@@ -179,7 +179,7 @@ sameCheckSum key hash
 	backslash = fromIntegral (ord '\\')
 
 checkKeyChecksumIncremental :: HashType -> Maybe (Key -> Annex IncrementalVerifier)
-checkKeyChecksumIncremental hash = case snd (hasher hash) of
+checkKeyChecksumIncremental hash = case hashIncremental (hasher hash) of
 	Just iv -> Just (liftIO . iv)
 	Nothing -> Nothing
 
@@ -238,15 +238,25 @@ trivialMigrate' oldkey newbackend afile maxextlen maxexts
 	newvariety = backendVariety newbackend
 
 hashFile :: HashType -> OsPath -> MeterUpdate -> Annex Hash
-hashFile hash file meterupdate = 
-	liftIO $ withMeteredFile file meterupdate $ \b -> do
-		let h = (fst $ hasher hash) b
+hashFile hashtype file meterupdate = case hashFileFast o of
+	Nothing -> liftIO hashpure
+	Just a -> liftIO $ a file >>= \case
+		Just h -> return h
+		Nothing -> hashpure
+  where
+	o = hasher hashtype
+	hashpure = withMeteredFile file meterupdate $ \b -> do
+		let h = (hashPure o) b
 		-- Force full evaluation of hash so whole file is read
 		-- before returning.
 		evaluate (rnf h)
 		return h
 
-type Hasher = (L.ByteString -> Hash, Maybe (Key -> IO IncrementalVerifier))
+data Hasher = Hasher
+	{ hashPure :: L.ByteString -> Hash
+	, hashFileFast :: Maybe (OsPath -> IO (Maybe Hash))
+	, hashIncremental :: Maybe (Key -> IO IncrementalVerifier)
+	}
 
 hasher :: HashType -> Hasher
 hasher MD5Hash = md5Hasher
@@ -266,10 +276,12 @@ hasher XXH3Hash = xxh3Hasher
 #endif
 
 mkHasher :: (L.ByteString -> HashDigest) -> IO IncrementalHasher -> Hasher
-mkHasher h i = 
-	( digestToHash . h
-	, Just $ mkIncrementalVerifier i descChecksum . sameCheckSum
-	)
+mkHasher h i = Hasher
+	{ hashPure = digestToHash . h
+	, hashFileFast = Nothing
+	, hashIncremental = Just $
+		mkIncrementalVerifier i descChecksum . sameCheckSum
+	}
 
 sha2Hasher :: HashSize -> Hasher
 sha2Hasher (HashSize hashsize)
@@ -322,12 +334,22 @@ blake2spHasher (HashSize hashsize)
 
 #ifdef WITH_BLAKE3
 blake3Hasher :: Hasher
-blake3Hasher = (blake3, Just $ blake3IncrementalVerifier descChecksum . sameCheckSum)
+blake3Hasher = Hasher
+	{ hashPure = blake3
+	, hashFileFast = Just blake3File
+	-- No incremental verification for blake3 because
+	-- blake3File is much faster.
+	, hashIncremental = Nothing
+	}
 #endif
 
 #ifdef WITH_XXH3
 xxh3Hasher :: Hasher
-xxh3Hasher = (digestToHash . xxh3, xxh3Incremental)
+xxh3Hasher = Hasher
+	{ hashPure = digestToHash . xxh3
+	, hashFileFast = Nothing
+	, hashIncremental = xxh3Incremental
+	}
 #endif
 
 sha1Hasher :: Hasher
@@ -367,6 +389,6 @@ testKeyHash = SHA2Hash (HashSize 256)
 genTestKey :: L.ByteString -> Key
 genTestKey content = addTestE $ mkKey $ \kd -> kd
 	{ keyName = S.toShort $ hashByteString $
-		(fst $ hasher testKeyHash) content
+		(hashPure $ hasher testKeyHash) content
 	, keyVariety = backendVariety testKeyBackend
 	}
