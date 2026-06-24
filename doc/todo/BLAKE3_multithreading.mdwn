@@ -36,3 +36,5 @@ Supporting BLAKE3 multithreading would not be trivial. It needs mmaped file acce
 and the C++ library oneTBB, which would need to be somehow linked into the haskell library.
 
 Calling out to b3sum when in PATH would be easier.. --[[Joey]]
+
+> [[done]]
