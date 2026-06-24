@@ -29,6 +29,9 @@ file with SHA256SUM, git-annex fsck:
 	11.18user 2.11system 0:13.41elapsed 99%CPU (0avgtext+0avgdata 53792maxresident)k
 	7816912inputs+288outputs (2major+8615minor)pagefaults 0swaps
 
+Using -J with enough concurrent files might approach b3sum's speed,
+but often a user wants to add or fsck 1 file as fast as possible.
+
 Supporting BLAKE3 multithreading would not be trivial. It needs mmaped file access,
 and the C++ library oneTBB, which would need to be somehow linked into the haskell library.
 
