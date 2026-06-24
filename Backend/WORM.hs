@@ -29,6 +29,7 @@ backend = Backend
 	, genKey = Just keyValue
 	, verifyKeyContent = Nothing
 	, verifyKeyContentIncrementally = Nothing
+	, verifyKeyContentIsFaster = True
 	, canUpgradeKey = Just needsUpgrade
 	, fastMigrate = Just removeProblemChars
 	, isStableKey = const True

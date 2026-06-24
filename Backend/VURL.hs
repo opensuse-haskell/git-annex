@@ -72,7 +72,10 @@ backendVURL = Backend
 			, positionIncrementalVerifier =
 				getM positionIncrementalVerifier l
 			, descIncrementalVerifier = descChecksum
-			} 
+			}
+	-- Incremental is faster because it avoids reading the file more
+	-- than once when there are multiple equivilant keys.
+	, verifyKeyContentIsFaster = False
 	, canUpgradeKey = Nothing
 	, fastMigrate = Just migrateFromVURLToURL
 	-- Even if a hash is recorded on initial download from the web and

@@ -39,6 +39,7 @@ gitbundle = Backend
 	-- git-remote-annex.
 	, verifyKeyContent = Just $ Hash.checkKeyChecksum sameCheckSum hash
 	, verifyKeyContentIncrementally = Just (liftIO . incrementalVerifier)
+	, verifyKeyContentIsFaster = True
 	, canUpgradeKey = Nothing
 	, fastMigrate = Nothing
 	, isStableKey = const True
@@ -53,6 +54,7 @@ gitmanifest = Backend
 	, genKey = Nothing
 	, verifyKeyContent = Nothing
 	, verifyKeyContentIncrementally = Nothing
+	, verifyKeyContentIsFaster = True
 	, canUpgradeKey = Nothing
 	, fastMigrate = Nothing
 	, isStableKey = const True

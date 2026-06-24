@@ -26,6 +26,7 @@ backendURL = Backend
 	, genKey = Nothing
 	, verifyKeyContent = Nothing
 	, verifyKeyContentIncrementally = Nothing
+	, verifyKeyContentIsFaster = True
 	, canUpgradeKey = Nothing
 	, fastMigrate = Just migrateFromURLToVURL
 	-- The content of an url can change at any time, so URL keys are

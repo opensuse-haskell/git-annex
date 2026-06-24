@@ -102,9 +102,6 @@ verifyKeyContentPostRetrieval rsp v verification k f = case (rsp, verification) 
 				resumeVerifyKeyContent k f iv
 			_ -> verifyKeyContent k f
 
--- When possible, does an incremental verification, because that can be
--- faster. Eg, the VURL backend can need to try multiple checksums and only
--- with an incremental verification does it avoid reading files twice.
 verifyKeyContent :: Key -> OsPath -> Annex Bool
 verifyKeyContent k f = verifyKeySize k f <&&> verifyKeyContent' k f
 
@@ -115,6 +112,8 @@ verifyKeyContent' k f =
 		Nothing -> return True
 		Just b -> case (Types.Backend.verifyKeyContentIncrementally b, Types.Backend.verifyKeyContent b) of
 			(Nothing, Nothing) -> return True
+			(_, Just verifier) | Types.Backend.verifyKeyContentIsFaster b -> 
+				verifier k f
 			(Just mkiv, mverifier) -> do
 				iv <- mkiv k
 				showAction (UnquotedString (descIncrementalVerifier iv))

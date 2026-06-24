@@ -26,6 +26,12 @@ data BackendA a = Backend
 	-- hash as verifyKeyContent, but with the content provided
 	-- incrementally a piece at a time, until finalized.
 	, verifyKeyContentIncrementally :: Maybe (Key -> a IncrementalVerifier)
+	-- Is verifyKeyContent sufficiently faster than
+	-- verifyKeyContentIncrementally that it should be used when the
+	-- content of the file is already available? (Even if so, it
+	-- still makes sense to use verifyKeyContentIncrementally when
+	-- downloading a file.)
+	, verifyKeyContentIsFaster :: Bool
 	-- Checks if a key can be upgraded to a better form.
 	, canUpgradeKey :: Maybe (Key -> Bool)
 	-- Checks if there is a fast way to migrate a key to a different

@@ -106,6 +106,7 @@ genBackend hash = Backend
 	, genKey = Just (keyValue hash)
 	, verifyKeyContent = Just $ checkKeyChecksum sameCheckSum hash
 	, verifyKeyContentIncrementally = checkKeyChecksumIncremental hash
+	, verifyKeyContentIsFaster = True
 	, canUpgradeKey = Just needsUpgrade
 	, fastMigrate = Just trivialMigrate
 	, isStableKey = const True
@@ -337,9 +338,8 @@ blake3Hasher :: Hasher
 blake3Hasher = Hasher
 	{ hashPure = blake3
 	, hashFileFast = Just blake3File
-	-- No incremental verification for blake3 because
-	-- blake3File is much faster.
-	, hashIncremental = Nothing
+	, hashIncremental = Just $
+		blake3IncrementalVerifier descChecksum . sameCheckSum
 	}
 #endif
 

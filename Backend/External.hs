@@ -69,6 +69,7 @@ makeBackend' ebname@(ExternalBackendName bname) hasext (Right p) = do
 				nullMeterUpdate
 			else Nothing
 		, verifyKeyContentIncrementally = Nothing
+		, verifyKeyContentIsFaster = True
 		, canUpgradeKey = Nothing
 		, fastMigrate = Nothing
 		, isStableKey = const isstable
@@ -84,6 +85,7 @@ unavailBackend (ExternalBackendName bname) hasext =
 		, genKey = Nothing
 		, verifyKeyContent = Nothing
 		, verifyKeyContentIncrementally = Nothing
+		, verifyKeyContentIsFaster = True
 		, canUpgradeKey = Nothing
 		, fastMigrate = Nothing
 		, isStableKey = const False
