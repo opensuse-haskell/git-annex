@@ -1,0 +1,35 @@
+git-annex using BLAKE3 is significantly slower than b3sum.
+The latter uses BLAKE3's multithreading, which is not available in the
+haskell library.
+
+<https://github.com/k0001/hs-blake3/issues/9>
+
+On a 4 gb file:
+
+git-annex fsck:
+
+	1.25user 2.36system 0:07.81elapsed 46%CPU (0avgtext+0avgdata 57676maxresident)k
+	5539480inputs+208outputs (2major+9161minor)pagefaults 0swaps
+
+b3sum:
+
+	1.60user 3.03system 0:02.98elapsed 155%CPU (0avgtext+0avgdata 3158216maxresident)k
+	7013984inputs+0outputs (15345major+57763minor)pagefaults 0swaps
+
+b3sum --num-threads 1:
+
+	1.24user 1.62system 0:07.31elapsed 39%CPU (0avgtext+0avgdata 2326392maxresident)k
+	5902456inputs+0outputs (3262major+43283minor)pagefaults 0swaps
+
+A massive amount of performance is being left on the table.
+
+Although even so, BLAKE3 is still signficantly faster than SHA2, eg on the same
+file with SHA256SUM, git-annex fsck:
+
+	11.18user 2.11system 0:13.41elapsed 99%CPU (0avgtext+0avgdata 53792maxresident)k
+	7816912inputs+288outputs (2major+8615minor)pagefaults 0swaps
+
+Supporting BLAKE3 multithreading would not be trivial. It needs mmaped file access,
+and the C++ library oneTBB, which would need to be somehow linked into the haskell library.
+
+Calling out to b3sum when in PATH would be easier.. --[[Joey]]
