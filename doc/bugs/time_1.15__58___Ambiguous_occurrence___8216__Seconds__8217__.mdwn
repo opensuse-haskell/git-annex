@@ -10,9 +10,9 @@ Build git-annex with GHC 9.14
 
 ## What version of git-annex are you using? On what operating system?
 
-OS: Arch Linux\
-Kernel: 7.0.13-arch1-1\
-GHC: 9.14\
+OS: Arch Linux  
+Kernel: 7.0.13-arch1-1  
+GHC: 9.14  
 git-annex: 10.20251215, newer versions are also affected afaict, including the recently released 10.20260624
 
 ## Please provide any additional information below.
