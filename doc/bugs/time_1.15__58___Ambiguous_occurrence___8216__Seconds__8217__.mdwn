@@ -1,6 +1,13 @@
 ## Please describe the problem.
 
-Building git-annex with GHC 9.14/time 1.15 fails with error "Ambiguous occurrence ‘Seconds’." in Annex/StallDetection.hs
+Building git-annex with GHC 9.14/time 1.15 fails with error "Ambiguous occurrence ‘Seconds’." in 
+
+- Annex/StallDetection.hs, 
+- Assistant/Threads/Committer.hs, 
+- Assistant/Threads/Cronner.hs, 
+- Assistant/Threads/Exporter.hs
+- Assistant/Threads/Watcher.hs 
+- Command/FuzzTest.hs
 
 time 1.15 adds "Seconds" to Data.Time.Clock, leading to ambiguity. Easiest fix would probably be to hide the export, alternatively use qualified import.
 
