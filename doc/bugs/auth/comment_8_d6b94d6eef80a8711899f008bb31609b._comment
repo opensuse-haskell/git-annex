@@ -1,0 +1,15 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 8"""
+ date="2026-07-01T19:40:42Z"
+ content="""
+The wwwauth field is the relevant one.
+
+There was a past bug about a very similar problem:
+<https://git-annex.branchable.com/bugs/__96__git_annex_push__96___does_not_use_git-credential-oauth/>
+
+[[!commit 32fac0b103db1982b748f15def825e1490d34f50]] was supposed to fix
+that, by passing the www-authenticate http header in to git credential.
+
+This bug must be a case where that doesn't happen.
+"""]]
