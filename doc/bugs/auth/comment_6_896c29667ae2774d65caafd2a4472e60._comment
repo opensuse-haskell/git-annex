@@ -1,0 +1,30 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 6"""
+ date="2026-07-01T17:00:06Z"
+ content="""
+In your bug report I noticed that the password prompt is for
+"https://oauth2@<host>" but when you git push it's to
+"https://<host>/<repo>.git". I'm not clear on if these were
+really different urls or if it was a mistake in your sanitization.
+
+If there are different urls, `git-credential-oauth` could have acted
+on one and not on the other. Although I don't understand why running
+`git pull` would then cache a credential that would be used on a different url.
+
+Assuming you're using `git-credential-oauth` from eg the Debian package of
+that name, here's an example of it not acting on an url:
+
+	joey@darkstar:~/tmp/x>(echo 'protocol=https'; echo 'host=example.com'; echo 'username=oauth2') | git-credential-oauth get
+	joey@darkstar:~/tmp/x>
+
+Running it the same way with github.com doesn't behave that way:
+
+	joey@darkstar:~/tmp/x>(echo 'protocol=https'; echo 'host=github.com'; echo 'username=oauth2') | git-credential-oauth get
+	Please complete authentication in your browser...
+
+This behavior is not network dependent. In fact, `git-credential-oauth` has a
+pile of special casing for different hosts and different servers, including a
+looksLikeForgejo case. If it does not recognize the server name, it doesn't do
+anything without further configuration.
+"""]]
