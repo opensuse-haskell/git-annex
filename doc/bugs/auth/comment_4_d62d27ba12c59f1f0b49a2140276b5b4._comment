@@ -1,0 +1,13 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 4"""
+ date="2026-07-01T15:43:12Z"
+ content="""
+At the risk of introducing a second red herring, this seems similar to
+[[bugs/git_annex_checkpresentkey_removes_git_credentials]]. But I don't
+think the same, because here `git-annex push` works after `git push` has
+cached a credential, so git-annex is apparently not removing the cached
+credential.
+
+Could you link to the forgejo-aneksajo issue that is/was being dealt with?
+"""]]
