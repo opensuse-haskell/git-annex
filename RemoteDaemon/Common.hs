@@ -60,7 +60,7 @@ robustConnection backoff a =
   where
 	caught ConnectionStopping = return ()
 	caught ConnectionClosed = do
-		threadDelaySeconds (Seconds backoff)
+		threadDelaySeconds (SecondsDelay backoff)
 		robustConnection increasedbackoff a
 
 	increasedbackoff

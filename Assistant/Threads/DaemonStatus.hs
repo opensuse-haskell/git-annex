@@ -20,7 +20,7 @@ daemonStatusThread = namedThread "DaemonStatus" $ do
 	notifier <- liftIO . newNotificationHandle False
 		=<< changeNotifier <$> getDaemonStatus
 	checkpoint
-	runEvery (Seconds tenMinutes) <~> do
+	runEvery (SecondsDelay tenMinutes) <~> do
 		liftIO $ waitNotification notifier
 		checkpoint
   where

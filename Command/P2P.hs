@@ -286,7 +286,7 @@ finishPairing retries remotename (HalfAuthToken ourhalf) ouraddrs (PairData (Hal
   where
 	go 0 [] _ _ = return $ LinkFailed $ "Unable to connect to " ++ remotename ++ "."
 	go n [] theirauthtoken ourauthtoken = do
-		liftIO $ threadDelaySeconds (Seconds 2)
+		liftIO $ threadDelaySeconds (SecondsDelay 2)
 		liftIO $ putStrLn $ "Unable to connect to " ++ remotename ++ ". Retrying..."
 		go (n-1) theiraddrs theirauthtoken ourauthtoken
 	go n (theiraddr:rest) theirauthtoken ourauthtoken = do

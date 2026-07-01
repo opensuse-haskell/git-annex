@@ -91,7 +91,7 @@ sanityCheckerStartupThread startupdelay = namedThreadUnchecked "SanityCheckerSta
 	void $ liftAnnex $ tryNonAsync $ cleanupOtherTmp
 
 	{- If there's a startup delay, it's done here. -}
-	liftIO $ maybe noop (threadDelaySeconds . Seconds . fromIntegral . durationSeconds) startupdelay
+	liftIO $ maybe noop (threadDelaySeconds . SecondsDelay . fromIntegral . durationSeconds) startupdelay
 
 	{- Notify other threads that the startup sanity check is done. -}
 	status <- getDaemonStatus
@@ -100,7 +100,7 @@ sanityCheckerStartupThread startupdelay = namedThreadUnchecked "SanityCheckerSta
 {- This thread wakes up hourly for inxepensive frequent sanity checks. -}
 sanityCheckerHourlyThread :: NamedThread
 sanityCheckerHourlyThread = namedThread "SanityCheckerHourly" $ forever $ do
-	liftIO $ threadDelaySeconds $ Seconds oneHour
+	liftIO $ threadDelaySeconds $ SecondsDelay oneHour
 	hourlyCheck
 
 {- This thread wakes up daily to make sure the tree is in good shape. -}
@@ -135,7 +135,7 @@ waitForNextCheck :: Assistant ()
 waitForNextCheck = do
 	v <- lastSanityCheck <$> getDaemonStatus
 	now <- liftIO getPOSIXTime
-	liftIO $ threadDelaySeconds $ Seconds $ calcdelay now v
+	liftIO $ threadDelaySeconds $ SecondsDelay $ calcdelay now v
   where
 	calcdelay _ Nothing = oneDay
 	calcdelay now (Just lastcheck)

@@ -365,7 +365,7 @@ finalCleanup = whenM (doesDirectoryExist (toOsPath tmpdir)) $ do
 		print e
 		putStrLn "sleeping 10 seconds and will retry directory cleanup"
 		Utility.ThreadScheduler.threadDelaySeconds $
-			Utility.ThreadScheduler.Seconds 10
+			Utility.ThreadScheduler.SecondsDelay 10
 		whenM (doesDirectoryExist (toOsPath tmpdir)) $
 			removeDirectoryForCleanup tmpdir
 

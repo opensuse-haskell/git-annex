@@ -56,7 +56,7 @@ import Config.DynamicConfig
 import Utility.HumanTime
 import Utility.Gpg (GpgCmd, mkGpgCmd)
 import Utility.StatelessOpenPGP (SOPCmd(..), SOPProfile(..))
-import Utility.ThreadScheduler (Seconds(..))
+import Utility.ThreadScheduler (SecondsDelay(..))
 import Utility.Url (Scheme, mkScheme)
 import Network.Socket (PortNumber)
 import P2P.Http.Url
@@ -138,13 +138,13 @@ data GitConfig = GitConfig
 	, annexVerify :: Bool
 	, annexFastCopy :: Bool
 	, annexPidLock :: Bool
-	, annexPidLockTimeout :: Seconds
+	, annexPidLockTimeout :: SecondsDelay
 	, annexDbDir :: Maybe OsPath
 	, annexAddUnlocked :: GlobalConfigurable (Maybe String)
 	, annexSecureHashesOnly :: Bool
 	, annexRetry :: Maybe Integer
 	, annexForwardRetry :: Maybe Integer
-	, annexRetryDelay :: Maybe Seconds
+	, annexRetryDelay :: Maybe SecondsDelay
 	, annexAllowedUrlSchemes :: S.Set Scheme
 	, annexAllowedIPAddresses :: String
 	, annexAllowInsecureHttps :: Bool
@@ -253,7 +253,7 @@ extractGitConfig configsource r = GitConfig
 	, annexVerify = getbool (annexConfig "verify") True
 	, annexFastCopy = getbool (annexConfig "fastcopy") False
 	, annexPidLock = getbool (annexConfig "pidlock") False
-	, annexPidLockTimeout = Seconds $ fromMaybe 300 $
+	, annexPidLockTimeout = SecondsDelay $ fromMaybe 300 $
 		getmayberead (annexConfig "pidlocktimeout")
 	, annexDbDir = (\d -> toOsPath d </> fromUUID hereuuid)
 		<$> getmaybe (annexConfig "dbdir")
@@ -262,7 +262,7 @@ extractGitConfig configsource r = GitConfig
 	, annexSecureHashesOnly = getbool (annexConfig "securehashesonly") False
 	, annexRetry = getmayberead (annexConfig "retry")
 	, annexForwardRetry = getmayberead (annexConfig "forward-retry")
-	, annexRetryDelay = Seconds
+	, annexRetryDelay = SecondsDelay
 		<$> getmayberead (annexConfig "retrydelay")
 	, annexAllowedUrlSchemes = S.fromList $ map mkScheme $
 		maybe ["http", "https", "ftp"] words $
@@ -421,7 +421,7 @@ data RemoteGitConfig = RemoteGitConfig
 	, remoteAnnexBare :: Maybe Bool
 	, remoteAnnexRetry :: Maybe Integer
 	, remoteAnnexForwardRetry :: Maybe Integer
-	, remoteAnnexRetryDelay :: Maybe Seconds
+	, remoteAnnexRetryDelay :: Maybe SecondsDelay
 	, remoteAnnexStallDetection :: Maybe StallDetection
 	, remoteAnnexStallDetectionUpload :: Maybe StallDetection
 	, remoteAnnexStallDetectionDownload :: Maybe StallDetection
@@ -507,7 +507,7 @@ extractRemoteGitConfig r remotename = do
 		, remoteAnnexBare = getmaybebool BareField
 		, remoteAnnexRetry = getmayberead RetryField
 		, remoteAnnexForwardRetry = getmayberead ForwardRetryField
-		, remoteAnnexRetryDelay = Seconds
+		, remoteAnnexRetryDelay = SecondsDelay
 			<$> getmayberead RetryDelayField
 		, remoteAnnexStallDetection =
 			readStallDetection =<< getmaybe StallDetectionField

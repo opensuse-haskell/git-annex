@@ -18,7 +18,7 @@ import qualified Types.Remote as Remote
 
 {- This thread retries pushes that failed before. -}
 pushRetryThread :: NamedThread
-pushRetryThread = namedThread "PushRetrier" $ runEvery (Seconds halfhour) <~> do
+pushRetryThread = namedThread "PushRetrier" $ runEvery (SecondsDelay halfhour) <~> do
 	-- We already waited half an hour, now wait until there are failed
 	-- pushes to retry.
 	topush <- getFailedPushesBefore (fromIntegral halfhour)
@@ -31,7 +31,7 @@ pushRetryThread = namedThread "PushRetrier" $ runEvery (Seconds halfhour) <~> do
 
 {- This thread pushes git commits out to remotes soon after they are made. -}
 pushThread :: NamedThread
-pushThread = namedThread "Pusher" $ runEvery (Seconds 2) <~> do
+pushThread = namedThread "Pusher" $ runEvery (SecondsDelay 2) <~> do
 	-- We already waited two seconds as a simple rate limiter.
 	-- Next, wait until at least one commit has been made
 	void getCommits

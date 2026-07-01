@@ -131,7 +131,7 @@ pollingThread :: UrlRenderer -> Assistant ()
 pollingThread urlrenderer = go =<< liftIO currentMountPoints
   where
 	go wasmounted = do
-		liftIO $ threadDelaySeconds (Seconds 10)
+		liftIO $ threadDelaySeconds (SecondsDelay 10)
 		nowmounted <- liftIO currentMountPoints
 		handleMounts urlrenderer wasmounted nowmounted
 		go nowmounted

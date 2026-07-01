@@ -428,7 +428,7 @@ probeLockSupport = withEventuallyCleanedOtherTmp $ \tmp -> do
 		return ok
 	
 	warnstall annexrunner = do
-		threadDelaySeconds (Seconds 10)
+		threadDelaySeconds (SecondsDelay 10)
 		annexrunner $ do
 			warning "Probing the filesystem for POSIX fcntl lock support is taking a long time."
 			warning "(Setting annex.pidlock will avoid this probe.)"

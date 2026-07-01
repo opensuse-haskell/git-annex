@@ -233,7 +233,7 @@ getSharedConvergenceSecret configdir = go (60 :: Int)
 				Just s | "\n" `isSuffixOf` s || "\r" `isSuffixOf` s ->
 					return $ takeWhile (`notElem` ("\n\r" :: String)) s
 				_ -> do
-					threadDelaySeconds (Seconds 1)
+					threadDelaySeconds (SecondsDelay 1)
 					go (n - 1)
 
 convergenceFile :: TahoeConfigDir -> OsPath
@@ -274,7 +274,7 @@ startTahoeDaemon configdir = withNullHandle $ \nullh -> do
 			if ok
 				then return ()
 				else do
-					threadDelaySeconds (Seconds 1)
+					threadDelaySeconds (SecondsDelay 1)
 					waitready (pred n)
 
 {- Ensures that tahoe has been started, before running an action

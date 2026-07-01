@@ -114,7 +114,7 @@ checkHiddenService = bracket setup cleanup go
 		liftIO (tryNonAsync $ connectPeer Nothing addr) >>= \case
 			Left e -> do
 				warning $ UnquotedString $ "Unable to connect to hidden service. It may not yet have propagated to the Tor network. (" ++ show e ++ ") Will retry.."
-				liftIO $ threadDelaySeconds (Seconds 2)
+				liftIO $ threadDelaySeconds (SecondsDelay 2)
 				check (n-1) addrs
 			Right conn -> do
 				liftIO $ closeConnection conn

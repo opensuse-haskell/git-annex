@@ -96,7 +96,7 @@ runTransferThread' mkcheck rt d run = go
 			Annex.getRead Annex.signalactions
 		withTransferrer' True signalactonsvar mkcheck rt p run
 	pause = catchPauseResume $
-		runEvery (Seconds 86400) noop
+		runEvery (SecondsDelay 86400) noop
 	{- Note: This must use E.try, rather than E.catch.
 	 - When E.catch is used, and has called go in its exception
 	 - handler, Control.Concurrent.throwTo will block sometimes

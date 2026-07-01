@@ -59,7 +59,7 @@ runNonInteractive = do
 	ochan <- newTChanIO :: IO (TChan Emitted)
 	
 	let reader = forever $ do
-		threadDelaySeconds (Seconds (60*60))
+		threadDelaySeconds (SecondsDelay (60*60))
 		atomically $ writeTChan ichan RELOAD
 	let writer = forever $
 		void $ atomically $ readTChan ochan

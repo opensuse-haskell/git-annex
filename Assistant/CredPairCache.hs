@@ -27,7 +27,7 @@ import Control.Concurrent
  - Note that repeatedly caching the same CredPair
  - does not reset its expiry time.
  -}
-cacheCred :: CredPair -> Seconds -> Assistant ()
+cacheCred :: CredPair -> SecondsDelay -> Assistant ()
 cacheCred (login, password) expireafter = do
 	cache <- getAssistant credPairCache
 	liftIO $ do

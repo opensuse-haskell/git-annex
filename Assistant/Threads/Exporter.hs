@@ -25,7 +25,7 @@ import qualified Data.Map as M
 
 {- This thread retries exports that failed before. -}
 exportRetryThread :: NamedThread
-exportRetryThread = namedThread "ExportRetrier" $ runEvery (Seconds halfhour) <~> do
+exportRetryThread = namedThread "ExportRetrier" $ runEvery (SecondsDelay halfhour) <~> do
 	-- We already waited half an hour, now wait until there are failed
 	-- exports to retry.
 	toexport <- getFailedPushesBefore (fromIntegral halfhour) 
@@ -38,7 +38,7 @@ exportRetryThread = namedThread "ExportRetrier" $ runEvery (Seconds halfhour) <~
 
 {- This thread updates exports soon after git commits are made. -}
 exportThread :: NamedThread
-exportThread = namedThread "Exporter" $ runEvery (Seconds 30) <~> do
+exportThread = namedThread "Exporter" $ runEvery (SecondsDelay 30) <~> do
 	-- We already waited two seconds as a simple rate limiter.
 	-- Next, wait until at least one commit has been made
 	void getExportCommits

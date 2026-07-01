@@ -59,7 +59,7 @@ commitThread :: NamedThread
 commitThread = namedThread "Committer" $ do
 	havelsof <- liftIO $ inSearchPath "lsof"
 	delayadd <- liftAnnex $
-		fmap Seconds . annexDelayAdd <$> Annex.getGitConfig
+		fmap SecondsDelay . annexDelayAdd <$> Annex.getGitConfig
 	largefilematcher <- liftAnnex largeFilesMatcher
 	annexdotfiles <- liftAnnex $ getGitConfigVal annexDotFiles
 	addunlockedmatcher <- liftAnnex $
@@ -111,7 +111,7 @@ waitChangeTime a = waitchanges 0
   where
 	waitchanges lastcommitsize = do
 		-- Wait one one second as a simple rate limiter.
-		liftIO $ threadDelaySeconds (Seconds 1)
+		liftIO $ threadDelaySeconds (SecondsDelay 1)
 		-- Now, wait until at least one change is available for
 		-- processing.
 		cs <- getChanges
@@ -193,7 +193,7 @@ waitChangeTime a = waitchanges 0
 		loop 0 = continue oldchanges
 		loop n = do
 			liftAnnex noop -- ensure Annex state is free
-			liftIO $ threadDelaySeconds (Seconds 1)
+			liftIO $ threadDelaySeconds (SecondsDelay 1)
 			changes <- getAnyChanges
 			if null changes
 				then loop (n - 1)
@@ -280,7 +280,7 @@ commitStaged msg = do
  - Any pending adds that are not ready yet are put back into the ChangeChan,
  - where they will be retried later.
  -}
-handleAdds :: OsPath -> Bool -> GetFileMatcher -> Bool -> Maybe AddUnlockedMatcher -> Maybe Seconds -> [Change] -> Assistant [Change]
+handleAdds :: OsPath -> Bool -> GetFileMatcher -> Bool -> Maybe AddUnlockedMatcher -> Maybe SecondsDelay -> [Change] -> Assistant [Change]
 handleAdds lockdowndir havelsof largefilematcher annexdotfiles addunlockedmatcher delayadd cs = returnWhen (null incomplete) $ do
 	let (pending, inprocess) = partition isPendingAddChange incomplete
 	let lockdownconfig = LockDownConfig
@@ -467,7 +467,7 @@ handleAdds lockdowndir havelsof largefilematcher annexdotfiles addunlockedmatche
  -
  - Check by running lsof on the repository.
  -}
-safeToAdd :: OsPath -> LockDownConfig -> Bool -> Maybe Seconds -> [Change] -> [Change] -> Assistant [Either Change Change]
+safeToAdd :: OsPath -> LockDownConfig -> Bool -> Maybe SecondsDelay -> [Change] -> [Change] -> Assistant [Either Change Change]
 safeToAdd _ _ _ _ [] [] = return []
 safeToAdd lockdowndir lockdownconfig havelsof delayadd pending inprocess = do
 	maybe noop (liftIO . threadDelaySeconds) delayadd

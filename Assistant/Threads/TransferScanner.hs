@@ -45,7 +45,7 @@ transferScannerThread urlrenderer = namedThread "TransferScanner" $ do
   where
 	go scanned = do
 		scanrunning False
-		liftIO $ threadDelaySeconds (Seconds 2)
+		liftIO $ threadDelaySeconds (SecondsDelay 2)
 		(rs, infos) <- unzip <$> getScanRemote
 		scanrunning True
 		if any fullScan infos || any (`S.notMember` scanned) rs

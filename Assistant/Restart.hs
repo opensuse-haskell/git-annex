@@ -52,7 +52,7 @@ postRestart url = do
 	modifyDaemonStatus_ $ \status -> status { globalRedirUrl = Just url }
 	liftIO . sendNotification . globalRedirNotifier =<< getDaemonStatus
 	void $ liftIO $ forkIO $ do
-		threadDelaySeconds (Seconds 120)
+		threadDelaySeconds (SecondsDelay 120)
 		terminateSelf
 
 terminateSelf :: IO ()

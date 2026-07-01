@@ -48,7 +48,7 @@ netWatcherThread = thread noop
  -}
 netWatcherFallbackThread :: NamedThread
 netWatcherFallbackThread = namedThread "NetWatcherFallback" $
-	runEvery (Seconds 3600) <~> handleConnection
+	runEvery (SecondsDelay 3600) <~> handleConnection
 
 #if WITH_DBUS
 
@@ -80,7 +80,7 @@ dbusThread = do
 		liftAnnex $
 			warning $ UnquotedString $ "lost dbus connection; falling back to polling (" ++ show e ++ ")"
 		{- Wait, in hope that dbus will come back -}
-		liftIO $ threadDelaySeconds (Seconds 60)
+		liftIO $ threadDelaySeconds (SecondsDelay 60)
 
 {- Examine the list of services connected to dbus, to see if there
  - are any we can use to monitor network connections. -}

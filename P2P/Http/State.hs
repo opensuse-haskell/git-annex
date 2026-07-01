@@ -582,7 +582,7 @@ mkLocker lock unlock = do
 	lv <- newEmptyTMVarIO
 	timeoutdisablev <- newEmptyTMVarIO
 	timeouttid <- async $ whenM (atomically $ readTMVar lv) $ do
-		threadDelaySeconds $ Seconds $ fromIntegral $
+		threadDelaySeconds $ SecondsDelay $ fromIntegral $
 			durationSeconds p2pDefaultLockContentRetentionDuration
 		atomically (tryReadTMVar timeoutdisablev) >>= \case
 			Nothing -> void $ atomically $
@@ -870,7 +870,7 @@ branchCommitter st endv = do
 		-- Wait until a change has completed and it's idle.
 		atomically (waitidleorend idlev) >>= \case
 			Right () -> do
-				threadDelaySeconds (Seconds 1)
+				threadDelaySeconds (SecondsDelay 1)
 				-- Once it's been idle for a second,
 				-- commit the journalled changes.
 				atomically (tryTakeTMVar idlev) >>= \case

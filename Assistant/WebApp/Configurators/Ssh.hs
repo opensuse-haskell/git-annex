@@ -365,7 +365,7 @@ sshAuthTranscript sshinput opts sshhost cmd input = case inputAuthMethod sshinpu
 	ExistingSshKey -> liftIO $ go [passwordprompts 0] Nothing
 	CachedPassword -> setupAskPass
 	Password -> do
-		cacheCred (login, geti inputPassword) (Seconds $ 60 * 10)
+		cacheCred (login, geti inputPassword) (SecondsDelay $ 60 * 10)
 		setupAskPass
   where
 	login = getLogin sshinput

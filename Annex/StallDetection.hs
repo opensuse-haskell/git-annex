@@ -55,7 +55,7 @@ detectStalls (Just (StallDetection bwrate@(BwRate _minsz duration))) metervar on
 	let BwRate scaledminsz scaledduration = upscale bwrate timepassed
 	detectStalls' scaledminsz scaledduration metervar onstall v
   where
-	minwaitsecs = Seconds $
+	minwaitsecs = SecondsDelay $
 		min 60 (fromIntegral (durationSeconds duration))
 	waitforfirstupdate startval = do
 		liftIO $ threadDelaySeconds minwaitsecs
@@ -75,7 +75,7 @@ detectStalls (Just ProbeStallDetection) metervar onstall = do
   where
 	duration = Duration 60
 
-	delay = Seconds (fromIntegral (durationSeconds duration) `div` 2)
+	delay = SecondsDelay (fromIntegral (durationSeconds duration) `div` 2)
 	
 	waitforfirstupdate startval = do
 		liftIO $ threadDelaySeconds delay
@@ -115,7 +115,7 @@ detectStalls' minsz duration metervar onstall st = do
 			| sofar - prev < minsz -> onstall
 			| otherwise -> cont
   where
-	delay = Seconds (fromIntegral (durationSeconds duration))
+	delay = SecondsDelay (fromIntegral (durationSeconds duration))
 
 readMeterVar
 	:: MonadIO m

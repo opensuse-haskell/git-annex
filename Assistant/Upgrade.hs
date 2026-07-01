@@ -311,7 +311,7 @@ upgradeSanityCheck = ifM usingDistribution
 		-- upgrades, manual upgrades, etc.
 		program <- programPath
 		untilM (doesFileExist program <&&> nowriter program) $
-			threadDelaySeconds (Seconds 60)
+			threadDelaySeconds (SecondsDelay 60)
 		boolSystem (fromOsPath program) [Param "version"]
 	)
   where

@@ -8,8 +8,8 @@
 {-# LANGUAGE CPP #-}
 
 module Utility.ThreadScheduler (
-	Seconds(..),
-	Microseconds,
+	SecondsDelay(..),
+	MicrosecondsDelay,
 	runEvery,
 	threadDelaySeconds,
 	waitForTermination,
@@ -29,30 +29,30 @@ import System.Posix.Signals
 import System.Posix.Terminal
 #endif
 
-newtype Seconds = Seconds { fromSeconds :: Int }
+newtype SecondsDelay = SecondsDelay { fromSecondsDelay :: Int }
 	deriving (Eq, Ord, Show)
 
-type Microseconds = Integer
+type MicrosecondsDelay = Integer
 
 {- Runs an action repeatedly forever, sleeping at least the specified number
  - of seconds in between. -}
-runEvery :: Seconds -> IO a -> IO a
+runEvery :: SecondsDelay -> IO a -> IO a
 runEvery n a = forever $ do
 	threadDelaySeconds n
 	a
 
-threadDelaySeconds :: Seconds -> IO ()
-threadDelaySeconds (Seconds n) = unboundDelay (fromIntegral n * oneSecond)
+threadDelaySeconds :: SecondsDelay -> IO ()
+threadDelaySeconds (SecondsDelay n) = unboundDelay (fromIntegral n * oneSecond)
 
 {- Like threadDelay, but not bounded by an Int. -}
-unboundDelay :: Microseconds -> IO ()
+unboundDelay :: MicrosecondsDelay -> IO ()
 unboundDelay = Unbounded.delay
 
 {- Pauses the main thread, letting children run until program termination. -}
 waitForTermination :: IO ()
 waitForTermination = do
 #ifdef mingw32_HOST_OS
-	forever $ threadDelaySeconds (Seconds 6000)
+	forever $ threadDelaySeconds (SecondsDelay 6000)
 #else
 	lock <- newEmptyMVar
 	let check sig = void $
@@ -63,5 +63,5 @@ waitForTermination = do
 	takeMVar lock
 #endif
 
-oneSecond :: Microseconds
+oneSecond :: MicrosecondsDelay
 oneSecond = 1000000

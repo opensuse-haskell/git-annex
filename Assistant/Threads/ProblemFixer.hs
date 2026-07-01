@@ -30,7 +30,7 @@ problemFixerThread urlrenderer = namedThread "ProblemFixer" $
   where
 	go problems = do
 		mapM_ (handleProblem urlrenderer) problems
-		liftIO $ threadDelaySeconds (Seconds 60)
+		liftIO $ threadDelaySeconds (SecondsDelay 60)
 		-- Problems may have been re-reported while they were being
 		-- fixed, so ignore those. If a new unique problem happened
 		-- 60 seconds after the last was fixed, we're unlikely

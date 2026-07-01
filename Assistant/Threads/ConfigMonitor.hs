@@ -50,7 +50,7 @@ configMonitorThread = namedThread "ConfigMonitor" $ loop =<< getConfigs
 			{- Record a commit to get this config
 			 - change pushed out to remotes. -}
 			recordCommit
-		liftIO $ threadDelaySeconds (Seconds 60)
+		liftIO $ threadDelaySeconds (SecondsDelay 60)
 		loop new
 
 {- Config files, and their checksums. -}

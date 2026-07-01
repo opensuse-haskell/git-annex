@@ -116,8 +116,8 @@ sleepingActivityThread urlrenderer activity lasttime = go lasttime =<< getnextti
 	desc = fromScheduledActivity activity
 	schedule = getSchedule activity
 	waitrun l t mmaxt = do
-		seconds <- liftIO $ secondsUntilLocalTime t
-		when (seconds > Seconds 0) $ do
+		seconds <- liftIO $ secondsDelayUntilLocalTime t
+		when (seconds > SecondsDelay 0) $ do
 			debug ["waiting", show seconds, "for next scheduled", desc]
 			liftIO $ threadDelaySeconds seconds
 		now <- liftIO getCurrentTime
@@ -161,14 +161,14 @@ remoteActivityThread urlrenderer mvar activity lasttime = do
 	go _ = noop -- running at exact time not handled here
 	loop = remoteActivityThread urlrenderer mvar activity
 
-secondsUntilLocalTime :: LocalTime -> IO Seconds
-secondsUntilLocalTime t = do
+secondsDelayUntilLocalTime :: LocalTime -> IO SecondsDelay
+secondsDelayUntilLocalTime t = do
 	now <- getCurrentTime
 	tz <- getTimeZone now
 	let secs = truncate $ diffUTCTime (localTimeToUTC tz t) now
 	return $ if secs > 0
-		then Seconds secs
-		else Seconds 0
+		then SecondsDelay secs
+		else SecondsDelay 0
 
 runActivity :: UrlRenderer -> ScheduledActivity -> LocalTime -> Assistant ()
 runActivity urlrenderer activity nowt = do

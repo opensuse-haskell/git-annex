@@ -118,7 +118,7 @@ addHiddenService appname uid ident = do
 			Right s | ".onion\n" `isSuffixOf` s ->
 				return (OnionAddress (takeWhile (/= '\n') s), p)
 			_ -> do
-				threadDelaySeconds (Seconds 1)
+				threadDelaySeconds (SecondsDelay 1)
 				waithiddenservice (n-1) p
 
 -- | A hidden service directory to use.

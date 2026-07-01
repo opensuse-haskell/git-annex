@@ -125,7 +125,7 @@ waitFor sig next = do
 			_ -> noop
 		_ -> noop
   where
-	pause = runEvery (Seconds 86400) noop
+	pause = runEvery (SecondsDelay 86400) noop
 
 {- Initial scartup scan. The action should return once the scan is complete. -}
 startupScan :: IO a -> Assistant a

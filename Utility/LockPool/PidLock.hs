@@ -33,7 +33,7 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 
 -- Does locking using a pid lock, blocking until the lock is available
--- or the Seconds timeout if the pid lock is held by another process.
+-- or the SecondsDelay timeout if the pid lock is held by another process.
 --
 -- There are two levels of locks. A STM lock is used to handle
 -- fine-grained locking among threads, locking a specific lockfile,
@@ -47,7 +47,7 @@ waitLock
 	:: (MonadIO m, MonadMask m)
 	=> LockFile
 	-> LockMode
-	-> Seconds
+	-> SecondsDelay
 	-> F.PidLockFile
 	-> (String -> m ())
 	-> m LockHandle

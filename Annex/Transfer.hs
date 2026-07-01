@@ -360,19 +360,19 @@ forwardRetry numretries old new
  - by git configuration. -}
 configuredRetry :: RetryDecider
 configuredRetry numretries _old new = do
-	(maxretries, Seconds initretrydelay) <- getcfg $ 
+	(maxretries, SecondsDelay initretrydelay) <- getcfg $ 
 		Remote.gitconfig <$> transferRemote new
 	if numretries < maxretries
 		then do
-			let retrydelay = Seconds (initretrydelay * 2^(numretries-1))
-			showSideAction $ UnquotedString $ "Delaying " ++ show (fromSeconds retrydelay) ++ "s before retrying."
+			let retrydelay = SecondsDelay (initretrydelay * 2^(numretries-1))
+			showSideAction $ UnquotedString $ "Delaying " ++ show (fromSecondsDelay retrydelay) ++ "s before retrying."
 			liftIO $ threadDelaySeconds retrydelay
 			return True
 		else return False
   where
 	globalretrycfg = fromMaybe 0 . annexRetry
 		<$> Annex.getGitConfig
-	globalretrydelaycfg = fromMaybe (Seconds 1) . annexRetryDelay
+	globalretrydelaycfg = fromMaybe (SecondsDelay 1) . annexRetryDelay
 		<$> Annex.getGitConfig
 	getcfg Nothing = (,) <$> globalretrycfg <*> globalretrydelaycfg
 	getcfg (Just gc) = (,)

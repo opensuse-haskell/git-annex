@@ -74,32 +74,32 @@ record h tmpl = liftIO $ do
 {- Delay for either a fraction of a second, or a few seconds, or up
  - to 1 minute.
  -
- - The MinutesDelay is used as an opportunity to do housekeeping tasks.
+ - The RandomMinutesDelay is used as an opportunity to do housekeeping tasks.
  -}
-randomDelay :: Delay -> Annex ()
-randomDelay TinyDelay = liftIO $
+randomDelay :: RandomDelay -> Annex ()
+randomDelay RandomTinyDelay = liftIO $
 	threadDelay =<< getStdRandom (randomR (10000, 1000000))
-randomDelay SecondsDelay = liftIO $ 
-	threadDelaySeconds =<< Seconds <$> getStdRandom (randomR (1, 10))
-randomDelay MinutesDelay = do
-	liftIO $ threadDelaySeconds =<< Seconds <$> getStdRandom (randomR (1, 60))
+randomDelay RandomSecondsDelay = liftIO $ 
+	threadDelaySeconds =<< SecondsDelay <$> getStdRandom (randomR (1, 10))
+randomDelay RandomMinutesDelay = do
+	liftIO $ threadDelaySeconds =<< SecondsDelay <$> getStdRandom (randomR (1, 60))
 	reserve <- annexDiskReserve <$> Annex.getGitConfig
 	free <- liftIO $ getDiskFree "."
 	case free of
 		Just have | have < reserve -> do
 			warning "Low disk space; fuzz test paused."
-			liftIO $ threadDelaySeconds (Seconds 60)
-			randomDelay MinutesDelay
+			liftIO $ threadDelaySeconds (SecondsDelay 60)
+			randomDelay RandomMinutesDelay
 		_  -> noop
 
-data Delay
-	= TinyDelay
-	| SecondsDelay
-	| MinutesDelay
+data RandomDelay
+	= RandomTinyDelay
+	| RandomSecondsDelay
+	| RandomMinutesDelay
 	deriving (Read, Show, Eq)
 
-instance Arbitrary Delay where
-	arbitrary = elements [TinyDelay, SecondsDelay, MinutesDelay]
+instance Arbitrary RandomDelay where
+	arbitrary = elements [RandomTinyDelay, RandomSecondsDelay, RandomMinutesDelay]
 
 data FuzzFile = FuzzFile FilePath
 	deriving (Read, Show, Eq)
@@ -161,7 +161,7 @@ data FuzzAction
 	| FuzzMove FuzzFile FuzzFile
 	| FuzzDeleteDir FuzzDir
 	| FuzzMoveDir FuzzDir FuzzDir
-	| FuzzPause Delay
+	| FuzzPause RandomDelay
 	deriving (Read, Show, Eq)
 
 instance Arbitrary FuzzAction where

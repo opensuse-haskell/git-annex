@@ -80,7 +80,7 @@ handleUpgrade urlrenderer = do
 	-- place.) Not needed when using a distribution bundle, because
 	-- in that case git-annex handles the upgrade in a non-racy way.
 	liftIO $ unlessM usingDistribution $
-		threadDelaySeconds (Seconds 120)
+		threadDelaySeconds (SecondsDelay 120)
 	ifM autoUpgradeEnabled
 		( do
 			debug ["starting automatic upgrade"]

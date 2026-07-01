@@ -265,25 +265,25 @@ checkInsaneLustre dest = do
 --
 -- After the first second waiting, runs the callback to display a message,
 -- so the user knows why it's stalled.
-waitLock :: MonadIO m => Seconds -> PidLockFile -> (String -> m ()) -> (Bool -> IO ()) -> m LockHandle
-waitLock (Seconds timeout) lockfile displaymessage sem = go timeout
+waitLock :: MonadIO m => SecondsDelay -> PidLockFile -> (String -> m ()) -> (Bool -> IO ()) -> m LockHandle
+waitLock (SecondsDelay timeout) lockfile displaymessage sem = go timeout
   where
 	go n
 		| n > 0 = liftIO (tryLock lockfile) >>= \case
 			Nothing -> do
 				when (n == pred timeout) $
 					displaymessage $ "waiting for pid lock file " ++ fromOsPath lockfile ++ " which is held by another process (or may be stale)"
-				liftIO $ threadDelaySeconds (Seconds 1)
+				liftIO $ threadDelaySeconds (SecondsDelay 1)
 				go (pred n)
 			Just lckh -> do
 				liftIO $ sem True
 				return lckh
 		| otherwise = do
 			liftIO $ sem False
-			waitedLock (Seconds timeout) lockfile displaymessage
+			waitedLock (SecondsDelay timeout) lockfile displaymessage
 
-waitedLock :: MonadIO m => Seconds -> PidLockFile -> (String -> m ()) -> m a
-waitedLock (Seconds timeout) lockfile displaymessage = do
+waitedLock :: MonadIO m => SecondsDelay -> PidLockFile -> (String -> m ()) -> m a
+waitedLock (SecondsDelay timeout) lockfile displaymessage = do
 	displaymessage $ show timeout ++ " second timeout exceeded while waiting for pid lock file " ++ fromOsPath lockfile
 	giveup $ "Gave up waiting for pid lock file " ++ fromOsPath lockfile
 
