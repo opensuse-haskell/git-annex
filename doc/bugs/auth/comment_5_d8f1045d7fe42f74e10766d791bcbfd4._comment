@@ -1,0 +1,36 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 5"""
+ date="2026-07-01T15:52:14Z"
+ content="""
+The "Password for" prompt comes from git-credential, not git-annex.
+
+I was able to reproduce that behavior using a `git-credential-foo`
+"helper" which just exits successfully but does not output any credentials.
+With the git config adjusted to use that (as well as cache), git runs
+it but then falls back to the password prompt:
+
+	joey@darkstar:~/tmp/a1>GIT_TRACE=2 git push foo
+	12:08:19.869469 git.c:502               trace: built-in: git push foo
+	12:08:19.869942 run-command.c:673       trace: run_command: GIT_DIR=.git git remote-https foo https://github.com/joeyh/gitannexbuilder
+	12:08:19.869965 run-command.c:765       trace: start_command: /usr/lib/git-core/git remote-https foo https://github.com/joeyh/gitannexbuilder
+	12:08:19.873067 git.c:808               trace: exec: git-remote-https foo https://github.com/joeyh/gitannexbuilder
+	12:08:19.873107 run-command.c:673       trace: run_command: git-remote-https foo https://github.com/joeyh/gitannexbuilder
+	12:08:19.873121 run-command.c:765       trace: start_command: /usr/lib/git-core/git-remote-https foo https://github.com/joeyh/gitannexbuilder
+	12:08:20.549858 run-command.c:673       trace: run_command: 'git credential-cache get'
+	12:08:20.549927 run-command.c:765       trace: start_command: /bin/sh -c 'git credential-cache get' 'git credential-cache get'
+	12:08:20.555753 git.c:502               trace: built-in: git credential-cache get
+	12:08:20.556612 run-command.c:673       trace: run_command: 'git credential-foo get'
+	12:08:20.556635 run-command.c:765       trace: start_command: /bin/sh -c 'git credential-foo get' 'git credential-foo get'
+	12:08:20.561465 git.c:808               trace: exec: git-credential-foo get
+	12:08:20.561506 run-command.c:673       trace: run_command: git-credential-foo get
+	12:08:20.561530 run-command.c:765       trace: start_command: /home/joey/bin/git-credential-foo get
+	Username for 'https://github.com':
+
+So it seems likely that `git-credential-oauth` is just choosing not to do
+anything when git-annex runs it, and then git is falling back like that.
+
+Why it would choose to do that I don't know, but I suppose it could be a
+difference in that is sent to it on stdin when called by git-annex vs
+by git.
+"""]]
