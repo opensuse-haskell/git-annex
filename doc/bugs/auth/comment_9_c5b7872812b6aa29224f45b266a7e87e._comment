@@ -1,0 +1,15 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 9"""
+ date="2026-07-01T20:00:36Z"
+ content="""
+`git-annex push` is talking to `git-annex p2phttp` which is on a
+`Forgejo-aneksajo` server.
+
+In this case, the server responds with HTTP 401, and I have verified that
+response does *not* include the `www-authenticate` header.
+
+So, git-annex's code to send that header on to `git-credential` seems fine,
+and this needs to be fixed in either p2phttp or Forgejo-aneksajo to make
+the header be sent. I suspect it will need to be done in Forgejo-aneksajo.
+"""]]

@@ -1,3 +1,6 @@
+[[!meta title="git-credential-oauth does not work with git-annex push to
+git-annex p2phttp behind forgejo-aneksajo unless git push primes the credential cache first"]]
+
 ### Please describe the problem.
 
 `git annex push` does not trigger git credential retrieval reliably, but forces manual credential entry.
