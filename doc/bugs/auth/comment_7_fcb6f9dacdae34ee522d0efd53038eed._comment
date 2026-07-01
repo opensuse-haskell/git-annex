@@ -1,0 +1,22 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 7"""
+ date="2026-07-01T19:34:30Z"
+ content="""
+@mih told me the url privately. (There is only 1.)
+
+It is indeed a host which when passed to `git-credential-oauth get`
+it decides not to do anything.
+
+But, `git push` to the same url uses `git-credential-oauth get` and it
+*does* do oauth.
+
+Dumping what git sends to it, there are additional fields beyond what
+git-annex sends:
+
+	capability[]=authtype
+	capability[]=state
+	protocol=https
+	host=<obscured>
+	wwwauth[]=Basic realm="Gitea"
+"""]]
