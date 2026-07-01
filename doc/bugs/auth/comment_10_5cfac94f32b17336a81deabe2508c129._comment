@@ -1,0 +1,9 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 10"""
+ date="2026-07-01T20:12:11Z"
+ content="""
+`git-annex push` won't always trigger this problem because often it has
+things to `git push` to the server before sending content. A more reliable
+way is to use `git-annex copy --to`.
+"""]]
