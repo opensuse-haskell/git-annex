@@ -4,8 +4,8 @@
  date="2026-07-01T17:00:06Z"
  content="""
 In your bug report I noticed that the password prompt is for
-"https://oauth2@<host>" but when you git push it's to
-"https://<host>/<repo>.git". I'm not clear on if these were
+`"https://oauth2@<host>"` but when you git push it's to
+`"https://<host>/<repo>.git"`. I'm not clear on if these were
 really different urls or if it was a mistake in your sanitization.
 
 If there are different urls, `git-credential-oauth` could have acted
