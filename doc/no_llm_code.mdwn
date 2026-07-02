@@ -58,5 +58,7 @@ git-annex supports being built with older versions.
 
 ## ghc
 
-Need to look up the version, but in any case git-annex remains buildable
-with older versions of ghc back to 9.6.6.
+[This commit](https://github.com/ghc/ghc/commit/a5ec467ee3d4e77c026437a545981269acde3434)
+is probably the first, and will be released in the upcoming ghc 9.15.
+
+git-annex remains buildable with older versions of ghc back to 9.6.6.
