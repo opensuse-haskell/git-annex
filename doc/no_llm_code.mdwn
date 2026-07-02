@@ -56,9 +56,7 @@ with apparently broken (how?) changes in 0.21.0 being reverted in
 0.21.1.
 
 Rather than use ram, git-annex continues to use the unmaintained
-[memory](//hackage.haskell.org/package/memory). 
-Since git-annex's use of this package is fairly incidental, this
-dependency could be removed if it becomes a problem.
+[memory](//hackage.haskell.org/package/memory) that ram was forked from.
 
 But ram is an dependency of other dependencies, and these in particular
 depend on 0.21.0 or newer:
