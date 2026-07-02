@@ -99,3 +99,11 @@ and 10,000+ lines of changes.
 Cabal is needed to build git-annex, but is not linked into it.
 There is a risk that a new version of Cabal could need changes to
 git-annex.cabal that prevent an old version building it.
+
+### git
+
+Since 2.53
+
+[First LLM generated code](https://github.com/git/git/commit/d7971544fe17378f44f49983010dbfc1834f7bef)
+
+git-annex supports git back to 2.22.
