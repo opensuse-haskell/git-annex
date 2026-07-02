@@ -62,3 +62,6 @@ git-annex supports being built with older versions.
 is probably the first, and will be released in the upcoming ghc 9.15.
 
 git-annex remains buildable with older versions of ghc back to 9.6.6.
+
+It's deeply unfortunate that git-annex will not be able to take advantage
+of any new improvements to the Haskell language going forward.
