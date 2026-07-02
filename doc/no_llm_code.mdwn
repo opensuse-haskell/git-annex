@@ -1,6 +1,7 @@
-LLM generated code in free software is a potential landmine. The copyright
-of such code is an open question, and any current answer to that question
-risks changing at some point in the future.
+[LLM](https://en.wikipedia.org/wiki/Large_language_model) generated code in
+free software is a potential landmine. The copyright of such code is an
+open question, and any current answer to that question risks changing at
+some point in the future.
 
 This is a particular problem for git-annex since [[future proofing]] is an
 important aspect of its design.
