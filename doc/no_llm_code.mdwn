@@ -27,6 +27,20 @@ bug reports on git-annex if it cannot be built without LLM generated code.
 
 ## known dependencies that contain LLM generated code
 
+## ghc
+
+[This commit](https://github.com/ghc/ghc/commit/a5ec467ee3d4e77c026437a545981269acde3434)
+is probably the first, and will be released in the upcoming ghc 9.15.
+
+git-annex remains buildable with older versions of ghc back to 9.6.6.
+
+This will probably prevent git-annex from taking advantage of 
+most new improvements to the Haskell language going forward. 
+That is deeply unfortunate. This is the main reason why git-annex is not
+guaranteed to never change to depend on LLM generated code, because cutting
+it off from all future Haskell language improvements may be worse than the
+alternative.
+
 ### ram and its reverse dependencies
 
 [ram](https://hackage.haskell.org/package/ram) since 0.21.0.
@@ -59,16 +73,13 @@ But ram is an dependency of other dependencies:
 
 git-annex supports being built with older versions.
 
-## ghc
+## yesod
 
-[This commit](https://github.com/ghc/ghc/commit/a5ec467ee3d4e77c026437a545981269acde3434)
-is probably the first, and will be released in the upcoming ghc 9.15.
+[yesod](https://hackage.haskell.org/package/yesod), not yet in a released version
 
-git-annex remains buildable with older versions of ghc back to 9.6.6.
+[First LLM generated code](https://github.com/yesodweb/yesod/commit/1b033c741ce81d01070de993b285a17e71178156)
 
-This will probably prevent git-annex from taking advantage of 
-most new improvements to the Haskell language going forward. 
-That is deeply unfortunate. This is the main reason why git-annex is not
-guaranteed to never change to depend on LLM generated code, because cutting
-it off from all future Haskell language improvements may be worse than the
-alternative.
+[LLM generated commit with a 1489 line commit message](https://github.com/yesodweb/yesod/commit/1ee25122d82f8f94136bf1496a825c6c00b74fcf)
+and 10,000+ lines of changes.
+
+(See [[todo/ditch_yesod]])
