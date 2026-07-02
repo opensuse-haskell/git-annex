@@ -1,5 +1,6 @@
 flags:
   git-annex:
+    NoLLMDependencies: false
     production: true
     parallelbuild: true
     assistant: true

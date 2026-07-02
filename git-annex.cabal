@@ -146,6 +146,12 @@ Extra-Source-Files:
   templates/notifications/longpolling.julius
   Utility/libkqueue.h
 
+Flag NoLLMDependencies
+  Description: Avoid building with versions of dependencies that contain 
+    LLM generated code <https://git-annex.branchable.com/no_llm_code/>
+  Default: False
+  Manual: True
+
 Flag Assistant
   Description: Enable git-annex assistant, webapp, and watch command
   Default: True
@@ -213,7 +219,6 @@ custom-setup
 Executable git-annex
   Main-Is: git-annex.hs
   Build-Depends:
-   base (>= 4.18.2.1 && < 5),
    network-uri (>= 2.6),
    optparse-applicative (>= 0.14.2),
    containers (>= 0.5.8),
@@ -252,7 +257,6 @@ Executable git-annex
    conduit,
    time (>= 1.9.1),
    persistent-sqlite (>= 2.13.3),
-   persistent (>= 2.13.3),
    persistent-template (>= 2.8.0),
    unliftio-core,
    microlens,
@@ -277,22 +281,19 @@ Executable git-annex
    tasty-quickcheck,
    tasty-rerun,
    ansi-terminal >= 0.9,
-   aws (>= 0.24.1),
    DAV (>= 1.0),
    network (>= 3.0.0.0),
    network-bsd,
    git-lfs (>= 1.2.0),
    clock (>= 0.3.0),
-   crypton,
-   crypton-connection (>= 0.4.3),
-   crypton-x509-store,
-   tls,
    servant,
    servant-server,
    servant-client,
    servant-client-core,
    warp (>= 3.2.8),
-   warp-tls (>= 3.2.2)
+   warp-tls (>= 3.2.2),
+   crypton-connection (>= 0.4.3),
+   crypton-x509-store
   CC-Options: -Wall
   GHC-Options: -Wall -fno-warn-tabs  -Wincomplete-uni-patterns
   Default-Language: Haskell2010
@@ -300,6 +301,22 @@ Executable git-annex
   Other-Extensions: TemplateHaskell
   -- Some things don't work with the non-threaded RTS.
   GHC-Options: -threaded
+   
+  if flag(NoLLMDependencies)
+    Build-Depends:
+     base (>= 4.18.2.1 && < 4.23),
+     crypton (< 1.1.0),
+     crypton-x509-validation (< 1.9.0),
+     aws (>= 0.24.1) && (< 2.25.3),
+     tls (< 2.3.0),
+     persistent (>= 2.13.3) && (< 2.15.0.0)
+  else
+    Build-Depends:
+     base (>= 4.18.2.1 && < 5),
+     crypton,
+     aws (>= 0.24.1),
+     tls,
+     persistent (>= 2.13.3)
 
   -- Fully optimize for production.
   if flag(Production)
@@ -340,7 +357,10 @@ Executable git-annex
   -- Disabled on arm until this issue is resolved:
   -- https://github.com/k0001/hs-blake3/issues/8
   if flag(Blake3) && (! arch(aarch64) && ! arch(arm))
-    Build-Depends: blake3 (>= 0.3)
+    if flag(NoLLMDependencies)
+      Build-Depends: blake3 (>= 0.3) && (< 0.3.1)
+    else
+      Build-Depends: blake3 (>= 0.3)
     CPP-Options: -DWITH_BLAKE3
     Other-Modules:
       Utility.Hash.Blake3
@@ -366,10 +386,6 @@ Executable git-annex
     CPP-Options: -DWITH_ASSISTANT -DWITH_WEBAPP
     Build-Depends:
       mountpoints,
-      yesod (>= 1.4.3), 
-      yesod-static (>= 1.5.1),
-      yesod-form (>= 1.4.8),
-      yesod-core (>= 1.6.0),
       path-pieces (>= 0.2.1),
       wai,
       wai-extra,
@@ -377,6 +393,18 @@ Executable git-annex
       clientsession,
       template-haskell,
       shakespeare (>= 2.0.11)
+    if flag(NoLLMDependencies)
+      Build-Depends:
+        yesod (>= 1.4.3) && (< 1.7.0.0), 
+        yesod-static (>= 1.5.1) && (<1.6.1.3),
+        yesod-form (>= 1.4.8) && (< 1.7.9.3),
+        yesod-core (>= 1.6.0) && (< 1.7.0.0)
+    else
+      Build-Depends:
+        yesod (>= 1.4.3), 
+        yesod-static (>= 1.5.1),
+        yesod-form (>= 1.4.8),
+        yesod-core (>= 1.6.0)
     Other-Modules:
       Assistant
       Assistant.Alert

@@ -13,14 +13,18 @@ guarantees. Although it would be very much appreciated if they did.
 
 git-annex currently supports being built with versions of
 dependencies that pre-date any introduction of LLM generated code.
-(It is not currently built that way by default but such builds are welcome.)
-Unfortunately, it's not possible to guarantee that will continue to be the
-case in new versions of git-annex. That's the goal, but it may become
-untenable.
+To do do, turn on the `NoLLMDependencies` build flag.
+(It is not currently built that way by default, but such builds are welcome.)
 
-Unfortunately, this means that additional work needs to be done to review
-git-annex's dependencies on an ongoing basis to detect the addition of LLM
-generated code.
+Unfortunately, it's not possible to guarantee that will continue to work
+in new versions of git-annex. That's the goal, but it may become
+untenable. It's already the case that building git-annex with the older
+versions of dependencies leaves at least one security hole in a dependency
+open.
+
+This means that additional work needs to be done to review git-annex's
+dependencies on an ongoing basis to detect the addition of LLM generated
+code.
 
 Help with finding these is welcome. Please edit this page and/or file
 bug reports on git-annex if it cannot be built without LLM generated code.
