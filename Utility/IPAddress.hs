@@ -6,6 +6,7 @@
  -}
 
 {-# LANGUAGE BinaryLiterals #-}
+{-# LANGUAGE PackageImports #-}
 
 -- Note that some extensions are necessary for reasons outlined in
 -- my July 2021 blog post. -- JEH
@@ -21,7 +22,7 @@ import Utility.Exception
 
 import Network.Socket
 import Data.Word
-import Data.Memory.Endian
+import "memory" Data.Memory.Endian
 import Data.List
 import Text.Printf
 

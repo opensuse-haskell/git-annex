@@ -69,7 +69,7 @@ module Utility.Hash.Crypton (
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Lazy as L
 import Data.IORef
-import qualified Data.ByteArray as BA
+import qualified "memory" Data.ByteArray as BA
 import "crypton" Crypto.Hash
 
 import Utility.Hash.Types

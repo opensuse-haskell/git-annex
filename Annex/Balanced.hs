@@ -5,6 +5,8 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE PackageImports #-}
+
 module Annex.Balanced where
 
 import Key
@@ -15,7 +17,7 @@ import Data.Maybe
 import qualified Data.List as L
 import Data.Bits (shiftL)
 import qualified Data.Set as S
-import qualified Data.ByteArray as BA
+import qualified "memory" Data.ByteArray as BA
 
 -- The Int is how many UUIDs to pick.
 type BalancedPicker = S.Set UUID -> Key -> Int -> [UUID]

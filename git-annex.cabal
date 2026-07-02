@@ -292,8 +292,11 @@ Executable git-annex
    servant-client-core,
    warp (>= 3.2.8),
    warp-tls (>= 3.2.2),
+   crypton,
    crypton-connection (>= 0.4.3),
-   crypton-x509-store
+   crypton-x509-store,
+   tls,
+   aws (>= 0.24.1)
   CC-Options: -Wall
   GHC-Options: -Wall -fno-warn-tabs  -Wincomplete-uni-patterns
   Default-Language: Haskell2010
@@ -305,17 +308,11 @@ Executable git-annex
   if flag(NoLLMDependencies)
     Build-Depends:
      base (>= 4.18.2.1 && < 4.23),
-     crypton (< 1.1.0),
-     crypton-x509-validation (< 1.9.0),
-     aws (>= 0.24.1) && (< 2.25.3),
-     tls (< 2.3.0),
+     ram (< 0.21.0),
      persistent (>= 2.13.3) && (< 2.15.0.0)
   else
     Build-Depends:
      base (>= 4.18.2.1 && < 5),
-     crypton,
-     aws (>= 0.24.1),
-     tls,
      persistent (>= 2.13.3)
 
   -- Fully optimize for production.
@@ -357,10 +354,7 @@ Executable git-annex
   -- Disabled on arm until this issue is resolved:
   -- https://github.com/k0001/hs-blake3/issues/8
   if flag(Blake3) && (! arch(aarch64) && ! arch(arm))
-    if flag(NoLLMDependencies)
-      Build-Depends: blake3 (>= 0.3) && (< 0.3.1)
-    else
-      Build-Depends: blake3 (>= 0.3)
+    Build-Depends: blake3 (>= 0.3)
     CPP-Options: -DWITH_BLAKE3
     Other-Modules:
       Utility.Hash.Blake3

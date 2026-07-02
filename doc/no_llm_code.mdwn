@@ -55,22 +55,21 @@ Note particularly [large LLM generated code churn](https://github.com/jappeace/r
 with apparently broken (how?) changes in 0.21.0 being reverted in
 0.21.1.
 
-Rather than depend on ram, git-annex continues to depend on the unmaintained
+Rather than use ram, git-annex continues to use the unmaintained
 [memory](//hackage.haskell.org/package/memory). 
 Since git-annex's use of this package is fairly incidental, this
 dependency could be removed if it becomes a problem.
 
-But ram is an dependency of other dependencies:
+But ram is an dependency of other dependencies, and these in particular
+depend on 0.21.0 or newer:
 
 * crypton since 1.1.0
-* crypton-x509-validation since 1.9.0. Note that 1.9.1 fixes a security
-  hole, [CVE-2026-9648](https://www.cve.org/CVERecord?id=CVE-2026-9648).
-  This security hole is not expected to affect many git-annex users.
-* aws since 0.25.3 (needed to get the CVE-2026-9648 fix)
-* tls since 2.3.0
-* blake3 since 0.3.1 (optional git-annex dependency)
+* tls since 2.3.1
 
 [Reverse dependencies of ram](https://packdeps.haskellers.com/reverse/ram)
+
+The `NoLLMDependencies` build flag depends on an older version of ram
+in order to prevent such dependencies using the newer version.
 
 ### persistent
 

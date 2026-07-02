@@ -25,7 +25,7 @@ import Utility.Exception
 
 import Data.Maybe
 import Data.Char
-import qualified Data.ByteArray as BA
+import qualified "memory" Data.ByteArray as BA
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as L

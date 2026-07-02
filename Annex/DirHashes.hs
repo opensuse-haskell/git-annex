@@ -5,6 +5,8 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE PackageImports #-}
+
 module Annex.DirHashes (
 	Hasher,
 	HashLevels(..),
@@ -20,7 +22,7 @@ module Annex.DirHashes (
 import Data.Default
 import Data.Bits
 import qualified Data.List.NonEmpty as NE
-import qualified Data.ByteArray as BA
+import qualified "memory" Data.ByteArray as BA
 import qualified Data.ByteString as S
 
 import Common

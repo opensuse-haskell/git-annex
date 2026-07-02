@@ -6,12 +6,13 @@
  -}
 
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE PackageImports #-}
 
 module Utility.Hash.Types where
 
 import qualified Data.ByteString as S
-import Data.ByteArray
-import qualified Data.ByteArray.Encoding as BAE
+import "memory" Data.ByteArray
+import qualified "memory" Data.ByteArray.Encoding as BAE
 import Data.String
 import Control.DeepSeq
 import GHC.Generics

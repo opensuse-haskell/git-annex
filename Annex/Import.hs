@@ -6,6 +6,7 @@
  -}
 
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE CPP #-}
 
 module Annex.Import (
@@ -71,7 +72,7 @@ import Backend.Utilities
 import Control.Concurrent.STM
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
-import qualified Data.ByteArray.Encoding as BA
+import qualified "memory" Data.ByteArray.Encoding as BA
 #ifdef mingw32_HOST_OS
 import qualified System.FilePath.Posix as Posix
 #endif
