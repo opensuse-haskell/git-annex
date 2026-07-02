@@ -1,0 +1,30 @@
+flags:
+  git-annex:
+    NoLLMDependencies: true
+    production: true
+    parallelbuild: true
+    assistant: true
+    torrentparser: true
+    magicmime: false
+    dbus: false
+    debuglocks: false
+    benchmark: true
+    ospath: true
+    botan: false
+    blake3: true
+    xxh3: true
+  file-io:
+    os-string: true
+  xxhash-ffi:
+    pkg-config: false
+packages:
+- '.'
+resolver: lts-24.26
+extra-deps:
+- aws-0.25.2
+- file-io-0.2.0
+- blake3-0.3
+- xxhash-ffi-0.3.1
+- ram-0.20.1
+- persistent-2.14.6.3
+- persistent-sqlite-2.13.3.0

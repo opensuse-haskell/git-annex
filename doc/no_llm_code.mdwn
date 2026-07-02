@@ -14,6 +14,7 @@ guarantees. Although it would be very much appreciated if they did.
 git-annex currently supports being built with versions of
 dependencies that pre-date any introduction of LLM generated code.
 To do do, turn on the `NoLLMDependencies` build flag.
+When building with stack, use `stack-NoLLMDependencies.yaml`.
 (It is not currently built that way by default, but such builds are welcome.)
 
 Unfortunately, it's not possible to guarantee that will continue to work
