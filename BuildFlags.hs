@@ -80,6 +80,9 @@ buildFlags = filter (not . null)
 #else
 #warning Building without XXH3 support.
 #endif
+#ifdef WITH_NOLLMDEPENDENCIES
+	, "NoLLMDependencies"
+#endif
 	]
 
 -- Not a complete list, let alone a listing transitive deps, but only
