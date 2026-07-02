@@ -75,7 +75,7 @@ git-annex supports being built with older versions.
 
 ## yesod
 
-[yesod](https://hackage.haskell.org/package/yesod), not yet in a released version
+[yesod](https://hackage.haskell.org/package/yesod-core) since 1.7.0.0
 
 [First LLM generated code](https://github.com/yesodweb/yesod/commit/1b033c741ce81d01070de993b285a17e71178156)
 
