@@ -18,10 +18,12 @@ To do do, turn on the `NoLLMDependencies` build flag.
 
 Unfortunately, it's not possible to guarantee that will continue to work
 in new versions of git-annex. That's the goal, but it may become
-untenable. It's already the case that building git-annex with the older
-versions of dependencies leaves at least one security hole in a dependency
-open. See below for details about this and other possible future problems
+untenable. See below for details about possible future problems
 with specific dependencies.
+
+Note that if a security hole is only fixed by a newer version of a
+dependency, the `NoLLMDependencies` build flag will still build with the
+older, insecure version.
 
 Additional work needs to be done on an ongoing basis to review
 git-annex's dependencies to detect the addition of LLM generated code.
