@@ -1,0 +1,11 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 5"""
+ date="2026-07-02T15:36:07Z"
+ content="""
+I am not able to reproduce this with current git-annex. 
+
+But, I was able to reproduce it with git-annex 10.20251029.
+
+I have not bisected to find the fix, but will close this.
+"""]]
