@@ -83,3 +83,11 @@ git-annex supports being built with older versions.
 and 10,000+ lines of changes.
 
 (See [[todo/ditch_yesod]])
+
+## Cabal
+
+[First LLM generated code](https://github.com/haskell/cabal/commit/da8b314563feb15a3df7bc1baeef4b7aa08f7578)
+
+Cabal is needed to build git-annex, but is not linked into it.
+There is a risk that a new version of Cabal could need changes to
+git-annex.cabal that prevent an old version building it.
