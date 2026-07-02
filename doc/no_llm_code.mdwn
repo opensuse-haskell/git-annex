@@ -20,11 +20,11 @@ Unfortunately, it's not possible to guarantee that will continue to work
 in new versions of git-annex. That's the goal, but it may become
 untenable. It's already the case that building git-annex with the older
 versions of dependencies leaves at least one security hole in a dependency
-open.
+open. See below for details about this and other possible future problems
+with specific dependencies.
 
-This means that additional work needs to be done to review git-annex's
-dependencies on an ongoing basis to detect the addition of LLM generated
-code.
+Additional work needs to be done on an ongoing basis to review
+git-annex's dependencies to detect the addition of LLM generated code.
 
 Help with finding these is welcome. Please edit this page and/or file
 bug reports on git-annex if it cannot be built without LLM generated code.
@@ -63,8 +63,9 @@ dependency could be removed if it becomes a problem.
 But ram is an dependency of other dependencies:
 
 * crypton since 1.1.0
-* crypton-x509-validation since 1.9.0. Note that 1.9.1 fixes 
-  [CVE-2026-9648](https://www.cve.org/CVERecord?id=CVE-2026-9648).
+* crypton-x509-validation since 1.9.0. Note that 1.9.1 fixes a security
+  hole, [CVE-2026-9648](https://www.cve.org/CVERecord?id=CVE-2026-9648).
+  This security hole is not expected to affect many git-annex users.
 * aws since 0.25.3 (needed to get the CVE-2026-9648 fix)
 * tls since 2.3.0
 * blake3 since 0.3.1 (optional git-annex dependency)
