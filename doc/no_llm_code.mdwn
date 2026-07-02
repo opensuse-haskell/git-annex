@@ -27,7 +27,9 @@ bug reports on git-annex if it cannot be built without LLM generated code.
 
 ## known dependencies that contain LLM generated code
 
-## ghc
+[[!toc startlevel=3]]
+
+### ghc
 
 [This commit](https://github.com/ghc/ghc/commit/a5ec467ee3d4e77c026437a545981269acde3434)
 is probably the first, and will be released in the upcoming ghc 9.15.
@@ -65,7 +67,7 @@ But ram is an dependency of other dependencies:
 
 [Reverse dependencies of ram](https://packdeps.haskellers.com/reverse/ram)
 
-## persistent
+### persistent
 
 [persistent](https://hackage.haskell.org/package/persistent) since 2.15.0.0
 
@@ -73,7 +75,7 @@ But ram is an dependency of other dependencies:
 
 git-annex supports being built with older versions.
 
-## yesod
+### yesod
 
 [yesod](https://hackage.haskell.org/package/yesod-core) since 1.7.0.0
 
@@ -84,7 +86,7 @@ and 10,000+ lines of changes.
 
 (See [[todo/ditch_yesod]])
 
-## Cabal
+### Cabal
 
 [First LLM generated code](https://github.com/haskell/cabal/commit/da8b314563feb15a3df7bc1baeef4b7aa08f7578)
 
