@@ -1,5 +1,9 @@
 git-annex (10.20260625) UNRELEASED; urgency=medium
 
+  * git-annex is guaranteed to not contain LLM generated code,
+    and to remain buildable with versions of dependencies that
+    predate the addition of any LLM generated code.
+    See https://git-annex.branchable.com/no_llm_code/
   * Fix build with time-1.15.
 
  -- Joey Hess <id@joeyh.name>  Wed, 01 Jul 2026 14:12:59 -0400

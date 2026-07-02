@@ -51,3 +51,5 @@ problem:
   a remote, as long as you have access to the encryption keys (which
   for some types of encryption are stored in the git-annex branch of
   the repository, sometimes encrypted with your gpg key).
+
+* [[No LLM code]]
