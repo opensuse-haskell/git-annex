@@ -11,9 +11,12 @@ will never do so.
 However, libraries that git-annex depends on do not generally have such
 guarantees. Although it would be very much appreciated if they did.
 
-So git-annex is also guaranteed to support being built with versions of
+git-annex currently supports being built with versions of
 dependencies that pre-date any introduction of LLM generated code.
 (It is not currently built that way by default but such builds are welcome.)
+Unfortunately, it's not possible to guarantee that will continue to be the
+case in new versions of git-annex. That's the goal, but it may become
+untenable.
 
 Unfortunately, this means that additional work needs to be done to review
 git-annex's dependencies on an ongoing basis to detect the addition of LLM
@@ -65,4 +68,7 @@ git-annex remains buildable with older versions of ghc back to 9.6.6.
 
 This will probably prevent git-annex from taking advantage of 
 most new improvements to the Haskell language going forward. 
-That is deeply unfortunate.
+That is deeply unfortunate. This is the main reason why git-annex is not
+guaranteed to never change to depend on LLM generated code, because cutting
+it off from all future Haskell language improvements may be worse than the
+alternative.
