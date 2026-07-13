@@ -1,0 +1,30 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 9"""
+ date="2026-07-13T17:52:28Z"
+ content="""
+This is now possible to implement, since git-annex has an interface for
+importtree-only special remotes.
+
+To list, it could avoid checksums and use:
+
+	rsync -a --dry-run --out-format='%l|%M|%L|%n' $repo empty-directory
+
+The '%l' field is the file size and combined with the '%M' field's mtime,
+would constitute the ContentIdentifier. Rsync uses a hardcoded mtime
+format like "2026/07/13-12:49:50" which git-annex could parse and convert
+to seconds-from-epoch to save a little bit of space.
+
+The '%L' field will be non-empty when it's a symlink, and those would be skipped.
+
+The '%n' field is the filename, which may be prefixed with a common top-level directory or module name.
+Note that rsync escapes some characters, eg `\#012` is `\n`.
+
+---
+
+Size+mtime as a ContentIdentifier is good enough, it only would prevent
+git-annex from noticing and updating the import when:
+
+1. Two files with the same size and mtime got swapped with one-another.
+2. A file is modified in place without updating the mtime or changing its size.
+"""]]
