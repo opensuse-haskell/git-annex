@@ -61,6 +61,7 @@ remote = specialRemoteType $ RemoteType
 	, configParser = remoteConfigParser Nothing
 	, setup = externalSetup Nothing Nothing
 	, exportSupported = checkExportSupported Nothing
+	, importSupported = importUnsupported
 	, exportImportSupported = exportImportUnsupported
 	, thirdPartyPopulated = False
 	}
@@ -149,6 +150,7 @@ gen rt externalprogram r u rc gc rs
 			, checkPresent = checkPresentDummy
 			, checkPresentCheap = False
 			, exportActions = exportactions
+			, importActions = importUnsupported
 			, exportImportActions = exportImportUnsupported
 			, whereisKey = towhereis
 			, remoteFsck = Nothing

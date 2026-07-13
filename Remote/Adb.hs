@@ -54,6 +54,7 @@ remote = specialRemoteType $ RemoteType
 		]
 	, setup = adbSetup
 	, exportSupported = exportIsSupported
+	, importSupported = importUnsupported
 	, exportImportSupported = exportImportIsSupported
 	, thirdPartyPopulated = False
 	}
@@ -97,6 +98,7 @@ gen r u rc gc rs = do
 			, removeExportDirectory = Just $ removeExportDirectoryM serial adir
 			, renameExport = Just $ renameExportM serial adir
 			}
+		, importActions = importUnsupported
 		, exportImportActions = ExportImportActions
 			{ listImportableOrExportedContents = listImportableOrExportedContentsM serial adir c
 			, importKey = Nothing

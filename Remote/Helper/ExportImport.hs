@@ -1,6 +1,6 @@
 {- Helper to make remotes support export and import (or not).
  -
- - Copyright 2017-2024 Joey Hess <id@joeyh.name>
+ - Copyright 2017-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -48,6 +48,22 @@ instance HasExportUnsupported (ExportActions Annex) where
 	 where
 	 	nope = giveup "export not supported"
 
+-- | Use for remotes that do not support imports.
+class HasImportUnsupported a where
+	importUnsupported :: a
+
+instance HasImportUnsupported (ParsedRemoteConfig -> RemoteGitConfig -> Annex Bool) where
+	importUnsupported = \_ _ -> return False
+
+instance HasImportUnsupported (ImportActions Annex) where
+	importUnsupported = ImportActions
+		{ listImportableContents = nope
+		, retrieveImport = nope
+		, checkPresentImport = \_ _ -> return False
+		}
+	  where
+		nope = giveup "import not supported"
+
 -- | Use for remotes that do not support exports and imports.
 class HasExportImportUnsupported a where
 	exportImportUnsupported :: a
@@ -71,6 +87,9 @@ instance HasExportImportUnsupported (ExportImportActions Annex) where
 exportIsSupported :: ParsedRemoteConfig -> RemoteGitConfig -> Annex Bool
 exportIsSupported = \_ _ -> return True
 
+importIsSupported :: ParsedRemoteConfig -> RemoteGitConfig -> Annex Bool
+importIsSupported = \_ _ -> return True
+
 exportImportIsSupported :: ParsedRemoteConfig -> RemoteGitConfig -> Annex Bool
 exportImportIsSupported = \_ _ -> return True
 
@@ -83,7 +102,11 @@ adjustExportImportRemoteType rt = rt { setup = setup' }
 		pc <- either giveup return . parseRemoteConfig c
 			=<< configParser rt c
 		let checkconfig supported configured configfield cont =
-			ifM (supported rt pc gc <&&> pure (not (thirdPartyPopulated rt)))
+			let allowed = 
+				( supported rt pc gc 
+					<||> exportImportSupported rt pc gc)
+				<&&> pure (not (thirdPartyPopulated rt))
+			in ifM allowed
 				( case st of
 					Init
 						| configured pc && encryptionIsEnabled pc ->
@@ -96,7 +119,7 @@ adjustExportImportRemoteType rt = rt { setup = setup' }
 					else cont
 				)
 		checkconfig exportSupported exportTree exportTreeField $
-			checkconfig exportImportSupported importTree importTreeField $
+			checkconfig importSupported importTree importTreeField $
 				setup rt st mu remotename cp c gc
 	
 	enable oldc pc configured configfield cont = do
@@ -108,40 +131,57 @@ adjustExportImportRemoteType rt = rt { setup = setup' }
 -- | Adjust a remote to support exporttree=yes and/or importree=yes.
 adjustExportImport :: Remote -> RemoteStateHandle -> Annex Remote
 adjustExportImport r rs = do
-	isexport <- pure (exportTree (config r))
-		<&&> isExportSupported r
-	-- When thirdPartyPopulated is True, the remote
-	-- does not need to be configured with importTree to support
-	-- imports.
-	isexportimport <- pure (importTree (config r) || thirdPartyPopulated (remotetype r))
+	isexport <- pure exportconfigured <&&> isExportSupported r
+	isimport <- pure importconfigured <&&> isImportSupported r
+	isexportimport <- pure
+		-- Use ExportImportActions even when
+		-- not configured with exporttree=yes,
+		-- when it's supported, since it
+		-- handled content identifiers more
+		-- strongly than ImportActions does.
+		( importconfigured
+		-- thirdPartyPopulated is handled using 
+		-- ExportImportActions
+		|| thirdPartyPopulated (remotetype r))
 		<&&> isExportImportSupported r
 	let r' = r
 		{ remotetype = (remotetype r)
 			{ exportSupported = if isexport
 				then exportSupported (remotetype r)
 				else exportUnsupported
+			, importSupported = if isimport
+				then importSupported (remotetype r)
+				else importUnsupported
 			, exportImportSupported = if isexportimport
 				then exportImportSupported (remotetype r)
 				else exportImportUnsupported
 			}
 		}
 	let annexobjects = isexport && annexObjects (config r)
-	if not isexport && not isexportimport
+	if not isexport && not isimport && not isexportimport
 		then return r'
 		else do
 			gc <- Annex.getGitConfig
-			adjustExportImport' isexport isexportimport annexobjects r' rs gc
+			adjustExportImport' isexport isimport isexportimport annexobjects r' rs gc
+  where
+	exportconfigured = exportTree (config r)
+	importconfigured = importTree (config r)
 
-adjustExportImport' :: Bool -> Bool -> Bool -> Remote -> RemoteStateHandle -> GitConfig -> Annex Remote
-adjustExportImport' isexport isexportimport annexobjects r rs gc = do
+adjustExportImport' :: Bool -> Bool -> Bool -> Bool -> Remote -> RemoteStateHandle -> GitConfig -> Annex Remote
+adjustExportImport' isexport isimport isexportimport annexobjects r rs gc = do
 	dbv <- prepdbv
 	ciddbv <- prepciddb
 	return $ r
 		{ exportActions = if isexport
 			then if isexportimport
-				then exportActionsForImport dbv ciddbv (exportActions r)
+				then exportActionsForExportImport dbv ciddbv (exportActions r)
 				else exportActions r
 			else exportUnsupported
+		, importActions = if isexportimport
+			then importActionsForExportImport ciddbv
+			else if isimport
+				then importActions r
+				else importUnsupported
 		, exportImportActions = if isexportimport
 			then exportImportActions r
 			else exportImportUnsupported
@@ -180,7 +220,7 @@ adjustExportImport' isexport isexportimport annexobjects r rs gc = do
 			then lockContent r
 			else Nothing
 		, retrieveKeyFile = \k af dest p vc ->
-			if isexportimport || isexport
+			if isexportimport || isexport || isimport
 				then supportversionedretrieve k af dest p vc $
 					supportretrieveannexobject dbv k af dest p $
 						retrieveFromImportOrExport (tryexportlocs dbv k) ciddbv k af dest p
@@ -195,21 +235,14 @@ adjustExportImport' isexport isexportimport annexobjects r rs gc = do
 					anyM (checkPresentExportImport ciddbv k)
 						=<< getanyexportlocs dbv k
 				else if isexport
-					-- Check if any of the files a key
-					-- was exported to are present. This 
-					-- doesn't guarantee the export
-					-- contains the right content,
-					-- if the remote is an export,
-					-- or if something else can write
-					-- to it. Remotes that have such 
-					-- problems are made untrusted,
-					-- so it's not worried about here.
-					then checkpresentwith k $
-						anyM (checkPresentExport (exportActions r) k)
-							=<< getanyexportlocs dbv k
-					else checkPresent r k
-		-- checkPresent from an export is more expensive
-		-- than otherwise, so not cheap. Also, this
+					then checkpresentloc dbv k
+						(checkPresentExport (exportActions r))
+					else if isimport
+						then checkpresentloc dbv k
+							(checkPresentImport (importActions r))
+						else checkPresent r k
+		-- checkPresent from an export or import is more
+		-- expensive than otherwise, so not cheap. Also, this
 		-- avoids things that look at checkPresentCheap and
 		-- silently skip non-present files from behaving
 		-- in confusing ways when there's an export
@@ -242,7 +275,7 @@ adjustExportImport' isexport isexportimport annexobjects r rs gc = do
 							else Nothing
 						]
 				else return is
-			return $ if isexportimport && not thirdpartypopulated
+			return $ if (isexportimport || isimport) && not thirdpartypopulated
 				then (is'++[("importtree", "yes")])
 				else is'
 		}
@@ -251,9 +284,10 @@ adjustExportImport' isexport isexportimport annexobjects r rs gc = do
 	
 	thirdpartypopulated = thirdPartyPopulated (remotetype r)
 
-	-- exportActions adjusted to use the equivalent import actions,
-	-- which take ContentIdentifiers into account.
-	exportActionsForImport dbv ciddbv ea = ea
+	-- exportActions adjusted to use the equivalent
+	-- exportImportActions, which take ContentIdentifiers
+	-- into account.
+	exportActionsForExportImport dbv ciddbv ia = ia
   		{ storeExport = \f k loc p -> do
 			db <- getciddb ciddbv
 			exportdb <- getexportdb dbv
@@ -277,6 +311,15 @@ adjustExportImport' isexport isexportimport annexobjects r rs gc = do
 		, checkPresentExport = checkPresentExportImport ciddbv
 		}
 	
+	-- importActions adjusted to use the equivalent
+	-- exportImportActions, which check ContentIdentifiers
+	-- more strongly.
+	importActionsForExportImport ciddbv = ImportActions
+		{ listImportableContents = listImportableOrExportedContents (exportImportActions r)
+		, retrieveImport = retrieveExportWithContentIdentifier (exportImportActions r)
+		, checkPresentImport = checkPresentExportImport ciddbv
+		}
+
 	prepciddb = do
 		lcklckv <- liftIO newEmptyTMVarIO
 		dbtv <- liftIO newEmptyTMVarIO
@@ -366,8 +409,9 @@ adjustExportImport' isexport isexportimport annexobjects r rs gc = do
 		liftIO $ ContentIdentifier.getContentIdentifiers db rs k
 
 	retrieveFromImportOrExport getlocs ciddbv k af dest p
-		| isexportimport = retrieveFromImport getlocs ciddbv k af dest p
-		| otherwise = retrieveFromExport getlocs k af dest p
+		| isexportimport = retrieveFromExportImport getlocs ciddbv k af dest p
+		| isexport = retrieveFromExport getlocs k af dest p
+		| otherwise = retrieveFromImport getlocs ciddbv k af dest p
 
 	-- Keys can be retrieved using retrieveExport, but since that
 	-- retrieves from a path in the remote that another writer could
@@ -375,23 +419,39 @@ adjustExportImport' isexport isexportimport annexobjects r rs gc = do
 	-- has to be strongly verified.
 	retrieveFromExport getlocs k _af dest p = ifM (isVerifiable k)
 		( getlocs $ \loc -> 
-			retrieveExport (exportActions r) k loc dest p >>= return . \case
-				UnVerified -> MustVerify
-				IncompleteVerify iv -> MustFinishIncompleteVerify iv
-				v -> v
+			stronglyverify $
+				retrieveExport (exportActions r) k loc dest p
 		, giveup $ "exported content cannot be verified due to using the " ++ decodeBS (formatKeyVariety (fromKey keyVariety k)) ++ " backend"
 		)
 	
-	retrieveFromImport getlocs ciddbv k af dest p = do
+	retrieveFromExportImport getlocs ciddbv k af dest p = do
 		cids <- getkeycids ciddbv k
 		if not (null cids)
 			then getlocs $ \loc ->
 				snd <$> retrieveExportWithContentIdentifier (exportImportActions r) loc cids dest (Left k) p
 			-- In case a content identifier is somehow missing,
 			-- try this instead.
-			else if isexport
-				then retrieveFromExport getlocs k af dest p
-				else giveup "no content identifier is recorded, unable to retrieve"
+			else retrieveWithoutContentIdentifier $
+				retrieveFromExport getlocs k af dest p
+	
+	retrieveFromImport getlocs ciddbv k af dest p = do
+		cids <- getkeycids ciddbv k
+		if not (null cids)
+			then getlocs $ \loc ->
+				-- retrieveImport does not guarantee that
+				-- the file it retrieves has the content
+				-- identifier, so it must be strongly
+				-- verified.
+				stronglyverify $
+					snd <$> retrieveImport (importActions r) loc cids dest (Left k) p
+			-- In case a content identifier is somehow missing,
+			-- try this instead.
+			else retrieveWithoutContentIdentifier $
+				retrieveFromExport getlocs k af dest p
+
+	retrieveWithoutContentIdentifier a
+		| isexport = a
+		| otherwise = giveup "no content identifier is recorded, unable to retrieve"
 
 	checkpresentwith k a = ifM a
 		( return True
@@ -399,6 +459,16 @@ adjustExportImport' isexport isexportimport annexobjects r rs gc = do
 			then checkpresentannexobject k
 			else return False
 		)
+	
+	-- Check if any of the recorded locations for a key
+	-- are present. The action doesn't guarantee that the
+	-- file contains the right content if the remote
+	-- is an export or import something else can write to
+	-- it. Such remotes are made untrusted, so it's not
+	-- worried about here.
+	checkpresentloc dbv k a = 
+		checkpresentwith k $
+			anyM (a k) =<< getanyexportlocs dbv k
 
 	checkPresentExportImport ciddbv k loc =
 		checkPresentExportWithContentIdentifier
@@ -466,3 +536,8 @@ adjustExportImport' isexport isexportimport annexobjects r rs gc = do
 			retrieveKeyFile r k af dest p vc
 				`catchNonAsync` const a
 		| otherwise = a
+	
+	stronglyverify a = a >>= return . \case
+		UnVerified -> MustVerify
+		IncompleteVerify iv -> MustFinishIncompleteVerify iv
+		v -> v

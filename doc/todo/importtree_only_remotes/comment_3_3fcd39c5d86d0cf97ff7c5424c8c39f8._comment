@@ -1,0 +1,8 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 3"""
+ date="2026-07-13T17:30:47Z"
+ content="""
+This is implemented at the haskell level. But the external special remote
+protocol doesn't support it yet.
+"""]]

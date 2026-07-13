@@ -59,6 +59,7 @@ remote = RemoteType
 		]
 	, setup = borgSetup
 	, exportSupported = exportUnsupported
+	, importSupported = importUnsupported
 	, exportImportSupported = exportImportIsSupported
 	, thirdPartyPopulated = True
 	}
@@ -94,6 +95,7 @@ gen r u rc gc rs = do
 		, checkPresent = checkPresentDummy
 		, checkPresentCheap = borgLocal borgrepo
 		, exportActions = exportUnsupported
+		, importActions = importUnsupported
 		, exportImportActions = ExportImportActions
 			{ listImportableOrExportedContents = listImportableOrExportedContentsM u borgrepo c
 			, importKey = Just ThirdPartyPopulated.importKey

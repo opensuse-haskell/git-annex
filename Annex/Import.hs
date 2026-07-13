@@ -807,7 +807,7 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 			return (Right job)
 	
 	thirdpartypopulatedimport db (loc, (cid, sz)) = 
-		case Remote.importKey ia of
+		case Remote.importKey (Remote.exportImportActions remote) of
 			Nothing -> return Nothing
 			Just importkey ->
 				tryNonAsync (importkey loc cid sz nullMeterUpdate) >>= \case
@@ -827,7 +827,7 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 		-- than downloading and retrieving a key, to avoid
 		-- generating trees with different keys for the same content.
 		let act = if importcontent
-			then case Remote.importKey ia of
+			then case Remote.importKey (Remote.exportImportActions remote) of
 				Nothing -> dodownload
 				Just _ -> if Utility.Matcher.introspect matchNeedsFileContent (fst matcher)
 					then dodownload
@@ -836,7 +836,7 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 		act cidmap (loc, (cid, sz)) f matcher
 
 	doimport cidmap (loc, (cid, sz)) f matcher =
-		case Remote.importKey ia of
+		case Remote.importKey (Remote.exportImportActions remote) of
 			Nothing -> error "internal" -- checked earlier
 			Just importkey -> do
 				when (Utility.Matcher.introspect matchNeedsFileContent (fst matcher)) $
@@ -883,8 +883,9 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 		getcontent k = do
 			let af = AssociatedFile (Just f)
 			let downloader p' tmpfile = do
-				_ <- Remote.retrieveExportWithContentIdentifier
-					ia loc [cid] tmpfile
+				_ <- Remote.retrieveImport
+					(Remote.importActions remote)
+					loc [cid] tmpfile
 					(Left k)
 					(combineMeterUpdate p' p)
 				ok <- moveAnnex k tmpfile
@@ -901,8 +902,9 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 	-- need to retrieve this file.
 	doimportsmall cidmap loc cid sz p = do
 		let downloader tmpfile = do
-			(k, _) <- Remote.retrieveExportWithContentIdentifier
-				ia loc [cid] tmpfile
+			(k, _) <- Remote.retrieveImport
+				(Remote.importActions remote)
+				loc [cid] tmpfile
 				(Right (mkkey tmpfile))
 				p
 			case keyGitSha k of
@@ -924,8 +926,9 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 	dodownload cidmap (loc, (cid, sz)) f matcher = do
 		let af = AssociatedFile (Just f)
 		let downloader tmpfile p = do
-			(k, _) <- Remote.retrieveExportWithContentIdentifier
-				ia loc [cid] tmpfile
+			(k, _) <- Remote.retrieveImport
+				(Remote.importActions remote)
+				loc [cid] tmpfile
 				(Right (mkkey tmpfile))
 				p
 			case keyGitSha k of
@@ -971,8 +974,6 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 						}
 					fst <$> genKey ks nullMeterUpdate backend
 				else gitShaKey <$> hashFile tmpfile
-	
-	ia = Remote.exportImportActions remote
 				
 	bwlimit = remoteAnnexBwLimitDownload (Remote.gitconfig remote)
 			<|> remoteAnnexBwLimit (Remote.gitconfig remote)
@@ -1096,7 +1097,7 @@ pruneImportMatcher = Utility.Matcher.pruneMatcher matchNeedsKey
  -}
 getImportableContents :: Remote -> ImportTreeConfig -> CheckGitIgnore -> FileMatcher Annex -> Annex (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)))
 getImportableContents r importtreeconfig ci matcher = do
-	Remote.listImportableOrExportedContents (Remote.exportImportActions r) >>= \case
+	Remote.listImportableContents (Remote.importActions r) >>= \case
 		Just (ImportableContentsComplete ic) -> do
 			dbhandle <- opendbhandle
 			Just . ImportableContentsComplete

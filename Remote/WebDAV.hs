@@ -57,6 +57,7 @@ remote = specialRemoteType $ RemoteType
 		]
 	, setup = webdavSetup
 	, exportSupported = exportIsSupported
+	, importSupported = importUnsupported
 	, exportImportSupported = exportImportUnsupported
 	, thirdPartyPopulated = False
 	}
@@ -106,6 +107,7 @@ gen r u rc gc rs = do
 					removeExportDirectoryDav hdl
 				, renameExport = Just $ renameExportDav hdl
 				}
+			, importActions = importUnsupported
 			, exportImportActions = exportImportUnsupported
 			, whereisKey = Nothing
 			, remoteFsck = Nothing

@@ -41,6 +41,7 @@ remote = specialRemoteType $ RemoteType
 		]
 	, setup = httpAlsoSetup
 	, exportSupported = exportIsSupported
+	, importSupported = importUnsupported
 	, exportImportSupported = exportImportUnsupported
 	, thirdPartyPopulated = False
 	}
@@ -84,6 +85,7 @@ gen r u rc gc rs = do
 			, removeExportDirectory = Nothing
 			, renameExport = cannotModify
 			}
+		, importActions = importUnsupported
 		, exportImportActions = exportImportUnsupported
 		, whereisKey = Nothing
 		, remoteFsck = Nothing

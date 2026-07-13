@@ -21,9 +21,11 @@ module Types.Remote
 	, unVerified
 	, RetrievalSecurityPolicy(..)
 	, isExportSupported
+	, isImportSupported
 	, isExportImportSupported
 	, ExportActions(..)
 	, ExportImportActions(..)
+	, ImportActions(..)
 	, ByteSize
 	, SafeDropProof
 	)
@@ -68,8 +70,10 @@ data RemoteTypeA a = RemoteType
 	, setup :: SetupStage -> Maybe UUID -> RemoteName -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> a (RemoteConfig, UUID)
 	-- check if a remote of this type is able to support export
 	, exportSupported :: ParsedRemoteConfig -> RemoteGitConfig -> a Bool
-	-- check if a remote of this type is able to support import as well
-	-- as export.
+	-- check if a remote of this type is able to support import
+	, importSupported :: ParsedRemoteConfig -> RemoteGitConfig -> a Bool
+	-- check if a remote of this type is able to support both import
+	-- and export at the same time
 	, exportImportSupported :: ParsedRemoteConfig -> RemoteGitConfig -> a Bool
 	-- is a remote of this type not a usual key/value store,
 	-- or export/import of a tree of files, but instead a collection
@@ -133,6 +137,8 @@ data RemoteA a = Remote
 	, checkPresentCheap :: Bool
 	-- Some remotes support export.
 	, exportActions :: ExportActions a
+	-- Some remotes support import.
+	, importActions :: ImportActions a
 	-- Some remotes support import as well as export.
 	, exportImportActions :: ExportImportActions a
 	-- Some remotes can provide additional details for whereis.
@@ -268,6 +274,9 @@ data RetrievalSecurityPolicy
 
 isExportSupported :: RemoteA a -> a Bool
 isExportSupported r = exportSupported (remotetype r) (config r) (gitconfig r)
+
+isImportSupported :: RemoteA a -> a Bool
+isImportSupported r = importSupported (remotetype r) (config r) (gitconfig r)
 
 isExportImportSupported :: RemoteA a -> a Bool
 isExportImportSupported r = exportImportSupported (remotetype r) (config r) (gitconfig r)
@@ -424,4 +433,29 @@ data ExportImportActions a = ExportImportActions
 		-> ExportLocation
 		-> [ContentIdentifier]
 		-> a Bool
+	}
+
+data ImportActions a = ImportActions
+	-- Like listImportableOrExportedContents, but here the
+	-- ContentIdentifier is only used to avoid repeatedly
+	-- importing the same content from the remote, and does
+	-- not need to uniquely identify content.
+	-- Eg, a mtime is sufficient.
+	{ listImportableContents :: a (Maybe (ImportableContentsChunkable a (ContentIdentifier, ByteSize)))
+	-- Like retrieveExportWithContentIdentifier, but does not
+	-- need to guarantee that the file it retrieves has one
+	-- of the requested ContentIdentifiers.
+	, retrieveImport
+		:: ImportLocation
+		-> [ContentIdentifier]
+		-> OsPath
+		-> Either Key (a Key)
+		-> MeterUpdate
+		-> a (Key, Verification)
+	-- Checks if anything is present on the remote at the specified
+	-- ImportLocation. It may check the size or other characteristics
+	-- of the Key, but does not need to guarantee that the content on
+	-- the remote is the same as the Key's content.
+	-- Throws an exception if the remote cannot be accessed.
+	, checkPresentImport :: Key -> ImportLocation -> a Bool
 	}

@@ -85,6 +85,7 @@ remote = RemoteType
 	, configParser = computeConfigParser
 	, setup = setupInstance
 	, exportSupported = exportUnsupported
+	, importSupported = importUnsupported
 	, exportImportSupported = exportImportUnsupported
 	, thirdPartyPopulated = False
 	}
@@ -119,6 +120,7 @@ gen r u rc gc rs = case getComputeProgram' rc of
 		, checkPresent = checkKey rs
 		, checkPresentCheap = False
 		, exportActions = exportUnsupported
+		, importActions = importUnsupported
 		, exportImportActions = exportImportUnsupported
 		, whereisKey = Nothing
 		, remoteFsck = Nothing

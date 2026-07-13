@@ -49,6 +49,7 @@ remote = specialRemoteType $ RemoteType
 		]
 	, setup = glacierSetup
 	, exportSupported = exportUnsupported
+	, importSupported = importUnsupported
 	, exportImportSupported = exportImportUnsupported
 	, thirdPartyPopulated = False
 	}
@@ -93,6 +94,7 @@ gen r u rc gc rs = do
 			, checkPresent = checkPresentDummy
 			, checkPresentCheap = False
 			, exportActions = exportUnsupported
+			, importActions = importUnsupported
 			, exportImportActions = exportImportUnsupported
 			, whereisKey = Nothing
 			, remoteFsck = Nothing
