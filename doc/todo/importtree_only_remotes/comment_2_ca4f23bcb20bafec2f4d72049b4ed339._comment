@@ -1,0 +1,9 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 2"""
+ date="2026-07-13T13:08:53Z"
+ content="""
+I think it would actually be better to modify Types.Remote and add a new
+interface specifically for this, than to try to jam it into an existing
+interface it was not designed for.
+"""]]

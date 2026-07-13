@@ -51,24 +51,31 @@ What is needed in such an interface?
 	-- strongly verified if this is used to download a particular Key
 	-- that was at one point stored on the remote, since the content
 	-- of the remote could change at any time.
-	-- (The MeterUpdate does not need to be used if 
-        -- sequentially to the file.)
+	-- (The MeterUpdate does not need to be used if it writes
+    -- sequentially to the file.)
 	-- Throws exception on failure.
 	retrieveImport :: ImportLocation -> FilePath -> MeterUpdate -> Annex ()
 	-- Checks if anything is present on the remote at the specified
 	-- ImportLocation. It may check the size or other characteristics
-        -- of the Key, but does not need to guarantee that the content on
-        -- the remote is the same as the Key's content.
-        -- Throws an exception if the remote cannot be accessed.
+    -- of the Key, but does not need to guarantee that the content on
+    -- the remote is the same as the Key's content.
+    -- Throws an exception if the remote cannot be accessed.
 	checkPresentImport :: Key -> ImportLocation -> Annex Bool
 
 listImportableContents is unchanged, and checkPresentImport above
-is identical to checkPresentExport. retrieveImport is very similar
-to retrieveExport, except that the content retrieved is not guaranteed
-to be the same as the content of any key. Actually, it may be an identical
-interface; the only thing I can find that uses retrieveExport forces
-verification of the content retrived since it could have been changed by
-another writer.
+is identical to checkPresentExport.
+
+retrieveImport is very similar to retrieveExport, except that the content
+retrieved is not a particular Key, and that it does not provide any
+Verification.
+
+An alternative to the above `retrieveImport` would be to use 
+`retrieveExport` for getting known keys from the remote, and use
+`retrieveExportWithContentIdentifier` with its current interface for
+importing new ContentIdentifiers from the remote. It would not need
+to ensure that the file really has the ContentIdentifier, but this leaves
+open the possibility of importtree only remotes that do at least some 
+verification of the ContentIdentifier.
 
 The similarity with interface that we already have suggests that
 perhaps this does not need changes to Types.Remote to implement.
