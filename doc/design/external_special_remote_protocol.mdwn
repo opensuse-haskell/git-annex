@@ -54,9 +54,9 @@ any extensions it wants to use.
 	EXTENSIONS 
 
 Next, git-annex will generally send a message telling the special
-remote to start up. (Or it might send an INITREMOTE or EXPORTSUPPORTED or
-LISTCONFIGS, or perhaps other things in the future, so don't
-hardcode this order.)
+remote to start up. (Or it might send an INITREMOTE or EXPORTSUPPORTED 
+or IMPORTSUPPORTED or LISTCONFIGS, or perhaps other things in the future,
+so don't hardcode this order.)
 
 	PREPARE
 
@@ -118,7 +118,7 @@ The following requests *must* all be supported by the special remote.
 * `PREPARE`  
   Tells the remote that it's time to prepare itself to be used.  
   Only a few requests for details about the remote can come before this
-  (EXTENSIONS, INITREMOTE, EXPORTSUPPORTED and LISTCONFIGS,
+  (EXTENSIONS, INITREMOTE, EXPORTSUPPORTED, IMPORTSUPPORTED and LISTCONFIGS,
   but others may be added later).
   * `PREPARE-SUCCESS`  
     Sent as a response to PREPARE once the special remote is ready for use.
@@ -184,7 +184,7 @@ The following requests *must* all be supported by the special remote.
     Delegate this request to a different type of special remote.
     See [[delegate_appendix]].
 
-Special remotes can optionally support tree exports and imports,
+Special remotes can optionally support tree exports or imports,
 which makes the [[git-annex-export]] and [[git-annex-import]] commands
 work with them. See the [[export_and_import_appendix]] for
 additional requests that git-annex will make when using special remotes in

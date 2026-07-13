@@ -12,7 +12,7 @@ allow rsync to be run. It would be good to also only need rsync for
 importtree, but there are several roadblocks:
 
 * listing contents: Using rsync would involve a command like
-  `rsync --checksum -avz -i --dry-run --out-format='%C %l %M %f\n' $rsync-url empty-directory`;
+  `rsync --checksum -avz -i --dry-run --out-format='%C %l %M %L %n' $rsync-url empty-directory`;
   that makes the remote rsync checksum all the files, which could be very
   expensive. But without checksum, only mtime and size is available,
   which is not really enough to be sure all edits to a file are imported
@@ -40,7 +40,5 @@ other than rsync on the server. --[[Joey]]
 Or, implement [[todo/importtree_only_remotes]] and make rsync special
 remotes support either importtree or extporttree, but not both, which
 avoids that problem. --[[Joey]]
-
-[[!tag needsthought]]
 
 [[!tag projects/ICE4]]

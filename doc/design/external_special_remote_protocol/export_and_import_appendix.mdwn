@@ -4,20 +4,28 @@ Some special remotes interface to a key/value datastore using keys that are
 eg hashes, and it won't make sense for them to implement any of this.
 
 When a special remote interfaces with something that looks like a directory
-of files, the simple export interface can be implemented to allow the
+of files, it can either or both of the interfaces described here.
+
+The export interface can be implemented to allow the
 [[git-annex-export]] command to be used to store file trees on the special
 remote.
 
-If other tools can write files to the special remote too, the import/export
-interface can be implemented. This allows for both [[git-annex-import]] and 
-[[git-annex-export]] to be used with the special remote.
+The import interface can be implemented to allow the
+[[git-annex-import]] command to be used to import file trees from the special
+remote that are written by some other tool or process.
+
+Note that, when a special remote implements both interfaces, the user will
+need to choose at `initremote` time whether to use `importtree=yes` or
+`exporttree=yes`. They won't be allowed to use both, since this interface
+is not designed to safely allow import and export with the same special
+remote.
 
 [[!toc]]
 
-## simple export interface
+## export interface
 
 git-annex will use this when the special remote is initialized with
-exporttree=yes but without importtree=yes and indicates that it supports
+exporttree=yes and without importtree=yes and indicates that it supports
 exports.
 
 These are requests git-annex sends to the special remote program.
@@ -122,13 +130,13 @@ a request, it can reply with `UNSUPPORTED-REQUEST`.
     Delegate this request to a different type of special remote.
     See [[delegate_appendix]].
 
-## import/export interface
+## import interface
 
 (This part is a draft, not implemented yet.)
 
 git-annex will use this interface when the special remote is
-initialized with both exporttree=yes and importtree=yes and indicates
-that it supports both imports and exports.
+initialized with importtree=yes and indicates
+that it supports imports.
 
 ### content identifiers
 
@@ -141,7 +149,8 @@ file. This is called a ContentIdentifier. A good ContentIdentifier needs to:
 * Be as unique as possible, but not necessarily fully unique.
   A hash of the content would be ideal.
   A (size, mtime, inode) tuple is as good a content identifier as git uses in
-  its index.
+  its index. A (size, mtime) tuple will detect most modifications to files,
+  and is usually good enough.
 * Be reasonably short, since it will be stored in the git-annex branch.
 
 It's up to the implementor of a external special remote program what
@@ -156,14 +165,6 @@ program. Once the special remote has finished performing a request,
 it should send one of the listed replies. Or, if it does not
 support a request, it can reply with `UNSUPPORTED-REQUEST`.
 
-* `EXPORTSUPPORTED`  
-  Used to check if a special remote supports exports.
-  Note that this request may be made before or after `PREPARE`.
-  * `EXPORTSUPPORTED-SUCCESS`  
-    Indicates that it makes sense to use this special remote as an export.
-  * `EXPORTSUPPORTED-FAILURE`  
-    Indicates that it does not make sense to use this special remote as an
-    export.
 * `IMPORTSUPPORTED`  
   Used to check if a special remote supports imports.
   Note that this request may be made before or after `PREPARE`.
@@ -171,13 +172,6 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
     Indicates that it makes sense to import from this special remote.
   * `IMPORTSUPPORTED-FAILURE`  
     Indicates that it does not make sense to import from this special remote.
-* `IMPORTKEYSUPPORTED`
-  Used to check if a special remote supports `IMPORTKEY`.
-  Note that this request may be made before or after `PREPARE`.
-  * `IMPORTKEYSUPPORTED-SUCCESS`  
-    Indicates that `IMPORTKEY` can be used.
-  * `IMPORTKEYSUPPORTED-FAILURE`  
-    Indicates that `IMPORTKEY` cannot be used.
 * `LISTIMPORTABLECONTENTS`  
   Used to get a list of all the files that are stored in the special 
   remote. A block of responses
@@ -190,56 +184,17 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
     Always followed by `CONTENTIDENTIFIER`.
   * `CONTENTIDENTIFIER ContentIdentifier`  
     Provide the ContentIdentifier for the previous `CONTENT`.
-  * `HISTORY`  
-    When a special remote stores historical versions of files,
-    this can be used to list those versions. It opens a new
-    block of responses. This can be repeated any number of times
-    (indicating a branching history), and histories can also
-    be nested multiple levels deep.  
-    This should only be a response when the remote supports using
-    "TRANSFER RECEIVE Key" to retrieve historical versions of files,
-    and when "GETCONFIG versioning" yields "VALUE TRUE".
   * `END`  
-    Indicates the end of a block of responses.
+    Indicates the end of the block of responses.
 * `LOCATION Name`  
-  Comes before each of the following requests (except for
-  REMOVEEXPORTDIRECTORYWHENEMPTY), 
+  Comes before each of the following requests,
   specifying the name of the file on the remote. It will be in the
   form of a relative path, and may contain path separators,
   whitespace, and other special characters.  
   No response is made to this message.
-* `EXPECTED ContentIdentifier`  
-  Comes before each of the following requests (except
-  for REMOVEEXPORTDIRECTORYWHENEMPTY), specifying the
-  ContentIdentifier that is expected to be present on the remote.
-* `NOTHINGEXPECTED`  
-  If no ContentIdentifier is expected to be present, this is sent
-  rather than `EXPECTED`.
-* `IMPORTKEY File`
-  This only needs to be implemented if IMPORTKEYSUPPORTED indicates
-  it is supported. And if a remote did not support it before, adding
-  it will make importing the same content as before generate a likely
-  different tree, which can lead to merge conflicts. So be careful
-  implementing this.  
-  Generates a key by querying the remote for eg, a checksum.
-  (See [[internals/key_format]] for details of how to format a key.)
-  Any kind of key can be generated, depending on what the remote
-  can support.  
-  The user expects this to be reasonably fast and not use a lot of disk
-  space. It should not download the whole content of the file from the
-  remote.  
-  Must take care to generate a key for the same content as the 
-  ContentIdentifier specified by `EXPECTED`, or otherwise fail.  
-  Replies:
-  * `IMPORTKEY-SUCCESS Key`
-  * `IMPORTKEY-SKIP`  
-    This causes nothing to be imported for this file.
-  * `IMPORTKEY-FAILURE ErrorMsg`
-* `RETRIEVEEXPORTEXPECTED File`  
-  Retrieves the content of a file from the special remote
-  to the File on local disk. Must take care to only retrieve
-  content that has the ContentIdentifier specified by 
-  `EXPECTED`.  
+* `RETRIEVEIMPORT File`  
+  Retrieves the content of a file with the previously provided Name
+  from the special remote to the File on local disk.
   While the transfer is running, the remote can send any number of
   `PROGRESS` messages. Once the transfer is complete, it finishes by
   sending one of these replies:
@@ -247,63 +202,24 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
     Indicates that the retrieve was successful.
   * `RETRIEVE-FAILURE ErrorMsg`  
     Indicates the retrieve failed.
-* `STOREEXPORTEXPECTED Key File`  
-  Stores the content of File on the local disk to the previously
-  provided Name on the remote. If the Name already exists on the remote,
-  must take care to only overwrite it when it has the
-  ContentIdentifier that was previously provided by `EXPECTED`.
-  If some other content has been written to the Name,
-  it should not overwrite it.  
-  While the transfer is running, the remote can send any number of
-  `PROGRESS` messages. Once the transfer is complete, it finishes by
-  sending one of these replies:
-  * `STORE-SUCCESS Key ContentIdentifier`
-    Indicates that the store was successful. The ContentIdentifier
-    must be for the content that was stored.
-  * `STORE-FAILURE Key ErrorMsg`  
-    Indicates the store failed.
-* `CHECKPRESENTEXPORTEXPECTED Key`  
+* `CHECKPRESENTIMPORT Key`  
   Requests the remote to check if the previously provided Name
-  is present in it, and still has the ContentIdentifier that was
-  previously provided by `EXPECTED`.  
+  is present in it.
   * `CHECKPRESENT-SUCCESS Key`  
     Indicates that a content has been positively verified to be present
     in the remote.
   * `CHECKPRESENT-FAILURE Key`  
     Indicates that a content has been positively verified to not be
-    present in the remote, or does not have the expected
-    ContentIdentifier.
+    present in the remote.
   * `CHECKPRESENT-UNKNOWN Key ErrorMsg`  
     Indicates that it is not currently possible to verify if content is
     present in the remote. (Perhaps the remote cannot be contacted.)
-* `REMOVEEXPORTEXPECTED Key`  
-  Requests the remote to remove the content at the previously
-  provided Name, but only when it matches the ContentIdentifier
-  that was provided by `EXPECTED`.
-  * `REMOVE-SUCCESS Key`  
-    Indicates the content has been removed from the remote. May be returned when
-    the content was already not present.
-  * `REMOVE-FAILURE Key ErrorMsg`  
-    Indicates that the content was unable to be removed from the remote,
-    either because of an access problem, or because it did not match
-    the ContentIdentifier.
-* `REMOVEEXPORTDIRECTORYWHENEMPTY Directory`  
-  Requests the remote remove an exported directory, so long as it's empty.  
-  If the remote does not use directories, or `REMOVEEXPORTEXPECTED`
-  cleans up directories that are empty, this does not need to be implemented.  
-  The directory will be in the form of a relative path, and may contain path
-  separators, whitespace, and other special characters.  
-  * `REMOVEEXPORTDIRECTORY-SUCCESS`  
-    Indicates that the directory was removed, or was not empty.
-  * `REMOVEEXPORTDIRECTORY-FAILURE`  
-    Indicates that the directory was empty, but could not be
-    removed for some reason.
 
-### protocol example
+### import example
 
 The protocol starts off with VERSION etc as usual, and
 then git-annex asks the special remote if it supports
-export and import, which it does:
+export and import. In this example it supports both:
 
 	VERSION 1
 	EXTENSIONS INFO
@@ -318,7 +234,7 @@ git-annex asks for a list of files stored in the special remote:
 
 	LISTIMPORTABLECONTENTS
 
-Which in the simple case looks like this:
+Which responds:
 
 	CONTENT 100 foo
 	CONTENTIDENTIFIER 100 48511528411921470
@@ -326,39 +242,20 @@ Which in the simple case looks like this:
 	CONTENTIDENTIFIER 200 48511528411963410
 	END
 
-Or it could look like this, for a special remote that supports
-versions, and has two branches of history, with one branch having
-several different versions of the file "foo", and the second
-branch having a single version. Here the blocks have been indented to aid
-understanding; the real protocol does not include indenation.
-
-	  CONTENT 100 foo
-	  CONTENTIDENTIFIER 100 48511528411921470
-	  CONTENT 200 bar
-	  CONTENTIDENTIFIER 200 48511528411963410
-	  HISTORY
-	    CONTENT 99 foo
-	    CONTENTIDENTIFIER 99 2113620116963530
-	    HISTORY
-	      CONTENT 1 foo
-	      CONTENTIDENTIFIER 1 2110338579019192
-	    END
-	  END
-	  HISTORY
-	    CONTENT 88 foo
-	    CONTENTIDENTIFIER 88 2104982727272727
-	  END
-	END
-
-(Note that "bar" is a new file; it was not present in any
-of the older versions.)
-
 Next git-annex asks for the content of a file to be retrieved.
 
 	LOCATION foo
-	EXPECTED 100 48511528411921470
-	RETRIEVEEXPORTEXPECTED tmpfile
+	RETRIEVEIMPORTED tmpfile
 
-If the requested version no longer exists, the response should be:
+If the file no longer exists, the response would be:
 
-	RETRIEVE-FAILURE content has changed
+    RETRIEVE-FAILURE file not found
+
+If the file exists, the response would be:
+
+    RETRIEVE-SUCCESS
+
+What if the file exists but has been modified in the time
+since LISTIMPORTABLECONTENTS? The external special remote
+still retrieves it. git-annex will then notice that the hash
+doesn't match.

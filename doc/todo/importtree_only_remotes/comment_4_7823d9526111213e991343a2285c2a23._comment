@@ -1,0 +1,15 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 4"""
+ date="2026-07-13T18:05:57Z"
+ content="""
+I have updated [[design/external_special_remote_protocol/export_and_import_appendix]]
+to document this new interface. I decided to not try to support a combined
+exporttree=yes and importtree=yes for external special remotes because
+noone has ever stepped forward to implement an external special remote that
+can safely do that. I know it will be much easier and safer to implement
+importtree only external special remotes.
+
+The external special remote interface for this still needs to be
+implemented.
+"""]]
