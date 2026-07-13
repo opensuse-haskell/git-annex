@@ -116,7 +116,7 @@ gen r u rc gc rs = do
 				, renameExport = Just $ renameExportM dir
 				}
 			, exportImportActions = ExportImportActions
-				{ listImportableContents = listImportableContentsM ii dir
+				{ listImportableOrExportedContents = listImportableOrExportedContentsM ii dir
 				, importKey = Just (importKeyM ii dir)
 				, retrieveExportWithContentIdentifier = retrieveExportWithContentIdentifierM ii dir cow
 				, storeExportWithContentIdentifier = storeExportWithContentIdentifierM ii dir cow fastcopy
@@ -383,8 +383,8 @@ removeExportLocation topdir loc =
 		let p = exportPath topdir $ mkExportLocation loc'
 		in go (upFrom loc') =<< tryIO (removeDirectory p)
 
-listImportableContentsM :: IgnoreInodes -> OsPath -> Annex (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)))
-listImportableContentsM ii dir = liftIO $ do
+listImportableOrExportedContentsM :: IgnoreInodes -> OsPath -> Annex (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)))
+listImportableOrExportedContentsM ii dir = liftIO $ do
 	l' <- mapM go =<< dirContentsRecursiveSkipping (const False) False dir
 	return $ Just $ ImportableContentsComplete $
 		ImportableContents (catMaybes l') []

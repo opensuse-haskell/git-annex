@@ -1096,7 +1096,7 @@ pruneImportMatcher = Utility.Matcher.pruneMatcher matchNeedsKey
  -}
 getImportableContents :: Remote -> ImportTreeConfig -> CheckGitIgnore -> FileMatcher Annex -> Annex (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)))
 getImportableContents r importtreeconfig ci matcher = do
-	Remote.listImportableContents (Remote.exportImportActions r) >>= \case
+	Remote.listImportableOrExportedContents (Remote.exportImportActions r) >>= \case
 		Just (ImportableContentsComplete ic) -> do
 			dbhandle <- opendbhandle
 			Just . ImportableContentsComplete

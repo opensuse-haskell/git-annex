@@ -241,7 +241,7 @@ gen r u rc gc rs = do
 				, renameExport = Just $ renameExportS3 hdl this rs info
 				}
 			, exportImportActions = ExportImportActions
-                                { listImportableContents = listImportableContentsS3 hdl this info c
+                                { listImportableOrExportedContents = listImportableOrExportedContentsS3 hdl this info c
 				, importKey = Nothing
                                 , retrieveExportWithContentIdentifier = retrieveExportWithContentIdentifierS3 hdl this rs info
                                 , storeExportWithContentIdentifier = storeExportWithContentIdentifierS3 hdl this rs info magic
@@ -609,8 +609,8 @@ renameExportS3 hv r rs info k src dest = Just <$> go
 	srcobject = T.pack $ bucketExportLocation info src
 	dstobject = T.pack $ bucketExportLocation info dest
 
-listImportableContentsS3 :: S3HandleVar -> Remote -> S3Info -> ParsedRemoteConfig -> Annex (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)))
-listImportableContentsS3 hv r info c =
+listImportableOrExportedContentsS3 :: S3HandleVar -> Remote -> S3Info -> ParsedRemoteConfig -> Annex (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)))
+listImportableOrExportedContentsS3 hv r info c =
 	withS3Handle hv $ \case
 		Right h -> Just <$> go h
 		Left p -> giveupS3HandleProblem p (uuid r)
@@ -786,7 +786,7 @@ rewritePreconditionException a = catchJust (Url.matchStatusCodeException want) a
 
 -- Does not check if content on S3 is safe to overwrite, because there
 -- is no atomic way to do so. When the bucket is versioned, this is
--- acceptable because listImportableContentsS3 will find versions
+-- acceptable because listImportableOrExportedContentsS3 will find versions
 -- of files that were overwritten by this and no data is lost.
 --
 -- When the bucket is not versioned, data loss can result.
@@ -806,7 +806,7 @@ storeExportWithContentIdentifierS3 hv r rs info magic src k loc _overwritablecid
 
 -- Does not guarantee that the removed object has the content identifier,
 -- but when the bucket is versioned, the removed object content can still
--- be recovered (and listImportableContentsS3 will find it).
+-- be recovered (and listImportableOrExportedContentsS3 will find it).
 -- 
 -- When the bucket is not versioned, data loss can result.
 -- This is why that configuration requires --force to enable.

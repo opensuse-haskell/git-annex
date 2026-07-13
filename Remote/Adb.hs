@@ -98,7 +98,7 @@ gen r u rc gc rs = do
 			, renameExport = Just $ renameExportM serial adir
 			}
 		, exportImportActions = ExportImportActions
-			{ listImportableContents = listImportableContentsM serial adir c
+			{ listImportableOrExportedContents = listImportableOrExportedContentsM serial adir c
 			, importKey = Nothing
 			, retrieveExportWithContentIdentifier = retrieveExportWithContentIdentifierM serial adir
 			, storeExportWithContentIdentifier = storeExportWithContentIdentifierM serial adir
@@ -297,8 +297,8 @@ renameExportM serial adir _k old new = do
 		, File newloc
 		]
 
-listImportableContentsM :: AndroidSerial -> AndroidPath -> ParsedRemoteConfig -> Annex (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)))
-listImportableContentsM serial adir c = adbfind >>= \case
+listImportableOrExportedContentsM :: AndroidSerial -> AndroidPath -> ParsedRemoteConfig -> Annex (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)))
+listImportableOrExportedContentsM serial adir c = adbfind >>= \case
 	Just ls -> return $ Just $ ImportableContentsComplete $ 
 		ImportableContents (mapMaybe mk ls) []
 	Nothing -> giveup "adb find failed"

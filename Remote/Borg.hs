@@ -95,7 +95,7 @@ gen r u rc gc rs = do
 		, checkPresentCheap = borgLocal borgrepo
 		, exportActions = exportUnsupported
 		, exportImportActions = ExportImportActions
-			{ listImportableContents = listImportableContentsM u borgrepo c
+			{ listImportableOrExportedContents = listImportableOrExportedContentsM u borgrepo c
 			, importKey = Just ThirdPartyPopulated.importKey
 			, retrieveExportWithContentIdentifier = retrieveExportWithContentIdentifierM borgrepo
 			, checkPresentExportWithContentIdentifier = checkPresentExportWithContentIdentifierM borgrepo
@@ -168,8 +168,8 @@ checkAvailability :: BorgRepo -> Annex Availability
 checkAvailability borgrepo@(BorgRepo r) = 
 	checkPathAvailability (borgLocal borgrepo) (toOsPath r)
 
-listImportableContentsM :: UUID -> BorgRepo -> ParsedRemoteConfig -> Annex (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)))
-listImportableContentsM u borgrepo c = prompt $ do
+listImportableOrExportedContentsM :: UUID -> BorgRepo -> ParsedRemoteConfig -> Annex (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)))
+listImportableOrExportedContentsM u borgrepo c = prompt $ do
 	imported <- getImported u
 	ls <- withborglist (locBorgRepo borgrepo) Nothing formatarchivelist $ \as ->
 		forM (filter (not . S.null) as) $ \archivename ->

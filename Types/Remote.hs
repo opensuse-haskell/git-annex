@@ -328,8 +328,10 @@ data ExportImportActions a = ExportImportActions
 	--
 	-- The ContentIdentifier this returns must be sufficient to detect
 	-- any change to a file stored on the remote. Eg, a mtime and
-	-- inode.
-	{ listImportableContents :: a (Maybe (ImportableContentsChunkable a (ContentIdentifier, ByteSize)))
+	-- inode. When storeExportWithContentIdentifier was used to store
+	-- content to the remote, this should return the same
+	-- ContentIdentifier that did.
+	{ listImportableOrExportedContents :: a (Maybe (ImportableContentsChunkable a (ContentIdentifier, ByteSize)))
 	-- Generates a Key (of any type) for the file stored on the
 	-- remote at the ImportLocation. Does not download the file
 	-- from the remote.
