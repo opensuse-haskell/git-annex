@@ -68,7 +68,7 @@ remote = specialRemoteType $ RemoteType
 		]
 	, setup = directorySetup
 	, exportSupported = exportIsSupported
-	, importSupported = importIsSupported
+	, exportImportSupported = exportImportIsSupported
 	, thirdPartyPopulated = False
 	}
 
@@ -115,7 +115,7 @@ gen r u rc gc rs = do
 				, removeExportDirectory = Nothing
 				, renameExport = Just $ renameExportM dir
 				}
-			, importActions = ImportActions
+			, exportImportActions = ExportImportActions
 				{ listImportableContents = listImportableContentsM ii dir
 				, importKey = Just (importKeyM ii dir)
 				, retrieveExportWithContentIdentifier = retrieveExportWithContentIdentifierM ii dir cow

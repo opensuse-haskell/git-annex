@@ -503,7 +503,7 @@ canImportKeys :: Remote -> Bool -> Bool
 canImportKeys remote importcontent =
 	importcontent || isJust (Remote.importKey ia)
   where
-	ia = Remote.importActions remote
+	ia = Remote.exportImportActions remote
 
 -- Result of an import. 
 data ImportResult t
@@ -972,7 +972,7 @@ importKeys remote importtreeconfig importcontent thirdpartypopulated importablec
 					fst <$> genKey ks nullMeterUpdate backend
 				else gitShaKey <$> hashFile tmpfile
 	
-	ia = Remote.importActions remote
+	ia = Remote.exportImportActions remote
 				
 	bwlimit = remoteAnnexBwLimitDownload (Remote.gitconfig remote)
 			<|> remoteAnnexBwLimit (Remote.gitconfig remote)
@@ -1096,7 +1096,7 @@ pruneImportMatcher = Utility.Matcher.pruneMatcher matchNeedsKey
  -}
 getImportableContents :: Remote -> ImportTreeConfig -> CheckGitIgnore -> FileMatcher Annex -> Annex (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)))
 getImportableContents r importtreeconfig ci matcher = do
-	Remote.listImportableContents (Remote.importActions r) >>= \case
+	Remote.listImportableContents (Remote.exportImportActions r) >>= \case
 		Just (ImportableContentsComplete ic) -> do
 			dbhandle <- opendbhandle
 			Just . ImportableContentsComplete

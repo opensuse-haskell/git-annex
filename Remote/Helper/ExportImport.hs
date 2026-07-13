@@ -48,15 +48,15 @@ instance HasExportUnsupported (ExportActions Annex) where
 	 where
 	 	nope = giveup "export not supported"
 
--- | Use for remotes that do not support imports.
-class HasImportUnsupported a where
-	importUnsupported :: a
+-- | Use for remotes that do not support exports and imports.
+class HasExportImportUnsupported a where
+	exportImportUnsupported :: a
 
-instance HasImportUnsupported (ParsedRemoteConfig -> RemoteGitConfig -> Annex Bool) where
-	importUnsupported = \_ _ -> return False
+instance HasExportImportUnsupported (ParsedRemoteConfig -> RemoteGitConfig -> Annex Bool) where
+	exportImportUnsupported = \_ _ -> return False
 
-instance HasImportUnsupported (ImportActions Annex) where
-	importUnsupported = ImportActions
+instance HasExportImportUnsupported (ExportImportActions Annex) where
+	exportImportUnsupported = ExportImportActions
 		{ listImportableContents = nope
 		, importKey = Nothing
 		, retrieveExportWithContentIdentifier = nope
@@ -66,13 +66,13 @@ instance HasImportUnsupported (ImportActions Annex) where
 		, checkPresentExportWithContentIdentifier = \_ _ _ -> return False
 		}
 	  where
-		nope = giveup "import not supported"
+		nope = giveup "import combined with export not supported"
 
 exportIsSupported :: ParsedRemoteConfig -> RemoteGitConfig -> Annex Bool
 exportIsSupported = \_ _ -> return True
 
-importIsSupported :: ParsedRemoteConfig -> RemoteGitConfig -> Annex Bool
-importIsSupported = \_ _ -> return True
+exportImportIsSupported :: ParsedRemoteConfig -> RemoteGitConfig -> Annex Bool
+exportImportIsSupported = \_ _ -> return True
 
 -- | Prevent or allow exporttree=yes and importtree=yes when
 -- setting up a new remote, depending on the remote's capabilities.
@@ -96,7 +96,7 @@ adjustExportImportRemoteType rt = rt { setup = setup' }
 					else cont
 				)
 		checkconfig exportSupported exportTree exportTreeField $
-			checkconfig importSupported importTree importTreeField $
+			checkconfig exportImportSupported importTree importTreeField $
 				setup rt st mu remotename cp c gc
 	
 	enable oldc pc configured configfield cont = do
@@ -113,38 +113,38 @@ adjustExportImport r rs = do
 	-- When thirdPartyPopulated is True, the remote
 	-- does not need to be configured with importTree to support
 	-- imports.
-	isimport <- pure (importTree (config r) || thirdPartyPopulated (remotetype r))
-		<&&> isImportSupported r
+	isexportimport <- pure (importTree (config r) || thirdPartyPopulated (remotetype r))
+		<&&> isExportImportSupported r
 	let r' = r
 		{ remotetype = (remotetype r)
 			{ exportSupported = if isexport
 				then exportSupported (remotetype r)
 				else exportUnsupported
-			, importSupported = if isimport
-				then importSupported (remotetype r)
-				else importUnsupported
+			, exportImportSupported = if isexportimport
+				then exportImportSupported (remotetype r)
+				else exportImportUnsupported
 			}
 		}
 	let annexobjects = isexport && annexObjects (config r)
-	if not isexport && not isimport
+	if not isexport && not isexportimport
 		then return r'
 		else do
 			gc <- Annex.getGitConfig
-			adjustExportImport' isexport isimport annexobjects r' rs gc
+			adjustExportImport' isexport isexportimport annexobjects r' rs gc
 
 adjustExportImport' :: Bool -> Bool -> Bool -> Remote -> RemoteStateHandle -> GitConfig -> Annex Remote
-adjustExportImport' isexport isimport annexobjects r rs gc = do
+adjustExportImport' isexport isexportimport annexobjects r rs gc = do
 	dbv <- prepdbv
 	ciddbv <- prepciddb
 	return $ r
 		{ exportActions = if isexport
-			then if isimport
+			then if isexportimport
 				then exportActionsForImport dbv ciddbv (exportActions r)
 				else exportActions r
 			else exportUnsupported
-		, importActions = if isimport
-			then importActions r
-			else importUnsupported
+		, exportImportActions = if isexportimport
+			then exportImportActions r
+			else exportImportUnsupported
 		, storeKey = \k af o p ->
 			-- Storing a key to an export location could be
 			-- implemented, but it would perform unnecessary work
@@ -157,7 +157,7 @@ adjustExportImport' isexport isimport annexobjects r rs gc = do
 					then if annexobjects
 						then storeannexobject k o p
 						else giveup "remote is configured with exporttree=yes; use `git-annex export` to store content on it"
-					else if isimport
+					else if isexportimport
 						then giveup "remote is configured with importtree=yes and without exporttree=yes; cannot modify content stored on it"
 						else storeKey r k af o p
 		, removeKey = \proof k -> 
@@ -173,14 +173,14 @@ adjustExportImport' isexport isimport annexobjects r rs gc = do
 					then if annexobjects
 						then removeannexobject dbv k
 						else giveup "dropping content from an export is not supported; use `git annex export` to export a tree that lacks the files you want to remove"
-					else if isimport
+					else if isexportimport
 						then giveup "dropping content from this remote is not supported because it is configured with importtree=yes"
 						else removeKey r proof k
 		, lockContent = if versioned
 			then lockContent r
 			else Nothing
 		, retrieveKeyFile = \k af dest p vc ->
-			if isimport || isexport
+			if isexportimport || isexport
 				then supportversionedretrieve k af dest p vc $
 					supportretrieveannexobject dbv k af dest p $
 						retrieveFromImportOrExport (tryexportlocs dbv k) ciddbv k af dest p
@@ -190,9 +190,9 @@ adjustExportImport' isexport isimport annexobjects r rs gc = do
 			else Nothing
 		, checkPresent = \k -> if versioned
 			then checkPresent r k
-			else if isimport
+			else if isexportimport
 				then checkpresentwith k $
-					anyM (checkPresentImport ciddbv k)
+					anyM (checkPresentExportImport ciddbv k)
 						=<< getanyexportlocs dbv k
 				else if isexport
 					-- Check if any of the files a key
@@ -242,7 +242,7 @@ adjustExportImport' isexport isimport annexobjects r rs gc = do
 							else Nothing
 						]
 				else return is
-			return $ if isimport && not thirdpartypopulated
+			return $ if isexportimport && not thirdpartypopulated
 				then (is'++[("importtree", "yes")])
 				else is'
 		}
@@ -260,21 +260,21 @@ adjustExportImport' isexport isimport annexobjects r rs gc = do
 			oldks <- liftIO $ Export.getExportTreeKey exportdb loc
 			oldcids <- liftIO $ concat
 				<$> mapM (ContentIdentifier.getContentIdentifiers db rs) oldks
-			newcid <- storeExportWithContentIdentifier (importActions r) f k loc oldcids p
+			newcid <- storeExportWithContentIdentifier (exportImportActions r) f k loc oldcids p
 			cidlck <- calcRepo' gitAnnexContentIdentifierLock
 			withExclusiveLock cidlck $ do
 				liftIO $ ContentIdentifier.recordContentIdentifier db rs newcid k
 				liftIO $ ContentIdentifier.flushDbQueue db
 			recordContentIdentifier rs newcid k
 		, removeExport = \k loc ->
-			removeExportWithContentIdentifier (importActions r) k loc
+			removeExportWithContentIdentifier (exportImportActions r) k loc
 				=<< getkeycids ciddbv k
-		, removeExportDirectory = removeExportDirectoryWhenEmpty (importActions r)
+		, removeExportDirectory = removeExportDirectoryWhenEmpty (exportImportActions r)
 		-- renameExport is optional, and the remote's
 		-- implementation may lose modifications to the file
 		-- (by eg copying and then deleting) so don't use it
 		, renameExport = Nothing
-		, checkPresentExport = checkPresentImport ciddbv
+		, checkPresentExport = checkPresentExportImport ciddbv
 		}
 	
 	prepciddb = do
@@ -366,7 +366,7 @@ adjustExportImport' isexport isimport annexobjects r rs gc = do
 		liftIO $ ContentIdentifier.getContentIdentifiers db rs k
 
 	retrieveFromImportOrExport getlocs ciddbv k af dest p
-		| isimport = retrieveFromImport getlocs ciddbv k af dest p
+		| isexportimport = retrieveFromImport getlocs ciddbv k af dest p
 		| otherwise = retrieveFromExport getlocs k af dest p
 
 	-- Keys can be retrieved using retrieveExport, but since that
@@ -386,7 +386,7 @@ adjustExportImport' isexport isimport annexobjects r rs gc = do
 		cids <- getkeycids ciddbv k
 		if not (null cids)
 			then getlocs $ \loc ->
-				snd <$> retrieveExportWithContentIdentifier (importActions r) loc cids dest (Left k) p
+				snd <$> retrieveExportWithContentIdentifier (exportImportActions r) loc cids dest (Left k) p
 			-- In case a content identifier is somehow missing,
 			-- try this instead.
 			else if isexport
@@ -400,9 +400,9 @@ adjustExportImport' isexport isimport annexobjects r rs gc = do
 			else return False
 		)
 
-	checkPresentImport ciddbv k loc =
+	checkPresentExportImport ciddbv k loc =
 		checkPresentExportWithContentIdentifier
-			(importActions r)
+			(exportImportActions r)
 			k loc 
 			=<< getkeycids ciddbv k
 

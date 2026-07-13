@@ -75,7 +75,7 @@ remote = specialRemoteType $ RemoteType
 		]
 	, setup = gCryptSetup
 	, exportSupported = exportUnsupported
-	, importSupported = importUnsupported
+	, exportImportSupported = exportImportUnsupported
 	, thirdPartyPopulated = False
 	}
 
@@ -145,7 +145,7 @@ gen' r u c gc rs = do
 		, checkPresent = checkPresentDummy
 		, checkPresentCheap = repoCheap r
 		, exportActions = exportUnsupported
-		, importActions = importUnsupported
+		, exportImportActions = exportImportUnsupported
 		, whereisKey = Nothing
 		, remoteFsck = Nothing
 		, repairKey = Nothing

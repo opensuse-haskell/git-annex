@@ -36,7 +36,7 @@ adjustReadOnly r
 			, removeExportDirectory = Just readonlyRemoveExportDirectory
 			, renameExport = Nothing
 			}
-		, importActions = (importActions r)
+		, exportImportActions = (exportImportActions r)
 			{ storeExportWithContentIdentifier = readonlyStoreExportWithContentIdentifier
 			, removeExportWithContentIdentifier = readonlyRemoveExportWithContentIdentifier
 			, removeExportDirectoryWhenEmpty = Just readonlyRemoveExportDirectory

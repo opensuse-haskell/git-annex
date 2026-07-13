@@ -42,7 +42,7 @@ remote = RemoteType
 	, configParser = mkRemoteConfigParser []
 	, setup = giveup "P2P remotes are set up using git-annex p2p"
 	, exportSupported = exportUnsupported
-	, importSupported = importUnsupported
+	, exportImportSupported = exportImportUnsupported
 	, thirdPartyPopulated = False
 	}
 
@@ -67,7 +67,7 @@ chainGen addr r u rc gc rs = do
 		, checkPresent = checkpresent protorunner
 		, checkPresentCheap = False
 		, exportActions = exportUnsupported
-		, importActions = importUnsupported
+		, exportImportActions = exportImportUnsupported
 		, whereisKey = Nothing
 		, remoteFsck = Nothing
 		, repairKey = Nothing

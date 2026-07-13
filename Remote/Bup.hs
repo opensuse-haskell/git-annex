@@ -54,7 +54,7 @@ remote = specialRemoteType $ RemoteType
 		]
 	, setup = bupSetup
 	, exportSupported = exportUnsupported
-	, importSupported = importUnsupported
+	, exportImportSupported = exportImportUnsupported
 	, thirdPartyPopulated = False
 	}
 
@@ -87,7 +87,7 @@ gen r u rc gc rs = do
 		, checkPresent = checkPresentDummy
 		, checkPresentCheap = bupLocal buprepo
 		, exportActions = exportUnsupported
-		, importActions = importUnsupported
+		, exportImportActions = exportImportUnsupported
 		, whereisKey = Nothing
 		, remoteFsck = Nothing
 		, repairKey = Nothing

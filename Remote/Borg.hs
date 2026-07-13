@@ -59,7 +59,7 @@ remote = RemoteType
 		]
 	, setup = borgSetup
 	, exportSupported = exportUnsupported
-	, importSupported = importIsSupported
+	, exportImportSupported = exportImportIsSupported
 	, thirdPartyPopulated = True
 	}
 
@@ -94,16 +94,16 @@ gen r u rc gc rs = do
 		, checkPresent = checkPresentDummy
 		, checkPresentCheap = borgLocal borgrepo
 		, exportActions = exportUnsupported
-		, importActions = ImportActions
+		, exportImportActions = ExportImportActions
 			{ listImportableContents = listImportableContentsM u borgrepo c
 			, importKey = Just ThirdPartyPopulated.importKey
 			, retrieveExportWithContentIdentifier = retrieveExportWithContentIdentifierM borgrepo
 			, checkPresentExportWithContentIdentifier = checkPresentExportWithContentIdentifierM borgrepo
 			-- This remote is thirdPartyPopulated, so these
 			-- actions will never be used.
-			, storeExportWithContentIdentifier = storeExportWithContentIdentifier importUnsupported
-			, removeExportDirectoryWhenEmpty = removeExportDirectoryWhenEmpty importUnsupported
-			, removeExportWithContentIdentifier = removeExportWithContentIdentifier importUnsupported
+			, storeExportWithContentIdentifier = storeExportWithContentIdentifier exportImportUnsupported
+			, removeExportDirectoryWhenEmpty = removeExportDirectoryWhenEmpty exportImportUnsupported
+			, removeExportWithContentIdentifier = removeExportWithContentIdentifier exportImportUnsupported
 			}
 		, whereisKey = Nothing
 		, remoteFsck = Nothing

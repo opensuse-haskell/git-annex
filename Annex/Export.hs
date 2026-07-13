@@ -30,10 +30,10 @@ exportKey sha = mk <$> catKey sha
 
 warnExportImportConflict :: Remote -> Annex ()
 warnExportImportConflict r = do
-	isimport <- Remote.isImportSupported r
 	isexport <- Remote.isExportSupported r
-	let (ops, resolvcmd) = case (isexport, isimport) of
-		(False, True) -> ("imported from", "git-annex import")
+	isexportimport <- Remote.isExportImportSupported r
+	let (ops, resolvcmd) = case (isexport, isexportimport) of
+		(False, True) -> ("exported to and/or imported from", "git-annex import")
 		(True, False) -> ("exported to", "git-annex export")
 		_ -> ("exported to and/or imported from", "git-annex export")
 	toplevelWarning True $ UnquotedString $ unwords

@@ -46,7 +46,7 @@ remote = RemoteType
 		]
 	, setup = setupInstance
 	, exportSupported = exportUnsupported
-	, importSupported = importUnsupported
+	, exportImportSupported = exportImportUnsupported
 	, thirdPartyPopulated = False
 	}
 
@@ -86,7 +86,7 @@ gen r u rc gc rs = do
 		, checkPresent = checkKey gc urlincludeexclude
 		, checkPresentCheap = False
 		, exportActions = exportUnsupported
-		, importActions = importUnsupported
+		, exportImportActions = exportImportUnsupported
 		, whereisKey = Nothing
 		, remoteFsck = Nothing
 		, repairKey = Nothing

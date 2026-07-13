@@ -23,7 +23,7 @@ remote = specialRemoteType $ RemoteType
 	, configParser = External.remoteConfigParser p
 	, setup = External.externalSetup p setgitconfig 
 	, exportSupported = External.checkExportSupported p
-	, importSupported = importUnsupported
+	, exportImportSupported = exportImportUnsupported
 	, thirdPartyPopulated = False
 	}
   where

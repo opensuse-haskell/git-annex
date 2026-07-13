@@ -141,7 +141,7 @@ seek o@(LocalImportOptions {}) = startConcurrency commandStages $ do
 		`withPathContents` importFiles o
 seek o@(RemoteImportOptions {}) = startConcurrency commandStages $ do
 	r <- getParsed (importFromRemote o)
-	unlessM (Remote.isImportSupported r) $
+	unlessM (Remote.isExportImportSupported r) $
 		giveup "That remote does not support imports."
 	subdir <- maybe
 		(pure Nothing)

@@ -92,7 +92,7 @@ remote = RemoteType
 		]
 	, setup = gitSetup
 	, exportSupported = exportUnsupported
-	, importSupported = importUnsupported
+	, exportImportSupported = exportImportUnsupported
 	, thirdPartyPopulated = False
 	}
 
@@ -242,7 +242,7 @@ gen r u rc gc rs
 			, checkPresent = inAnnex new st
 			, checkPresentCheap = repoCheap r
 			, exportActions = exportUnsupported
-			, importActions = importUnsupported
+			, exportImportActions = exportImportUnsupported
 			, whereisKey = Nothing
 			, remoteFsck = if Git.repoIsUrl r
 				then Nothing

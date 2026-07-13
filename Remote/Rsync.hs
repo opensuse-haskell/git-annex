@@ -64,7 +64,7 @@ remote = specialRemoteType $ RemoteType
 		]
 	, setup = rsyncSetup
 	, exportSupported = exportIsSupported
-	, importSupported = importUnsupported
+	, exportImportSupported = exportImportUnsupported
 	, thirdPartyPopulated = False
 	}
 
@@ -109,7 +109,7 @@ gen r u rc gc rs = do
 				, removeExportDirectory = Nothing
 				, renameExport = Just $ renameExportM o
 				}
-			, importActions = importUnsupported
+			, exportImportActions = exportImportUnsupported
 			, whereisKey = Nothing
 			, remoteFsck = Nothing
 			, repairRepo = Nothing

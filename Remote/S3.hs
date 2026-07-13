@@ -127,7 +127,7 @@ remote = specialRemoteType $ RemoteType
 		}
 	, setup = s3Setup
 	, exportSupported = exportIsSupported
-	, importSupported = importIsSupported
+	, exportImportSupported = exportImportIsSupported
 	, thirdPartyPopulated = False
 	}
 
@@ -240,7 +240,7 @@ gen r u rc gc rs = do
 				, removeExportDirectory = Nothing
 				, renameExport = Just $ renameExportS3 hdl this rs info
 				}
-			, importActions = ImportActions
+			, exportImportActions = ExportImportActions
                                 { listImportableContents = listImportableContentsS3 hdl this info c
 				, importKey = Nothing
                                 , retrieveExportWithContentIdentifier = retrieveExportWithContentIdentifierS3 hdl this rs info

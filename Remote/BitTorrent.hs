@@ -47,7 +47,7 @@ remote = RemoteType
 	, configParser = mkRemoteConfigParser []
 	, setup = giveup "not supported"
 	, exportSupported = exportUnsupported
-	, importSupported = importUnsupported
+	, exportImportSupported = exportImportUnsupported
 	, thirdPartyPopulated = False
 	}
 
@@ -78,7 +78,7 @@ gen r _ rc gc rs = do
 		, checkPresent = checkKey
 		, checkPresentCheap = False
 		, exportActions = exportUnsupported
-		, importActions = importUnsupported
+		, exportImportActions = exportImportUnsupported
 		, whereisKey = Nothing
 		, remoteFsck = Nothing
 		, repairKey = Nothing
