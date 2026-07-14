@@ -196,8 +196,8 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
   whitespace, and other special characters.  
   No response is made to this message.
 * `RETRIEVEIMPORT File`  
-  Retrieves the content of a file with the previously provided Name
-  from the special remote to the File on local disk.
+  Retrieves the content of a file with the previously provided 
+  `IMPORT` Name from the special remote to the File on local disk.
   While the transfer is running, the remote can send any number of
   `PROGRESS` messages. Once the transfer is complete, it finishes by
   sending one of these replies:
@@ -209,7 +209,7 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
     Delegate this request to a different type of special remote.
     See [[delegate_appendix]].
 * `CHECKPRESENTIMPORT Key`  
-  Requests the remote to check if the previously provided Name
+  Requests the remote to check if the previously provided `IMPORT` Name
   is present in it.
   * `CHECKPRESENT-SUCCESS Key`  
     Indicates that a content has been positively verified to be present
