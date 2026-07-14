@@ -50,6 +50,7 @@ import Types.Transfer (Direction(..))
 import Config.Cost (Cost)
 import Types.RemoteState
 import Types.RemoteConfig
+import Types.Import
 import Types.Export
 import Types.Availability (Availability(..))
 import Types.Key
@@ -192,6 +193,11 @@ data Request
 	| REMOVEEXPORT SafeKey
 	| REMOVEEXPORTDIRECTORY ExportDirectory
 	| RENAMEEXPORT SafeKey ExportLocation
+	| IMPORTSUPPORTED
+	| LISTIMPORTABLECONTENTS
+	| IMPORT ImportLocation
+	| RETRIEVEIMPORT FilePath
+	| CHECKPRESENTIMPORT SafeKey
 	deriving (Show)
 
 -- Does PREPARE need to have been sent before this request?
@@ -200,6 +206,7 @@ needsPREPARE PREPARE = False
 needsPREPARE (EXTENSIONS _) = False
 needsPREPARE INITREMOTE = False
 needsPREPARE EXPORTSUPPORTED = False
+needsPREPARE IMPORTSUPPORTED = False
 needsPREPARE LISTCONFIGS = False
 needsPREPARE _ = True
 
@@ -249,6 +256,19 @@ instance Proto.Sendable Request where
 		, Proto.serialize key
 		, Proto.serialize newloc
 		]
+	formatMessage IMPORTSUPPORTED = Proto.mkMessage ["IMPORTSUPPORTED"]
+	formatMessage LISTIMPORTABLECONTENTS = Proto.mkMessage
+		[ "LISTIMPORTABLECONTENTS" ]
+	formatMessage (IMPORT loc) = Proto.mkMessage
+		[ "IMPORT", Proto.serialize loc ]
+	formatMessage (RETRIEVEIMPORT file) = Proto.mkMessage
+		[ "RETRIEVEIMPORT"
+		, Proto.serialize file
+		]
+	formatMessage (CHECKPRESENTIMPORT key) = Proto.mkMessage
+		[ "CHECKPRESENTIMPORT"
+		, Proto.serialize key
+		]
 
 -- Responses the external remote can make to requests.
 data Response
@@ -272,8 +292,8 @@ data Response
 	| INITREMOTE_FAILURE ErrorMsg
 	| CLAIMURL_SUCCESS
 	| CLAIMURL_FAILURE
-	| CHECKURL_CONTENTS Size FilePath
-	| CHECKURL_MULTI [(URLString, Size, FilePath)]
+	| CHECKURL_CONTENTS MaybeSize FilePath
+	| CHECKURL_MULTI [(URLString, MaybeSize, FilePath)]
 	| CHECKURL_FAILURE ErrorMsg
 	| WHEREIS_SUCCESS String
 	| WHEREIS_FAILURE
@@ -288,6 +308,11 @@ data Response
 	| REMOVEEXPORTDIRECTORY_FAILURE
 	| RENAMEEXPORT_SUCCESS Key
 	| RENAMEEXPORT_FAILURE Key
+	| IMPORTSUPPORTED_SUCCESS
+	| IMPORTSUPPORTED_FAILURE
+	| IMPORTABLECONTENT Size FilePath
+	| IMPORTABLECONTENTIDENTIFIER ContentIdentifier
+	| IMPORTABLECONTENTEND
 	| DELEGATE [String]
 	| UNSUPPORTED_REQUEST
 	deriving (Show)
@@ -329,6 +354,11 @@ instance Proto.Receivable Response where
 	parseCommand "REMOVEEXPORTDIRECTORY-FAILURE" = Proto.parse0 REMOVEEXPORTDIRECTORY_FAILURE
 	parseCommand "RENAMEEXPORT-SUCCESS" = Proto.parse1 RENAMEEXPORT_SUCCESS
 	parseCommand "RENAMEEXPORT-FAILURE" = Proto.parse1 RENAMEEXPORT_FAILURE
+	parseCommand "IMPORTSUPPORTED-SUCCESS" = Proto.parse0 IMPORTSUPPORTED_SUCCESS
+	parseCommand "IMPORTSUPPORTED-FAILURE" = Proto.parse0 IMPORTSUPPORTED_FAILURE
+	parseCommand "IMPORTABLECONTENT" = Proto.parse2 IMPORTABLECONTENT
+	parseCommand "IMPORTABLECONTENTIDENTIFIER" = Proto.parse1 IMPORTABLECONTENTIDENTIFIER
+	parseCommand "IMPORTABLECONTENTEND" = Proto.parse0 IMPORTABLECONTENTEND
 	parseCommand "DELEGATE" = Proto.parseList DELEGATE
 	parseCommand "UNSUPPORTED-REQUEST" = Proto.parse0 UNSUPPORTED_REQUEST
 	parseCommand _ = Proto.parseFail
@@ -446,7 +476,8 @@ type ErrorMsg = String
 type Setting = String
 type Description = String
 type ProtocolVersion = Int
-type Size = Maybe Integer
+type Size = Integer
+type MaybeSize = Maybe Integer
 type WrappedMsg = String
 newtype JobId = JobId Integer
 	deriving (Eq, Ord, Show)
@@ -474,7 +505,7 @@ instance Proto.Serializable Cost where
 	serialize = show
 	deserialize = readish
 
-instance Proto.Serializable Size where
+instance Proto.Serializable MaybeSize where
 	serialize (Just s) = show s
 	serialize Nothing = "UNKNOWN"
 	deserialize "UNKNOWN" = Just Nothing
@@ -490,7 +521,7 @@ instance Proto.Serializable Availability where
 	deserialize "UNAVAILABLE" = Just Unavailable
 	deserialize _ = Nothing
 
-instance Proto.Serializable [(URLString, Size, FilePath)] where
+instance Proto.Serializable [(URLString, MaybeSize, FilePath)] where
 	serialize = unwords . map go
 	  where
 		go (url, sz, f) = url ++ " " ++ maybe "UNKNOWN" show sz ++ " " ++ f
@@ -514,3 +545,8 @@ instance Proto.Serializable ExportDirectory where
 instance Proto.Serializable ExtensionList where
 	serialize (ExtensionList l) = unwords l
 	deserialize = Just . ExtensionList . words
+
+instance Proto.Serializable ContentIdentifier where
+	serialize (ContentIdentifier cid) = decodeBS cid
+	deserialize = Just . ContentIdentifier . encodeBS
+

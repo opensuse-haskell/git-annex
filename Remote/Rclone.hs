@@ -1,6 +1,6 @@
 {- Rclone special remote, using "rclone gitannex"
  -
- - Copyright 2024 Joey Hess <id@joeyh.name>
+ - Copyright 2024-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -22,8 +22,8 @@ remote = specialRemoteType $ RemoteType
 	, generate = External.gen remote p
 	, configParser = External.remoteConfigParser p
 	, setup = External.externalSetup p setgitconfig 
-	, exportSupported = External.checkExportSupported p
-	, importSupported = importUnsupported
+	, exportSupported = External.checkSupportedWith p External.checkExportSupported
+	, importSupported = External.checkSupportedWith p External.checkImportSupported
 	, exportImportSupported = exportImportUnsupported
 	, thirdPartyPopulated = False
 	}
