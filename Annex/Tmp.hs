@@ -38,7 +38,7 @@ withOtherTmp a = do
 -- cleaned up by another git-annex process (after they're a week old).
 --
 -- Unlike withOtherTmp, this does not rely on locking working.
--- Its main use is in situations where the state of lockfile is not
+-- Its main use is in situations where the state of locking is not
 -- determined yet, eg during initialization.
 withEventuallyCleanedOtherTmp :: (OsPath -> Annex a) -> Annex a
 withEventuallyCleanedOtherTmp = bracket setup cleanup
