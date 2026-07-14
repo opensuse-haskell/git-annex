@@ -117,7 +117,7 @@ runRequests readh writeh a = go Nothing Nothing
 
 sendTransferResponse :: Handle -> TransferResponse -> IO ()
 sendTransferResponse h r = silenceIOErrors $ do
-	hPutStrLn h $ unwords $ Proto.formatMessage r
+	hPutStrLn h $ Proto.genMessage r
 	hFlush h
 
 getNextLine :: Handle -> IO String

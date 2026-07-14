@@ -247,14 +247,14 @@ sendRequest level t mremote afile h = do
 		(AssistantLevel, Upload) -> AssistantUploadRequest
 		(AssistantLevel, Download) -> AssistantDownloadRequest
 	let r = f tr (transferKey t) (TransferAssociatedFile afile)
-	let l = unwords $ Proto.formatMessage r
+	let l = Proto.genMessage r
 	debug "Annex.TransferrerPool" ("> " ++ l)
 	hPutStrLn h l
 	hFlush h
 
 sendSerializedOutputResponse :: Handle -> SerializedOutputResponse -> IO ()
 sendSerializedOutputResponse h sor = do
-	let l = unwords $ Proto.formatMessage $
+	let l = Proto.genMessage $
 		TransferSerializedOutputResponse sor
 	debug "Annex.TransferrerPool" ("> " ++ show l)
 	hPutStrLn h l

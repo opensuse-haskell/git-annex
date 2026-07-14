@@ -62,7 +62,7 @@ remoteControllerThread toh = do
 		msg <- liftIO $ readChan clicker
 		debug [show msg]
 		liftIO $ do
-			hPutStrLn toh $ unwords $ formatMessage msg
+			hPutStrLn toh $ genMessage msg
 			hFlush toh
 
 -- read status messages emitted by the remotedaemon and handle them

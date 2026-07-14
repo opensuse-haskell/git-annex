@@ -63,24 +63,25 @@ data Consumed
 	deriving (Show)
 
 instance Proto.Sendable Emitted where
-	formatMessage (CONNECTED remote) =
+	formatMessage (CONNECTED remote) = Proto.mkMessage
 		["CONNECTED", Proto.serialize remote]
-	formatMessage (DISCONNECTED remote) =
+	formatMessage (DISCONNECTED remote) = Proto.mkMessage
 		["DISCONNECTED", Proto.serialize remote]
-	formatMessage (SYNCING remote) =
+	formatMessage (SYNCING remote) = Proto.mkMessage
 		["SYNCING", Proto.serialize remote]
-	formatMessage (DONESYNCING remote status) =
+	formatMessage (DONESYNCING remote status) = Proto.mkMessage
 		["DONESYNCING", Proto.serialize remote, Proto.serialize status]
-	formatMessage (WARNING remote message) =
+	formatMessage (WARNING remote message) = Proto.mkMessage
 		["WARNING", Proto.serialize remote, Proto.serialize message]
 
 instance Proto.Sendable Consumed where
-	formatMessage PAUSE = ["PAUSE"]
-	formatMessage LOSTNET = ["LOSTNET"]
-	formatMessage RESUME = ["RESUME"]
-	formatMessage (CHANGED refs) =["CHANGED", Proto.serialize refs]
-	formatMessage RELOAD = ["RELOAD"]
-	formatMessage STOP = ["STOP"]
+	formatMessage PAUSE = Proto.mkMessage ["PAUSE"]
+	formatMessage LOSTNET = Proto.mkMessage ["LOSTNET"]
+	formatMessage RESUME = Proto.mkMessage ["RESUME"]
+	formatMessage (CHANGED refs) = Proto.mkMessage
+		["CHANGED", Proto.serialize refs]
+	formatMessage RELOAD = Proto.mkMessage ["RELOAD"]
+	formatMessage STOP = Proto.mkMessage ["STOP"]
 
 instance Proto.Receivable Emitted where
 	parseCommand "CONNECTED" = Proto.parse1 CONNECTED

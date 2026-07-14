@@ -48,25 +48,25 @@ data TransferSerializedOutputResponse = TransferSerializedOutputResponse Seriali
 	deriving (Show)
 
 instance Proto.Sendable TransferRequest where
-	formatMessage (UploadRequest r kd af) =
+	formatMessage (UploadRequest r kd af) = Proto.mkMessage
 		[ "u"
 		, Proto.serialize r
 		, Proto.serialize kd
 		, Proto.serialize af
 		]
-	formatMessage (DownloadRequest r kd af) =
+	formatMessage (DownloadRequest r kd af) = Proto.mkMessage
 		[ "d"
 		, Proto.serialize r
 		, Proto.serialize kd
 		, Proto.serialize af
 		]
-	formatMessage (AssistantUploadRequest r kd af) =
+	formatMessage (AssistantUploadRequest r kd af) = Proto.mkMessage
 		[ "au"
 		, Proto.serialize r
 		, Proto.serialize kd
 		, Proto.serialize af
 		]
-	formatMessage (AssistantDownloadRequest r kd af) =
+	formatMessage (AssistantDownloadRequest r kd af) = Proto.mkMessage
 		[ "ad"
 		, Proto.serialize r
 		, Proto.serialize kd
@@ -81,27 +81,27 @@ instance Proto.Receivable TransferRequest where
 	parseCommand _ = Proto.parseFail
 
 instance Proto.Sendable TransferResponse where
-	formatMessage (TransferOutput (OutputMessage m)) =
+	formatMessage (TransferOutput (OutputMessage m)) = Proto.mkMessage
 		["om", Proto.serialize (decodeBS (encode_c isUtf8Byte m))]
-	formatMessage (TransferOutput (OutputError e)) =
+	formatMessage (TransferOutput (OutputError e)) = Proto.mkMessage
 		["oe", Proto.serialize (decodeBS (encode_c isUtf8Byte (encodeBS e)))]
-	formatMessage (TransferOutput BeginProgressMeter) =
+	formatMessage (TransferOutput BeginProgressMeter) = Proto.mkMessage
 		["opb"]
-	formatMessage (TransferOutput (UpdateProgressMeterTotalSize (TotalSize sz))) =
+	formatMessage (TransferOutput (UpdateProgressMeterTotalSize (TotalSize sz))) = Proto.mkMessage
 		["ops", Proto.serialize sz]
-	formatMessage (TransferOutput (UpdateProgressMeter n)) =
+	formatMessage (TransferOutput (UpdateProgressMeter n)) = Proto.mkMessage
 		["op", Proto.serialize n]
-	formatMessage (TransferOutput EndProgressMeter) =
+	formatMessage (TransferOutput EndProgressMeter) = Proto.mkMessage
 		["ope"]
-	formatMessage (TransferOutput BeginPrompt) =
+	formatMessage (TransferOutput BeginPrompt) = Proto.mkMessage
 		["oprb"]
-	formatMessage (TransferOutput EndPrompt) =
+	formatMessage (TransferOutput EndPrompt) = Proto.mkMessage
 		["opre"]
-	formatMessage (TransferOutput (JSONObject b)) =
+	formatMessage (TransferOutput (JSONObject b)) = Proto.mkMessage
 		["oj", Proto.serialize (decodeBS (encode_c isUtf8Byte (L.toStrict b)))]
-	formatMessage (TransferResult True) =
+	formatMessage (TransferResult True) = Proto.mkMessage
 		["t"]
-	formatMessage (TransferResult False) =
+	formatMessage (TransferResult False) = Proto.mkMessage
 		["f"]
 
 instance Proto.Receivable TransferResponse where
@@ -130,7 +130,8 @@ instance Proto.Receivable TransferResponse where
 	parseCommand _ = Proto.parseFail
 
 instance Proto.Sendable TransferSerializedOutputResponse where
-	formatMessage (TransferSerializedOutputResponse ReadyPrompt) = ["opr"]
+	formatMessage (TransferSerializedOutputResponse ReadyPrompt) =
+		Proto.mkMessage ["opr"]
 
 instance Proto.Receivable TransferSerializedOutputResponse where
 	parseCommand "opr" = Proto.parse0 (TransferSerializedOutputResponse ReadyPrompt)

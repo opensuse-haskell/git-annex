@@ -240,7 +240,7 @@ runNet runst conn runner f = case f of
 			debugMessage conn "P2P >" m
 			case connOhdl conn of
 				P2PHandle h -> tryNonAsync $ do
-					hPutStrLn h $ unwords (formatMessage m)
+					hPutStrLn h $ genMessage m
 					hFlush h
 				P2PHandleTMVar mv _ closedv -> tryNonAsync $
 					atomically $ putTMVar mv (Right m)
@@ -345,7 +345,7 @@ debugMessage conn prefix m = do
 	debug "P2P.IO" $ concat $ catMaybes $
 		[ (\ident -> "[" ++ ident ++ "] ") <$> mident
 		, Just $ "[" ++ show tid ++ "] "
-		, Just $ prefix ++ " " ++ unwords (formatMessage safem)
+		, Just $ prefix ++ " " ++ genMessage safem
 		]
   where
 	safem = case m of

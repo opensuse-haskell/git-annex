@@ -23,8 +23,9 @@ data Notification
 	| CHANGED ChangedRefs
 
 instance Proto.Sendable Notification where
-	formatMessage READY = ["READY"]
-	formatMessage (CHANGED shas) = ["CHANGED", Proto.serialize shas]
+	formatMessage READY = Proto.mkMessage ["READY"]
+	formatMessage (CHANGED shas) = Proto.mkMessage
+		["CHANGED", Proto.serialize shas]
 
 instance Proto.Receivable Notification where
 	parseCommand "READY" = Proto.parse0 READY

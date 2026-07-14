@@ -44,7 +44,7 @@ runInteractive = do
 			Just cmd -> atomically $ writeTChan ichan cmd
 	let writer = forever $ do
 		msg <- atomically $ readTChan ochan
-		hPutStrLn writeh $ unwords $ formatMessage msg
+		hPutStrLn writeh $ genMessage msg
 		hFlush writeh
 	let controller = runController ichan ochan
 	

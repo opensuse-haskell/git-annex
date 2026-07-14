@@ -615,7 +615,7 @@ sendMessageAddonProcess p m = do
 	hFlush h
   where
 	h = AddonProcess.externalSend p
-	line = unwords $ formatMessage m
+	line = genMessage m
 
 receiveMessageAddonProcess :: AddonProcess.ExternalAddonProcess -> IO (Maybe String)
 receiveMessageAddonProcess p = do

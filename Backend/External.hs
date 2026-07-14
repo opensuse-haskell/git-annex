@@ -161,7 +161,7 @@ sendMessage p m = liftIO $ do
 	hPutStrLn (externalSend p) line
 	hFlush (externalSend p)
   where
-	line = unwords $ Proto.formatMessage m
+	line = Proto.genMessage m
 
 {- A response handler can yield a result, or it can request that another
  - message be consumed from the external. -}
@@ -347,8 +347,10 @@ instance Proto.Serializable ProtocolVersion where
 	deserialize = ProtocolVersion <$$> readish
 
 instance Proto.Sendable ExceptionalMessage where
-	formatMessage (ERROR err) = ["ERROR", Proto.serialize err]
-	formatMessage (DEBUG msg) = ["DEBUG", Proto.serialize msg]
+	formatMessage (ERROR err) = Proto.mkMessage
+		["ERROR", Proto.serialize err]
+	formatMessage (DEBUG msg) = Proto.mkMessage
+		["DEBUG", Proto.serialize msg]
 
 instance Proto.Receivable ExceptionalMessage where
 	parseCommand "ERROR" = Proto.parse1 ERROR
@@ -356,12 +358,14 @@ instance Proto.Receivable ExceptionalMessage where
 	parseCommand _ = Proto.parseFail
 
 instance Proto.Sendable Request where
-	formatMessage GETVERSION = ["GETVERSION"]
-	formatMessage CANVERIFY = ["CANVERIFY"]
-	formatMessage ISSTABLE = ["ISSTABLE"]
-	formatMessage ISCRYPTOGRAPHICALLYSECURE = ["ISCRYPTOGRAPHICALLYSECURE"]
-	formatMessage (GENKEY file) = ["GENKEY", Proto.serialize file]
-	formatMessage (VERIFYKEYCONTENT key file) =
+	formatMessage GETVERSION = Proto.mkMessage ["GETVERSION"]
+	formatMessage CANVERIFY = Proto.mkMessage ["CANVERIFY"]
+	formatMessage ISSTABLE = Proto.mkMessage ["ISSTABLE"]
+	formatMessage ISCRYPTOGRAPHICALLYSECURE = Proto.mkMessage
+		["ISCRYPTOGRAPHICALLYSECURE"]
+	formatMessage (GENKEY file) = Proto.mkMessage
+		["GENKEY", Proto.serialize file]
+	formatMessage (VERIFYKEYCONTENT key file) = Proto.mkMessage
 		["VERIFYKEYCONTENT", Proto.serialize key, Proto.serialize file]
 
 instance Proto.Receivable Response where

@@ -2,7 +2,7 @@
  -
  - See doc/design/p2p_protocol.mdwn
  -
- - Copyright 2016-2024 Joey Hess <id@joeyh.name>
+ - Copyright 2016-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -119,36 +119,57 @@ data Message
 	deriving (Show)
 
 instance Proto.Sendable Message where
-	formatMessage (AUTH uuid authtoken) = ["AUTH", Proto.serialize uuid, Proto.serialize authtoken]
-	formatMessage (AUTH_SUCCESS uuid) = ["AUTH-SUCCESS",  Proto.serialize uuid]
-	formatMessage AUTH_FAILURE = ["AUTH-FAILURE"]
-	formatMessage (VERSION v) = ["VERSION", Proto.serialize v]
-	formatMessage (CONNECT service) = ["CONNECT", Proto.serialize service]
-	formatMessage (CONNECTDONE exitcode) = ["CONNECTDONE", Proto.serialize exitcode]
-	formatMessage NOTIFYCHANGE = ["NOTIFYCHANGE"]
-	formatMessage (CHANGED refs) = ["CHANGED", Proto.serialize refs]
-	formatMessage (CHECKPRESENT key) = ["CHECKPRESENT", Proto.serialize key]
-	formatMessage (LOCKCONTENT key) = ["LOCKCONTENT", Proto.serialize key]
-	formatMessage UNLOCKCONTENT = ["UNLOCKCONTENT"]
-	formatMessage (REMOVE key) = ["REMOVE", Proto.serialize key]
-	formatMessage (REMOVE_BEFORE ts key) = ["REMOVE-BEFORE", Proto.serialize ts, Proto.serialize key]
-	formatMessage GETTIMESTAMP = ["GETTIMESTAMP"]
-	formatMessage (GET offset af key) = ["GET", Proto.serialize offset, Proto.serialize af, Proto.serialize key]
-	formatMessage (PUT af key) = ["PUT", Proto.serialize af, Proto.serialize key]
-	formatMessage (PUT_FROM offset) = ["PUT-FROM", Proto.serialize offset]
-	formatMessage ALREADY_HAVE = ["ALREADY-HAVE"]
-	formatMessage (ALREADY_HAVE_PLUS uuids) = ("ALREADY-HAVE-PLUS":map Proto.serialize uuids)
-	formatMessage SUCCESS = ["SUCCESS"]
-	formatMessage (SUCCESS_PLUS uuids) = ("SUCCESS-PLUS":map Proto.serialize uuids)
-	formatMessage FAILURE = ["FAILURE"]
-	formatMessage (FAILURE_PLUS uuids) = ("FAILURE-PLUS":map Proto.serialize uuids)
-	formatMessage (BYPASS (Bypass uuids)) = ("BYPASS":map Proto.serialize (S.toList uuids))
-	formatMessage (DATA len) = ["DATA", Proto.serialize len]
-	formatMessage DATA_PRESENT = ["DATA-PRESENT"]
-	formatMessage (VALIDITY Valid) = ["VALID"]
-	formatMessage (VALIDITY Invalid) = ["INVALID"]
-	formatMessage (TIMESTAMP ts) = ["TIMESTAMP", Proto.serialize ts]
-	formatMessage (ERROR err) = ["ERROR", Proto.serialize err]
+	formatMessage (AUTH uuid authtoken) = Proto.mkMessage
+		["AUTH", Proto.serialize uuid, Proto.serialize authtoken]
+	formatMessage (AUTH_SUCCESS uuid) = Proto.mkMessage
+		["AUTH-SUCCESS",  Proto.serialize uuid]
+	formatMessage AUTH_FAILURE = Proto.mkMessage ["AUTH-FAILURE"]
+	formatMessage (VERSION v) = Proto.mkMessage
+		["VERSION", Proto.serialize v]
+	formatMessage (CONNECT service) = Proto.mkMessage
+		["CONNECT", Proto.serialize service]
+	formatMessage (CONNECTDONE exitcode) = Proto.mkMessage
+		["CONNECTDONE", Proto.serialize exitcode]
+	formatMessage NOTIFYCHANGE = Proto.mkMessage ["NOTIFYCHANGE"]
+	formatMessage (CHANGED refs) = Proto.mkMessage
+		["CHANGED", Proto.serialize refs]
+	formatMessage (CHECKPRESENT key) = Proto.mkMessage
+		["CHECKPRESENT", Proto.serialize key]
+	formatMessage (LOCKCONTENT key) = Proto.mkMessage
+		["LOCKCONTENT", Proto.serialize key]
+	formatMessage UNLOCKCONTENT = Proto.mkMessage ["UNLOCKCONTENT"]
+	formatMessage (REMOVE key) = Proto.mkMessage
+		["REMOVE", Proto.serialize key]
+	formatMessage (REMOVE_BEFORE ts key) = Proto.mkMessage
+		["REMOVE-BEFORE", Proto.serialize ts, Proto.serialize key]
+	formatMessage GETTIMESTAMP = Proto.mkMessage ["GETTIMESTAMP"]
+	formatMessage (GET offset af key) = Proto.mkMessage
+		["GET", Proto.serialize offset, Proto.serialize af, Proto.serialize key]
+	formatMessage (PUT af key) = Proto.mkMessage
+		["PUT", Proto.serialize af, Proto.serialize key]
+	formatMessage (PUT_FROM offset) = Proto.mkMessage
+		["PUT-FROM", Proto.serialize offset]
+	formatMessage ALREADY_HAVE = Proto.mkMessage ["ALREADY-HAVE"]
+	formatMessage (ALREADY_HAVE_PLUS uuids) = Proto.mkMessage
+		("ALREADY-HAVE-PLUS":map Proto.serialize uuids)
+	formatMessage SUCCESS = Proto.mkMessage ["SUCCESS"]
+	formatMessage (SUCCESS_PLUS uuids) =
+		Proto.mkMessage ("SUCCESS-PLUS":map Proto.serialize uuids)
+	formatMessage FAILURE = Proto.mkMessage ["FAILURE"]
+	formatMessage (FAILURE_PLUS uuids) = Proto.mkMessage
+		("FAILURE-PLUS":map Proto.serialize uuids)
+	formatMessage (BYPASS (Bypass uuids)) = Proto.mkMessage
+		("BYPASS":map Proto.serialize (S.toList uuids))
+	formatMessage (DATA len) = Proto.mkMessage
+		["DATA", Proto.serialize len]
+	formatMessage DATA_PRESENT = Proto.mkMessage
+		["DATA-PRESENT"]
+	formatMessage (VALIDITY Valid) = Proto.mkMessage ["VALID"]
+	formatMessage (VALIDITY Invalid) = Proto.mkMessage ["INVALID"]
+	formatMessage (TIMESTAMP ts) =
+		Proto.mkMessage ["TIMESTAMP", Proto.serialize ts]
+	formatMessage (ERROR err) = Proto.mkMessage
+		["ERROR", Proto.serialize err]
 
 instance Proto.Receivable Message where
 	parseCommand "AUTH" = Proto.parse2 AUTH

@@ -111,7 +111,7 @@ sendloop st sendq = atomically (readTBMChan sendq) >>= \case
 		sendloop st sendq
 	Nothing -> return ()
   where
-	wrapjid msg jid = AsyncMessage jid $ unwords $ Proto.formatMessage msg
+	wrapjid msg jid = AsyncMessage jid $ Proto.genMessage msg
 
 shutdown :: External -> ExternalState -> SendQueue -> Async () -> Async () -> Bool -> IO ()
 shutdown external st sendq sendthread receivethread b = do

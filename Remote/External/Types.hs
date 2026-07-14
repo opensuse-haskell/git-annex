@@ -21,6 +21,7 @@ module Remote.External.Types (
 	ExternalAsync(..),
 	ExternalAsyncRelay(..),
 	Proto.parseMessage,
+	Proto.genMessage,
 	Proto.Sendable(..),
 	Proto.Receivable(..),
 	Request(..),
@@ -203,41 +204,47 @@ needsPREPARE LISTCONFIGS = False
 needsPREPARE _ = True
 
 instance Proto.Sendable Request where
-	formatMessage (EXTENSIONS l) = ["EXTENSIONS", Proto.serialize l]
-	formatMessage PREPARE = ["PREPARE"]
-	formatMessage INITREMOTE = ["INITREMOTE"]
-	formatMessage GETCOST = ["GETCOST"]
-	formatMessage GETAVAILABILITY = ["GETAVAILABILITY"]
-	formatMessage GETORDERED = ["GETORDERED"]
-	formatMessage (CLAIMURL url) = [ "CLAIMURL", Proto.serialize url ]
-	formatMessage (CHECKURL url) = [ "CHECKURL", Proto.serialize url ]
-	formatMessage (TRANSFER direction key file) =
+	formatMessage (EXTENSIONS l) = Proto.mkMessage
+		["EXTENSIONS", Proto.serialize l]
+	formatMessage PREPARE = Proto.mkMessage ["PREPARE"]
+	formatMessage INITREMOTE = Proto.mkMessage ["INITREMOTE"]
+	formatMessage GETCOST = Proto.mkMessage ["GETCOST"]
+	formatMessage GETAVAILABILITY = Proto.mkMessage ["GETAVAILABILITY"]
+	formatMessage GETORDERED = Proto.mkMessage ["GETORDERED"]
+	formatMessage (CLAIMURL url) = Proto.mkMessage
+		[ "CLAIMURL", Proto.serialize url ]
+	formatMessage (CHECKURL url) = Proto.mkMessage
+		[ "CHECKURL", Proto.serialize url ]
+	formatMessage (TRANSFER direction key file) = Proto.mkMessage
 		[ "TRANSFER"
 		, Proto.serialize direction
 		, Proto.serialize key
 		, Proto.serialize file
 		]
-	formatMessage (CHECKPRESENT key) =
+	formatMessage (CHECKPRESENT key) = Proto.mkMessage
 		[ "CHECKPRESENT", Proto.serialize key ]
-	formatMessage (REMOVE key) = [ "REMOVE", Proto.serialize key ]
-	formatMessage (WHEREIS key) = [ "WHEREIS", Proto.serialize key ]
-	formatMessage LISTCONFIGS = [ "LISTCONFIGS" ]
-	formatMessage GETINFO = [ "GETINFO" ]
-	formatMessage EXPORTSUPPORTED = ["EXPORTSUPPORTED"]
-	formatMessage (EXPORT loc) = [ "EXPORT", Proto.serialize loc ]
-	formatMessage (TRANSFEREXPORT direction key file) = 
+	formatMessage (REMOVE key) = Proto.mkMessage
+		[ "REMOVE", Proto.serialize key ]
+	formatMessage (WHEREIS key) = Proto.mkMessage
+		[ "WHEREIS", Proto.serialize key ]
+	formatMessage LISTCONFIGS = Proto.mkMessage ["LISTCONFIGS"]
+	formatMessage GETINFO = Proto.mkMessage ["GETINFO"]
+	formatMessage EXPORTSUPPORTED = Proto.mkMessage ["EXPORTSUPPORTED"]
+	formatMessage (EXPORT loc) = Proto.mkMessage
+		[ "EXPORT", Proto.serialize loc ]
+	formatMessage (TRANSFEREXPORT direction key file) = Proto.mkMessage
 		[ "TRANSFEREXPORT"
 		, Proto.serialize direction
 		, Proto.serialize key
 		, Proto.serialize file
 		]
-	formatMessage (CHECKPRESENTEXPORT key) =
+	formatMessage (CHECKPRESENTEXPORT key) = Proto.mkMessage
 		[ "CHECKPRESENTEXPORT", Proto.serialize key ]
-	formatMessage (REMOVEEXPORT key) =
+	formatMessage (REMOVEEXPORT key) = Proto.mkMessage
 		[ "REMOVEEXPORT", Proto.serialize key ]
-	formatMessage (REMOVEEXPORTDIRECTORY dir) =
+	formatMessage (REMOVEEXPORTDIRECTORY dir) = Proto.mkMessage
 		[ "REMOVEEXPORTDIRECTORY", Proto.serialize dir ]
-	formatMessage (RENAMEEXPORT key newloc) =
+	formatMessage (RENAMEEXPORT key newloc) = Proto.mkMessage
 		[ "RENAMEEXPORT"
 		, Proto.serialize key
 		, Proto.serialize newloc
@@ -384,8 +391,10 @@ data RemoteResponse
 	deriving (Show)
 
 instance Proto.Sendable RemoteResponse where
-	formatMessage (VALUE s) = [ "VALUE", Proto.serialize s ]
-	formatMessage (CREDS login password) = [ "CREDS", Proto.serialize login, Proto.serialize password ]
+	formatMessage (VALUE s) = Proto.mkMessage
+		[ "VALUE", Proto.serialize s ]
+	formatMessage (CREDS login password) = Proto.mkMessage
+		[ "CREDS", Proto.serialize login, Proto.serialize password ]
 
 -- Messages that can be sent at any time by either git-annex or the remote.
 data ExceptionalMessage
@@ -393,7 +402,8 @@ data ExceptionalMessage
 	deriving (Show)
 
 instance Proto.Sendable ExceptionalMessage where
-	formatMessage (ERROR err) = [ "ERROR", Proto.serialize err ]
+	formatMessage (ERROR err) = Proto.mkMessage
+		[ "ERROR", Proto.serialize err ]
 
 instance Proto.Receivable ExceptionalMessage where
 	parseCommand "ERROR" = Proto.parse1 ERROR
@@ -406,7 +416,8 @@ instance Proto.Receivable AsyncMessage where
 	parseCommand _ = Proto.parseFail
 
 instance Proto.Sendable AsyncMessage where
-	formatMessage (AsyncMessage jid msg) = ["J", Proto.serialize jid, msg]
+	formatMessage (AsyncMessage jid msg) = Proto.mkMessage
+		["J", Proto.serialize jid, msg]
 
 data AsyncWrapped
 	= AsyncWrappedRemoteResponse RemoteResponse

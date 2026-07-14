@@ -1,6 +1,6 @@
 {- Simple line-based protocols.
  -
- - Copyright 2013-2024 Joey Hess <id@joeyh.name>
+ - Copyright 2013-2026 Joey Hess <id@joeyh.name>
  -
  - License: BSD-2-clause
  -}
@@ -11,6 +11,9 @@
 module Utility.SimpleProtocol (
 	Sendable(..),
 	Receivable(..),
+	SendableMessage,
+	mkMessage,
+	genMessage,
 	parseMessage,
 	Serializable(..),
 	Parser,
@@ -34,7 +37,7 @@ import Common
 
 -- Messages that can be sent.
 class Sendable m where
-	formatMessage :: m -> [String]
+	formatMessage :: m -> SendableMessage
 
 -- Messages that can be received.
 class Receivable m where
@@ -42,6 +45,25 @@ class Receivable m where
 	-- a Parser that can be be fed the rest of the message to generate
 	-- the value.
 	parseCommand :: String -> Parser m
+
+-- Destructor not exported,  to force use of genMessage.
+newtype SendableMessage = SendableMessage [String]
+
+mkMessage :: [String] -> SendableMessage
+mkMessage = SendableMessage
+
+-- Generate a message to be sent, not including the trailing newline.
+genMessage :: Sendable m => m -> String
+genMessage m = 
+	let (SendableMessage l) = formatMessage m
+	in unwords $ map removeunsafe l
+  where
+  	-- Guard against a newline somehow slipping into the message,
+	-- which is not supported since this is a line-based protocol.
+	-- If it somehow happens, it's stripped, so the protocol may
+	-- request the wrong filename, for example, but at least won't
+	-- get messed up at the line level.
+	removeunsafe s = filter (/= '\n') s
 
 parseMessage :: (Receivable m) => String -> Maybe m
 parseMessage s = parseCommand command rest

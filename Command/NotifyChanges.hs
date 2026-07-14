@@ -40,5 +40,5 @@ start = go =<< watchChangedRefs
 
 send :: Notification -> IO ()
 send n = do
-	putStrLn $ unwords $ formatMessage n
+	putStrLn $ genMessage n
 	hFlush stdout
