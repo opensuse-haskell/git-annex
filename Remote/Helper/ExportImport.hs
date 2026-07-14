@@ -118,9 +118,20 @@ adjustExportImportRemoteType rt = rt { setup = setup' }
 					then giveup $ fromProposedAccepted configfield ++ " is not supported by this special remote"
 					else cont
 				)
+		let checkexportimport cont
+			| importTree pc && exportTree pc =
+				ifM (exportImportSupported rt pc gc)
+					( cont
+					, giveup $ "This special remote does not support enabling both "
+						++ fromProposedAccepted importTreeField
+						++ " and "
+						++ fromProposedAccepted exportTreeField
+					)
+			| otherwise = cont
 		checkconfig exportSupported exportTree exportTreeField $
 			checkconfig importSupported importTree importTreeField $
-				setup rt st mu remotename cp c gc
+				checkexportimport $
+					setup rt st mu remotename cp c gc
 	
 	enable oldc pc configured configfield cont = do
 		oldpc <- parsedRemoteConfig rt oldc
