@@ -1,11 +1,11 @@
 {- A remote that is only accessible by rsync.
  -
- - Copyright 2011-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
-{-# LANGUAGE CPP, OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Remote.Rsync (
 	remote,
@@ -32,6 +32,7 @@ import Annex.Perms
 import Remote.Helper.Special
 import Remote.Helper.ExportImport
 import Remote.Helper.Path
+import Types.Import
 import Types.Export
 import Types.ProposedAccepted
 import Remote.Rsync.RsyncUrl
@@ -52,6 +53,7 @@ import qualified Utility.RawFilePath as R
 
 import qualified Data.Map as M
 import qualified Data.List.NonEmpty as NE
+import Text.Read
 
 remote :: RemoteType
 remote = specialRemoteType $ RemoteType
@@ -64,7 +66,7 @@ remote = specialRemoteType $ RemoteType
 		]
 	, setup = rsyncSetup
 	, exportSupported = exportIsSupported
-	, importSupported = importUnsupported
+	, importSupported = importIsSupported
 	, exportImportSupported = exportImportUnsupported
 	, thirdPartyPopulated = False
 	}
@@ -106,11 +108,15 @@ gen r u rc gc rs = do
 				{ storeExport = storeExportM o
 				, retrieveExport = retrieveExportM o
 				, removeExport = removeExportM o
-				, checkPresentExport = checkPresentExportM o
+				, checkPresentExport = checkPresentImportExportM o
 				, removeExportDirectory = Nothing
 				, renameExport = Just $ renameExportM o
 				}
-			, importActions = importUnsupported
+			, importActions = ImportActions
+				{ listImportableContents = listImportableContentsM o
+				, retrieveImport = retrieveImportM o
+				, checkPresentImport = checkPresentImportExportM o
+				}
 			, exportImportActions = exportImportUnsupported
 			, whereisKey = Nothing
 			, remoteFsck = Nothing
@@ -332,8 +338,8 @@ retrieveExportM o k loc dest p =
   where
 	rsyncurl = mkRsyncUrl o (fromOsPath (fromExportLocation loc))
 
-checkPresentExportM :: RsyncOpts -> Key -> ExportLocation -> Annex Bool
-checkPresentExportM o _k loc = checkPresentGeneric o [rsyncurl]
+checkPresentImportExportM :: RsyncOpts -> Key -> ExportLocation -> Annex Bool
+checkPresentImportExportM o _k loc = checkPresentGeneric o [rsyncurl]
   where
 	rsyncurl = mkRsyncUrl o (fromOsPath (fromExportLocation loc))
 
@@ -347,6 +353,59 @@ removeExportM o _k loc =
 
 renameExportM :: RsyncOpts -> Key -> ExportLocation -> ExportLocation -> Annex (Maybe ())
 renameExportM _ _ _ _ = return Nothing
+
+listImportableContentsM :: RsyncOpts -> Annex (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)))
+listImportableContentsM o =
+	withRsyncScratchDir $ \tmp -> do
+		opts <- rsyncOptions o
+		let p = rsyncCreateProcess $ opts ++
+			[ Param "--recursive"
+			, Param "--dry-run"
+			, Param $ "--out-format=" ++ formatstring
+			, Param url
+			, Param $ fromOsPath tmp
+			]
+		l <- mapMaybe parse . lines <$> liftIO (readProcess' p)
+		return $ Just $ ImportableContentsComplete $ ImportableContents
+			{ importableContents = l
+			, importableHistory = []
+			}
+  where
+	-- Make the url end in a slash so rsync will avoid prefixing
+	-- filenames it outputs with part of the url.
+	url = fromOsPath $ addTrailingPathSeparator $ toOsPath $ rsyncUrl o
+
+	formatstring = "%l|%M|%L|%n"
+
+	parse s
+		| "/" `isSuffixOf` s = Nothing
+		| otherwise = case splitc '|' s of
+			(ssz:sdate:ssymlink:rest)
+				| not (null ssymlink) -> Nothing
+				| otherwise -> do
+					sz <- readMaybe ssz
+					let loc = mkImportLocation $ toOsPath $
+						rsyncPathUnescape $
+							intercalate "|" rest
+					let cid = ContentIdentifier $ encodeBS $ 
+						ssz ++ "|" ++ sdate
+					Just (loc, (cid, sz))
+			_ -> Nothing
+
+retrieveImportM :: RsyncOpts -> ImportLocation -> [ContentIdentifier] -> OsPath -> Either Key (Annex Key) -> MeterUpdate -> Annex (Key, Verification)
+retrieveImportM o loc _ dest gk p =
+	case gk of
+		Right mkkey -> do
+			go Nothing
+			k <- mkkey
+			return (k, UnVerified)
+		Left k -> do
+			v <- verifyKeyContentIncrementally AlwaysVerify k go
+			return (k, v)
+  where
+	go iv = tailVerify iv dest $
+		rsyncRetrieve o [rsyncurl] dest (Just p)
+	rsyncurl = mkRsyncUrl o (fromOsPath (fromImportLocation loc))
 
 {- Rsync params to enable resumes of sending files safely,
  - ensure that files are only moved into place once complete

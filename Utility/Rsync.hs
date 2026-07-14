@@ -1,6 +1,6 @@
 {- various rsync stuff
  -
- - Copyright 2010-2013 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2026 Joey Hess <id@joeyh.name>
  -
  - License: BSD-2-clause
  -}
@@ -13,10 +13,12 @@ module Utility.Rsync (
 	rsyncServerReceive,
 	rsyncUseDestinationPermissions,
 	rsync,
+	rsyncCreateProcess,
 	rsyncUrlIsShell,
 	rsyncUrlIsPath,
 	rsyncProgress,
 	filterRsyncSafeOptions,
+	rsyncPathUnescape,
 ) where
 
 import Common
@@ -68,6 +70,9 @@ rsyncUseDestinationPermissions = Param "--chmod=ugo=rwX"
 
 rsync :: [CommandParam] -> IO Bool
 rsync = boolSystem "rsync" . rsyncParamsFixup
+
+rsyncCreateProcess :: [CommandParam] -> CreateProcess
+rsyncCreateProcess = proc "rsync" . toCommand . rsyncParamsFixup
 
 {- On Windows, rsync is from msys2, and expects to get msys2 formatted
  - paths to files. (It thinks that C:foo refers to a host named "C").
@@ -187,3 +192,17 @@ toMSYS2Path p
 		| otherwise = s
 #endif
 
+{- When listing files with eg --dry-run, rsync escapes some characters
+ - to 3 octal digits. Eg, "\#012" is '\n'
+ -}
+rsyncPathUnescape :: String -> FilePath
+rsyncPathUnescape = go
+  where
+	go [] = []
+	go ('\\':'#':d1:d2:d3:cs)
+		| isOctDigit d1 && isOctDigit d2 && isOctDigit d3 =
+			case (readish [d1], readish [d2], readish [d3]) of
+				(Just n1, Just n2, Just n3) ->
+					chr (n3+8*n2+8*8*n1) : go cs
+				_ -> error "internal"
+	go (c:cs) = c : go cs
