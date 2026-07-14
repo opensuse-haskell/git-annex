@@ -197,7 +197,7 @@ adjustExportImport' isexport isimport isexportimport annexobjects r rs gc = do
 					then if annexobjects
 						then storeannexobject k o p
 						else giveup "remote is configured with exporttree=yes; use `git-annex export` to store content on it"
-					else if isexportimport
+					else if isexportimport || isimport
 						then giveup "remote is configured with importtree=yes and without exporttree=yes; cannot modify content stored on it"
 						else storeKey r k af o p
 		, removeKey = \proof k -> 
@@ -213,7 +213,7 @@ adjustExportImport' isexport isimport isexportimport annexobjects r rs gc = do
 					then if annexobjects
 						then removeannexobject dbv k
 						else giveup "dropping content from an export is not supported; use `git annex export` to export a tree that lacks the files you want to remove"
-					else if isexportimport
+					else if isexportimport || isimport
 						then giveup "dropping content from this remote is not supported because it is configured with importtree=yes"
 						else removeKey r proof k
 		, lockContent = if versioned
