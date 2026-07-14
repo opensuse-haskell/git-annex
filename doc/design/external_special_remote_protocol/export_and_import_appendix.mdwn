@@ -175,17 +175,20 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
 * `LISTIMPORTABLECONTENTS`  
   Used to get a list of all the files that are stored in the special 
   remote. A block of responses
-  can be made to this, which must always end with `END`.
-  * `CONTENT Size Name`  
+  can be made to this, which must always end with `IMPORTABLECONTENTEND`.
+  * `IMPORTABLECONTENT Size Name`  
     A file stored in the special remote. The Size is its size
     in bytes. The Name is the name of the file on the remote,
     in the form of a relative path, and may contain path separators,
     whitespace, and other special characters.  
     Always followed by `CONTENTIDENTIFIER`.
-  * `CONTENTIDENTIFIER ContentIdentifier`  
+  * `IMPORTABLECONTENTIDENTIFIER ContentIdentifier`  
     Provide the ContentIdentifier for the previous `CONTENT`.
-  * `END`  
+  * `IMPORTABLECONTENTEND`  
     Indicates the end of the block of responses.
+  * `DELEGATE type=value [params]`  
+    Delegate this request to a different type of special remote.
+    See [[delegate_appendix]].
 * `LOCATION Name`  
   Comes before each of the following requests,
   specifying the name of the file on the remote. It will be in the
@@ -198,10 +201,13 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
   While the transfer is running, the remote can send any number of
   `PROGRESS` messages. Once the transfer is complete, it finishes by
   sending one of these replies:
-  * `RETRIEVE-SUCCESS`
+  * `TRANSFER-SUCCESS`
     Indicates that the retrieve was successful.
-  * `RETRIEVE-FAILURE ErrorMsg`  
+  * `TRANSFER-FAILURE ErrorMsg`  
     Indicates the retrieve failed.
+  * `DELEGATE type=value [params]`  
+    Delegate this request to a different type of special remote.
+    See [[delegate_appendix]].
 * `CHECKPRESENTIMPORT Key`  
   Requests the remote to check if the previously provided Name
   is present in it.
@@ -214,6 +220,9 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
   * `CHECKPRESENT-UNKNOWN Key ErrorMsg`  
     Indicates that it is not currently possible to verify if content is
     present in the remote. (Perhaps the remote cannot be contacted.)
+  * `DELEGATE type=value [params]`  
+    Delegate this request to a different type of special remote.
+    See [[delegate_appendix]].
 
 ### import example
 
