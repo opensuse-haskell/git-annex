@@ -11,5 +11,5 @@ can safely do that. I know it will be much easier and safer to implement
 importtree only external special remotes.
 
 The external special remote interface for this still needs to be
-implemented.
+implemented. Work has begun in the `importonly_external` branch.)
 """]]
