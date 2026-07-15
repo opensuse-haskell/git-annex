@@ -201,10 +201,15 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
   While the transfer is running, the remote can send any number of
   `PROGRESS` messages. Once the transfer is complete, it finishes by
   sending one of these replies:
-  * `TRANSFER-SUCCESS`
+  * `RETRIEVEIMPORT-SUCCESS`
     Indicates that the retrieve was successful.
-  * `TRANSFER-FAILURE ErrorMsg`  
+  * `RETRIEVEIMPORT-FAILURE ErrorMsg`  
     Indicates the retrieve failed.
+  * `RETRIEVEIMPORT-URL Url`  
+    Rather than the special remote downloading content from an url itself,
+    this lets it offload that work to git-annex. This response is a
+    protocol extension; it's only safe to send it to git-annex after
+    it sent an `EXTENSIONS` that included `TRANSFER-RETRIEVE-URL`.
   * `DELEGATE type=value [params]`  
     Delegate this request to a different type of special remote.
     See [[delegate_appendix]].
@@ -220,6 +225,11 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
   * `CHECKPRESENT-UNKNOWN Key ErrorMsg`  
     Indicates that it is not currently possible to verify if content is
     present in the remote. (Perhaps the remote cannot be contacted.)
+  * `CHECKPRESENT-URL Key Url`  
+    Rather than the special remote checking an url itself, 
+    this lets it offload that work to git-annex. This response is a protocol
+    extension; it's only safe to send it to git-annex after it sent an
+    `EXTENSIONS` that included `CHECKPRESENT-URL`.
   * `DELEGATE type=value [params]`  
     Delegate this request to a different type of special remote.
     See [[delegate_appendix]].
