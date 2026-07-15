@@ -1,6 +1,6 @@
 {- git-annex progress output
  -
- - Copyright 2010-2021 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -50,6 +50,11 @@ instance MeterSize InodeCache where
 
 instance MeterSize KeySource where
 	getMeterSize = maybe (pure Nothing) getMeterSize . inodeCache
+
+data UnknownSize = UnknownSize
+
+instance MeterSize UnknownSize where
+	getMeterSize UnknownSize = pure Nothing
 
 {- When the key's size is not known, the file is statted to get the size.
  - This allows uploads of keys without size to still have progress

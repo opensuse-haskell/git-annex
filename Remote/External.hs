@@ -48,6 +48,7 @@ import Annex.Verify
 import Annex.DisableRemote
 import Annex.LockFile
 import Creds
+import Messages.Progress
 import qualified Utility.FileIO as F
 
 import Control.Concurrent.STM
@@ -73,7 +74,15 @@ externaltypeField = Accepted "externaltype"
 readonlyField :: RemoteConfigField
 readonlyField = Accepted "readonly"
 
-gen :: RemoteType -> Maybe ExternalProgram -> Git.Repo -> UUID -> RemoteConfig -> RemoteGitConfig -> RemoteStateHandle -> Annex (Maybe Remote)
+gen
+	:: RemoteType
+	-> Maybe ExternalProgram
+	-> Git.Repo
+	-> UUID
+	-> RemoteConfig
+	-> RemoteGitConfig
+	-> RemoteStateHandle
+	-> Annex (Maybe Remote)
 gen rt externalprogram r u rc gc rs
 	-- readonly mode only downloads urls; does not use external program
 	| externalprogram' == ExternalType "readonly" = do
@@ -119,7 +128,7 @@ gen rt externalprogram r u rc gc rs
 		let importactions = if importsupported
 			then ImportActions
 				{ listImportableContents = listImportableContentsM external
-				, retrieveImport = retrieveImportM external
+				, retrieveImport = retrieveImportM external gc
 				, checkPresentImport = checkPresentImportM external gc
 				}
 			else importUnsupported
@@ -203,7 +212,16 @@ gen rt externalprogram r u rc gc rs
 			fromMaybe (giveup "missing externaltype")
 				(remoteAnnexExternalType gc)
 
-externalSetup :: Maybe ExternalProgram -> Maybe (String, String) -> SetupStage -> Maybe UUID -> RemoteName -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
+externalSetup
+	:: Maybe ExternalProgram
+	-> Maybe (String, String)
+	-> SetupStage
+	-> Maybe UUID
+	-> RemoteName
+	-> Maybe CredPair
+	-> RemoteConfig
+	-> RemoteGitConfig
+	-> Annex (RemoteConfig, UUID)
 externalSetup externalprogram setgitconfig ss mu remotename _ c gc = do
 	u <- maybe (liftIO genUUID) return mu
 	pc <- either giveup return $ parseRemoteConfig c (lenientRemoteConfigParser externalprogram)
@@ -247,7 +265,12 @@ externalSetup externalprogram setgitconfig ss mu remotename _ c gc = do
 		[ fromMaybe ("externaltype", externaltype) setgitconfig ]
 	return (M.delete readonlyField c'', u)
 
-checkSupportedWith :: Maybe ExternalProgram -> (External -> Annex Bool) -> ParsedRemoteConfig -> RemoteGitConfig -> Annex Bool
+checkSupportedWith
+	:: Maybe ExternalProgram
+	-> (External -> Annex Bool)
+	-> ParsedRemoteConfig
+	-> RemoteGitConfig
+	-> Annex Bool
 checkSupportedWith Nothing checker c gc = do
 	let externaltype = fromMaybe (giveup "Specify externaltype=") $
 		remoteAnnexExternalType gc <|> getRemoteConfigValue externaltypeField c
@@ -361,7 +384,13 @@ whereisKeyM external k = handleRequestKey external WHEREIS k Nothing $ \resp -> 
 	UNSUPPORTED_REQUEST -> result []
 	_ -> Nothing
 
-storeExportM :: External -> OsPath -> Key -> ExportLocation -> MeterUpdate -> Annex ()
+storeExportM
+	:: External
+	-> OsPath
+	-> Key
+	-> ExportLocation
+	-> MeterUpdate
+	-> Annex ()
 storeExportM external f k loc p = either giveup return =<< go
   where
 	go = handleRequestExport external loc req k (Just p) $ \resp -> case resp of
@@ -377,7 +406,14 @@ storeExportM external f k loc p = either giveup return =<< go
 		_ -> Nothing
 	req sk = TRANSFEREXPORT Upload sk (fromOsPath f)
 
-retrieveExportM :: External -> RemoteGitConfig -> Key -> ExportLocation -> OsPath -> MeterUpdate -> Annex Verification
+retrieveExportM
+	:: External
+	-> RemoteGitConfig
+	-> Key
+	-> ExportLocation
+	-> OsPath
+	-> MeterUpdate
+	-> Annex Verification
 retrieveExportM external gc k loc dest p = do
 	verifyKeyContentIncrementally AlwaysVerify k $ \iv ->
 		tailVerify iv dest $
@@ -399,14 +435,61 @@ retrieveExportM external gc k loc dest p = do
 		_ -> Nothing
 	req sk = TRANSFEREXPORT Download sk (fromOsPath dest)
 
-checkPresentExportM :: External -> RemoteGitConfig -> Key -> ExportLocation -> Annex Bool
+retrieveImportM
+	:: External
+	-> RemoteGitConfig
+	-> ImportLocation
+	-> [ContentIdentifier]
+	-> OsPath
+	-> Either Key (Annex Key)
+	-> MeterUpdate
+	-> Annex (Key, Verification)
+retrieveImportM external gc loc cids dest gk p =
+	case gk of
+		Right mkkey -> do
+			go Nothing
+			k <- mkkey
+			return (k, UnVerified)
+		Left k -> do
+			v <- verifyKeyContentIncrementally AlwaysVerify k go
+			return (k, v)
+  where
+	go iv = tailVerify iv dest $
+		either giveup return =<< go'
+	go' = handleRequestImport' external loc req (Just p) $ \resp -> case resp of
+		RETRIEVEIMPORT_SUCCESS -> result $ Right ()
+		RETRIEVEIMPORT_FAILURE errmsg -> 
+			result $ Left $ respErrorMessage "RETRIEVEIMPORT" errmsg
+		RETRIEVEIMPORT_URL url -> 
+			retrieveUrl' gc url dest UnknownSize p
+		DELEGATE ps -> Just $ do
+			delegate <- getDelegateRemote external ps
+			-- FIXME this will cause gk to be run twice
+			_ <- retrieveImport (importActions delegate) loc cids dest gk p
+			return (Result (Right ()))
+		UNSUPPORTED_REQUEST ->
+			result $ Left "RETRIEVEIMPORT not implemented by external special remote"
+		_ -> Nothing
+	req = RETRIEVEIMPORT (fromOsPath dest)
+
+checkPresentExportM
+	:: External
+	-> RemoteGitConfig
+	-> Key
+	-> ExportLocation
+	-> Annex Bool
 checkPresentExportM = checkPresentExportImport
 	CHECKPRESENTEXPORT
 	"CHECKPRESENTEXPORT"
 	(checkPresentExport . exportActions)
 	handleRequestExport
 
-checkPresentImportM :: External -> RemoteGitConfig -> Key -> ExportLocation -> Annex Bool
+checkPresentImportM
+	:: External
+	-> RemoteGitConfig
+	-> Key
+	-> ExportLocation
+	-> Annex Bool
 checkPresentImportM = checkPresentExportImport
 	CHECKPRESENTIMPORT
 	"CHECKPRESENTIMPORT"
@@ -442,8 +525,10 @@ checkPresentExportImport request srequest delegateaction handlereq external gc k
 			Left $ srequest ++ " not implemented by external special remote"
 		_ -> Nothing
 
+listImportableContentsM
+	:: External
+	-> Annex (Maybe (ImportableContentsChunkable a (ContentIdentifier, ByteSize)))
 listImportableContentsM = undefined
-retrieveImportM = undefined
 
 removeExportM :: External -> Key -> ExportLocation -> Annex ()
 removeExportM external k loc = either giveup return =<< go
@@ -478,7 +563,12 @@ removeExportDirectoryM external dir = either giveup return =<< go
 		_ -> Nothing
 	req = REMOVEEXPORTDIRECTORY dir
 
-renameExportM :: External -> Key -> ExportLocation -> ExportLocation -> Annex (Maybe ())
+renameExportM
+	:: External
+	-> Key
+	-> ExportLocation
+	-> ExportLocation
+	-> Annex (Maybe ())
 renameExportM external k src dest = either giveup return =<< go
   where
 	go = handleRequestExport external src req k Nothing $ \resp -> case resp of
@@ -508,12 +598,23 @@ renameExportM external k src dest = either giveup return =<< go
  - May throw exceptions, for example on protocol errors, or
  - when the repository cannot be used.
  -}
-handleRequest :: External -> Request -> Maybe MeterUpdate -> ResponseHandler a -> Annex a
+handleRequest
+	:: External
+	-> Request
+	-> Maybe MeterUpdate
+	-> ResponseHandler a
+	-> Annex a
 handleRequest external req mp responsehandler = 
 	withExternalState external $ \st -> 
 		handleRequest' st external req mp responsehandler
 
-handleRequestKey :: External -> (SafeKey -> Request) -> Key -> Maybe MeterUpdate -> ResponseHandler a -> Annex a
+handleRequestKey
+	:: External
+	-> (SafeKey -> Request)
+	-> Key
+	-> Maybe MeterUpdate
+	-> ResponseHandler a
+	-> Annex a
 handleRequestKey external mkreq k mp responsehandler = 
 	withSafeKey k $ \sk -> handleRequest external (mkreq sk) mp responsehandler
 
@@ -522,24 +623,72 @@ withSafeKey k a = case mkSafeKey k of
 	Right sk -> a sk
 	Left e -> giveup e
 
-handleRequestExport :: External -> ExportLocation -> (SafeKey -> Request) -> Key -> Maybe MeterUpdate -> ResponseHandler a -> Annex a
+handleRequestExport
+	:: External
+	-> ExportLocation
+	-> (SafeKey -> Request)
+	-> Key
+	-> Maybe MeterUpdate
+	-> ResponseHandler a
+	-> Annex a
 handleRequestExport = handleRequestExportImport EXPORT
 
-handleRequestImport :: External -> ImportLocation -> (SafeKey -> Request) -> Key -> Maybe MeterUpdate -> ResponseHandler a -> Annex a
+handleRequestImport
+	:: External
+	-> ImportLocation
+	-> (SafeKey -> Request)
+	-> Key
+	-> Maybe MeterUpdate
+	-> ResponseHandler a
+	-> Annex a
 handleRequestImport = handleRequestExportImport IMPORT
 
-handleRequestExportImport :: (ExportLocation -> Request) -> External -> ImportLocation -> (SafeKey -> Request) -> Key -> Maybe MeterUpdate -> ResponseHandler a -> Annex a
+handleRequestImport'
+	:: External
+	-> ImportLocation
+	-> Request
+	-> Maybe MeterUpdate
+	-> ResponseHandler a
+	-> Annex a
+handleRequestImport' = handleRequestExportImport' IMPORT
+
+handleRequestExportImport
+	:: (ExportLocation -> Request)
+	-> External
+	-> ImportLocation
+	-> (SafeKey -> Request)
+	-> Key
+	-> Maybe MeterUpdate
+	-> ResponseHandler a
+	-> Annex a
 handleRequestExportImport mklocrequest external loc mkreq k mp responsehandler = 
 	withSafeKey k $ \sk ->
-		-- Both the location request and subsequent request must be
-		-- sent to the same external process, so run both with the
-		-- same external state.
-		withExternalState external $ \st -> do
-			checkPrepared st external
-			sendMessage st (mklocrequest loc)
-			handleRequest' st external (mkreq sk) mp responsehandler
+		handleRequestExportImport' mklocrequest external loc (mkreq sk) mp responsehandler
 
-handleRequest' :: ExternalState -> External -> Request -> Maybe MeterUpdate -> ResponseHandler a -> Annex a
+handleRequestExportImport'
+	:: (ExportLocation -> Request)
+	-> External
+	-> ImportLocation
+	-> Request
+	-> Maybe MeterUpdate
+	-> ResponseHandler a
+	-> Annex a
+handleRequestExportImport' mklocrequest external loc req mp responsehandler = 
+	-- Both the location request and subsequent request must be
+	-- sent to the same external process, so run both with the
+	-- same external state.
+	withExternalState external $ \st -> do
+		checkPrepared st external
+		sendMessage st (mklocrequest loc)
+		handleRequest' st external req mp responsehandler
+
+handleRequest'
+	:: ExternalState
+	-> External
+	-> Request
+	-> Maybe MeterUpdate
+	-> ResponseHandler a
+	-> Annex a
 handleRequest' st external req mp responsehandler
 	| needsPREPARE req = do
 		checkPrepared st external
@@ -663,10 +812,18 @@ handleRequest' st external req mp responsehandler
 	withurl mk uri = handleRemoteRequest $ mk $
 		setDownloader (show uri) OtherDownloader
 
-sendMessage :: (Sendable m, ToAsyncWrapped m) => ExternalState -> m -> Annex ()
+sendMessage
+	:: (Sendable m, ToAsyncWrapped m)
+	=> ExternalState
+	-> m
+	-> Annex ()
 sendMessage st m = liftIO $ externalSend st m
 
-sendMessageAddonProcess :: Sendable m => AddonProcess.ExternalAddonProcess -> m -> IO ()
+sendMessageAddonProcess
+	:: Sendable m
+	=> AddonProcess.ExternalAddonProcess
+	-> m
+	-> IO ()
 sendMessageAddonProcess p m = do
 	AddonProcess.protocolDebug p True line
 	hPutStrLn h line
@@ -675,7 +832,9 @@ sendMessageAddonProcess p m = do
 	h = AddonProcess.externalSend p
 	line = genMessage m
 
-receiveMessageAddonProcess :: AddonProcess.ExternalAddonProcess -> IO (Maybe String)
+receiveMessageAddonProcess
+	:: AddonProcess.ExternalAddonProcess
+	-> IO (Maybe String)
 receiveMessageAddonProcess p = do
 	v <- catchMaybeIO $ hGetLine $ AddonProcess.externalReceive p
 	maybe noop (AddonProcess.protocolDebug p False) v
@@ -968,10 +1127,10 @@ retrieveUrl gc = fileRetriever' $ \f k p iv -> do
 	unlessM (withUrlOptions (Just gc) $ downloadUrl True k p iv us f) $
 		giveup downloadFailed
 
-retrieveUrl' :: RemoteGitConfig -> URLString -> OsPath -> Key -> MeterUpdate -> Maybe (Annex (ResponseHandlerResult (Either String ())))
-retrieveUrl' gc url dest k p = 
+retrieveUrl' :: MeterSize sizer => RemoteGitConfig -> URLString -> OsPath -> sizer -> MeterUpdate -> Maybe (Annex (ResponseHandlerResult (Either String ())))
+retrieveUrl' gc url dest sizer p = 
 	Just $ withUrlOptions (Just gc) $ \uo ->
-		downloadUrl' False k p Nothing [url] dest uo >>= return . \case
+		downloadUrl' False sizer p Nothing [url] dest uo >>= return . \case
 			Left msg -> Result (Left msg)
 			Right True -> Result (Right ())
 			Right False -> Result (Left downloadFailed)
