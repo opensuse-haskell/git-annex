@@ -19,7 +19,6 @@ module Annex.Verify (
 	isVerifiable,
 	startVerifyKeyContentIncrementally,
 	finishVerifyKeyContentIncrementally,
-	finishVerifyKeyContentIncrementally',
 	verifyKeyContentIncrementally,
 	IncrementalVerifier(..),
 	writeVerifyChunk,
@@ -76,6 +75,7 @@ shouldVerify (RemoteVerify r) =
 verifyKeyContentPostRetrieval :: RetrievalSecurityPolicy -> VerifyConfig -> Verification -> Key -> OsPath -> Annex Bool
 verifyKeyContentPostRetrieval rsp v verification k f = case (rsp, verification) of
 	(_, Verified) -> return True
+	(_, VerificationFailed) -> return False
 	(RetrievalVerifiableKeysSecure, _) -> ifM (isVerifiable k)
 		( verify
 		, ifM (annexAllowUnverifiedDownloads <$> Annex.getGitConfig)
@@ -199,18 +199,12 @@ startVerifyKeyContentIncrementally verifyconfig k =
 		)
 
 finishVerifyKeyContentIncrementally :: Maybe IncrementalVerifier -> Annex (Bool, Verification)
-finishVerifyKeyContentIncrementally = finishVerifyKeyContentIncrementally' False
-
-finishVerifyKeyContentIncrementally' :: Bool -> Maybe IncrementalVerifier -> Annex (Bool, Verification)
-finishVerifyKeyContentIncrementally' _ Nothing = 
+finishVerifyKeyContentIncrementally Nothing = 
 	return (True, UnVerified)
-finishVerifyKeyContentIncrementally' quiet (Just iv) =
+finishVerifyKeyContentIncrementally (Just iv) =
 	liftIO (finalizeIncrementalVerifier iv) >>= \case
 		Just True -> return (True, Verified)
-		Just False -> do
-			unless quiet $
-				warning "Verification of content failed"
-			return (False, UnVerified)
+		Just False -> return (False, VerificationFailed)
 		-- Incremental verification was not able to be done.
 		Nothing -> return (True, UnVerified)
 

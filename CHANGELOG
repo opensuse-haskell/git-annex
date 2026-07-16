@@ -7,6 +7,7 @@ git-annex (10.20260625) UNRELEASED; urgency=medium
   * git-annex.cabal: Added NoLLMDependencies build flag.
   * Added stack-NoLLMDependencies.yaml
   * Support importtree=yes with rsync special remotes.
+  * Avoid redundant hash verification after a hash verification fails.
   * Fix build with time-1.15.
 
  -- Joey Hess <id@joeyh.name>  Wed, 01 Jul 2026 14:12:59 -0400
