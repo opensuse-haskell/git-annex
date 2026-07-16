@@ -1515,7 +1515,7 @@ repairKeyS3 info hdl r rs
 					return True
 				Left problem -> giveupS3HandleProblem problem (uuid r)
 			Nothing -> return False
-		v <- snd <$> finishVerifyKeyContentIncrementally' True miv
+		v <- snd <$> finishVerifyKeyContentIncrementally miv
 		case v of
 			Verified -> return True
 			_

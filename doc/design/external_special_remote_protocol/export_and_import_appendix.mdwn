@@ -181,7 +181,7 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
     in bytes. The Name is the name of the file on the remote,
     in the form of a relative path, and may contain path separators,
     whitespace, and other special characters.  
-    Always followed by `CONTENTIDENTIFIER`.
+    Always followed by `IMPORTABLECONTENTIDENTIFIER`.
   * `IMPORTABLECONTENTIDENTIFIER ContentIdentifier`  
     Provide the ContentIdentifier for the previous `CONTENT`.
   * `IMPORTABLECONTENTEND`  
@@ -196,20 +196,25 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
   whitespace, and other special characters.  
   No response is made to this message.
 * `RETRIEVEIMPORT File`  
-  Retrieves the content of a file with the previously provided Name
-  from the special remote to the File on local disk.
+  Retrieves the content of a file with the previously provided 
+  `IMPORT` Name from the special remote to the File on local disk.
   While the transfer is running, the remote can send any number of
   `PROGRESS` messages. Once the transfer is complete, it finishes by
   sending one of these replies:
-  * `TRANSFER-SUCCESS`
+  * `RETRIEVEIMPORT-SUCCESS`
     Indicates that the retrieve was successful.
-  * `TRANSFER-FAILURE ErrorMsg`  
+  * `RETRIEVEIMPORT-FAILURE ErrorMsg`  
     Indicates the retrieve failed.
+  * `RETRIEVEIMPORT-URL Url`  
+    Rather than the special remote downloading content from an url itself,
+    this lets it offload that work to git-annex. This response is a
+    protocol extension; it's only safe to send it to git-annex after
+    it sent an `EXTENSIONS` that included `TRANSFER-RETRIEVE-URL`.
   * `DELEGATE type=value [params]`  
     Delegate this request to a different type of special remote.
     See [[delegate_appendix]].
 * `CHECKPRESENTIMPORT Key`  
-  Requests the remote to check if the previously provided Name
+  Requests the remote to check if the previously provided `IMPORT` Name
   is present in it.
   * `CHECKPRESENT-SUCCESS Key`  
     Indicates that a content has been positively verified to be present
@@ -220,6 +225,11 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
   * `CHECKPRESENT-UNKNOWN Key ErrorMsg`  
     Indicates that it is not currently possible to verify if content is
     present in the remote. (Perhaps the remote cannot be contacted.)
+  * `CHECKPRESENT-URL Key Url`  
+    Rather than the special remote checking an url itself, 
+    this lets it offload that work to git-annex. This response is a protocol
+    extension; it's only safe to send it to git-annex after it sent an
+    `EXTENSIONS` that included `CHECKPRESENT-URL`.
   * `DELEGATE type=value [params]`  
     Delegate this request to a different type of special remote.
     See [[delegate_appendix]].
@@ -245,24 +255,24 @@ git-annex asks for a list of files stored in the special remote:
 
 Which responds:
 
-	CONTENT 100 foo
-	CONTENTIDENTIFIER 100 48511528411921470
-	CONTENT 200 bar
-	CONTENTIDENTIFIER 200 48511528411963410
-	END
+	IMPORTABLECONTENT 100 foo
+	IMPORTABLECONTENTIDENTIFIER 100 48511528411921470
+	IMPORTABLECONTENT 200 bar
+	IMPORTABLECONTENTIDENTIFIER 200 48511528411963410
+	IMPORTABLECONTENTEND
 
 Next git-annex asks for the content of a file to be retrieved.
 
 	IMPORT foo
-	RETRIEVEIMPORTED tmpfile
+	RETRIEVEIMPORT tmpfile
 
 If the file no longer exists, the response would be:
 
-    RETRIEVE-FAILURE file not found
+    RETRIEVEIMPORT-FAILURE file not found
 
 If the file exists, the response would be:
 
-    RETRIEVE-SUCCESS
+    RETRIEVEIMPORT-SUCCESS
 
 What if the file exists but has been modified in the time
 since LISTIMPORTABLECONTENTS? The external special remote

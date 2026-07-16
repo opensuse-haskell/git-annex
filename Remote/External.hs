@@ -18,6 +18,7 @@ import Annex.Common
 import qualified Annex.ExternalAddonProcess as AddonProcess
 import Types.Remote
 import Types.RemoteState
+import Types.Import
 import Types.Export
 import Types.CleanupActions
 import Types.UrlContents
@@ -47,6 +48,7 @@ import Annex.Verify
 import Annex.DisableRemote
 import Annex.LockFile
 import Creds
+import Messages.Progress
 import qualified Utility.FileIO as F
 
 import Control.Concurrent.STM
@@ -60,8 +62,8 @@ remote = specialRemoteType $ RemoteType
 	, generate = gen remote Nothing
 	, configParser = remoteConfigParser Nothing
 	, setup = externalSetup Nothing Nothing
-	, exportSupported = checkExportSupported Nothing
-	, importSupported = importUnsupported
+	, exportSupported = checkSupportedWith Nothing checkExportSupported
+	, importSupported = checkSupportedWith Nothing checkImportSupported
 	, exportImportSupported = exportImportUnsupported
 	, thirdPartyPopulated = False
 	}
@@ -72,7 +74,15 @@ externaltypeField = Accepted "externaltype"
 readonlyField :: RemoteConfigField
 readonlyField = Accepted "readonly"
 
-gen :: RemoteType -> Maybe ExternalProgram -> Git.Repo -> UUID -> RemoteConfig -> RemoteGitConfig -> RemoteStateHandle -> Annex (Maybe Remote)
+gen
+	:: RemoteType
+	-> Maybe ExternalProgram
+	-> Git.Repo
+	-> UUID
+	-> RemoteConfig
+	-> RemoteGitConfig
+	-> RemoteStateHandle
+	-> Annex (Maybe Remote)
 gen rt externalprogram r u rc gc rs
 	-- readonly mode only downloads urls; does not use external program
 	| externalprogram' == ExternalType "readonly" = do
@@ -84,7 +94,9 @@ gen rt externalprogram r u rc gc rs
 			Nothing
 			Nothing
 			exportUnsupported
+			importUnsupported
 			exportUnsupported
+			importUnsupported
 		return $ Just $ specialRemote c
 			readonlyStorer
 			(retrieveUrl gc)
@@ -98,7 +110,10 @@ gen rt externalprogram r u rc gc rs
 		Annex.addCleanupAction (RemoteCleanup u) $ stopExternal external
 		cst <- getCost external r gc c
 		exportsupported <- if exportTree c
-			then checkExportSupported' external
+			then checkExportSupported external
+			else return False
+		importsupported <- if importTree c
+			then checkImportSupported external
 			else return False
 		let exportactions = if exportsupported
 			then ExportActions
@@ -110,11 +125,21 @@ gen rt externalprogram r u rc gc rs
 				, renameExport = Just $ renameExportM external
 				}
 			else exportUnsupported
-		-- Cheap exportSupported that replaces the expensive
-		-- checkExportSupported now that we've already checked it.
+		let importactions = if importsupported
+			then ImportActions
+				{ listImportableContents = listImportableContentsM external
+				, retrieveImport = retrieveImportM external gc
+				, checkPresentImport = checkPresentImportM external gc
+				}
+			else importUnsupported
+		-- Replace the expensive checks now that we've already
+		-- checked them.
 		let cheapexportsupported = if exportsupported
 			then exportIsSupported
 			else exportUnsupported
+		let cheapimportsupported = if importsupported
+			then importIsSupported
+			else importUnsupported
 		let rmt = mk c cst
 			(getOrdered external)
 			(getAvailability external)
@@ -123,7 +148,9 @@ gen rt externalprogram r u rc gc rs
 			(Just (claimUrlM external))
 			(Just (checkUrlM external))
 			exportactions
+			importactions
 			cheapexportsupported
+			cheapimportsupported
 		return $ Just $ specialRemote c
 			(storeKeyM external)
 			(retrieveKeyFileM external gc)
@@ -131,7 +158,7 @@ gen rt externalprogram r u rc gc rs
 			(checkPresentM external gc)
 			rmt
   where
-	mk c cst ordered avail towhereis togetinfo toclaimurl tocheckurl exportactions cheapexportsupported =
+	mk c cst ordered avail towhereis togetinfo toclaimurl tocheckurl exportactions importactions cheapexportsupported cheapimportsupported =
 		Remote
 			{ uuid = u
 			, cost = cst
@@ -150,7 +177,7 @@ gen rt externalprogram r u rc gc rs
 			, checkPresent = checkPresentDummy
 			, checkPresentCheap = False
 			, exportActions = exportactions
-			, importActions = importUnsupported
+			, importActions = importactions
 			, exportImportActions = exportImportUnsupported
 			, whereisKey = towhereis
 			, remoteFsck = Nothing
@@ -165,7 +192,9 @@ gen rt externalprogram r u rc gc rs
 			, untrustworthy = False
 			, availability = avail
 			, remotetype = rt 
-				{ exportSupported = cheapexportsupported }
+				{ exportSupported = cheapexportsupported
+				, importSupported = cheapimportsupported
+				}
 			, mkUnavailable =
 				let dneprogram = case externalprogram of
 					Just (ExternalCommand _ _) -> Just (ExternalType "!dne!")
@@ -183,7 +212,16 @@ gen rt externalprogram r u rc gc rs
 			fromMaybe (giveup "missing externaltype")
 				(remoteAnnexExternalType gc)
 
-externalSetup :: Maybe ExternalProgram -> Maybe (String, String) -> SetupStage -> Maybe UUID -> RemoteName -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
+externalSetup
+	:: Maybe ExternalProgram
+	-> Maybe (String, String)
+	-> SetupStage
+	-> Maybe UUID
+	-> RemoteName
+	-> Maybe CredPair
+	-> RemoteConfig
+	-> RemoteGitConfig
+	-> Annex (RemoteConfig, UUID)
 externalSetup externalprogram setgitconfig ss mu remotename _ c gc = do
 	u <- maybe (liftIO genUUID) return mu
 	pc <- either giveup return $ parseRemoteConfig c (lenientRemoteConfigParser externalprogram)
@@ -227,23 +265,37 @@ externalSetup externalprogram setgitconfig ss mu remotename _ c gc = do
 		[ fromMaybe ("externaltype", externaltype) setgitconfig ]
 	return (M.delete readonlyField c'', u)
 
-checkExportSupported :: Maybe ExternalProgram -> ParsedRemoteConfig -> RemoteGitConfig -> Annex Bool
-checkExportSupported Nothing c gc = do
+checkSupportedWith
+	:: Maybe ExternalProgram
+	-> (External -> Annex Bool)
+	-> ParsedRemoteConfig
+	-> RemoteGitConfig
+	-> Annex Bool
+checkSupportedWith Nothing checker c gc = do
 	let externaltype = fromMaybe (giveup "Specify externaltype=") $
 		remoteAnnexExternalType gc <|> getRemoteConfigValue externaltypeField c
 	if externaltype == "readonly"
 		then return False
-		else checkExportSupported (Just (ExternalType externaltype)) c gc
-checkExportSupported (Just externalprogram) c gc = 
-	checkExportSupported' 
+		else checkSupportedWith (Just (ExternalType externaltype)) checker c gc
+checkSupportedWith (Just externalprogram) checker c gc = 
+	checker 
 		=<< newExternal externalprogram Nothing c (Just gc) Nothing Nothing
 
-checkExportSupported' :: External -> Annex Bool
-checkExportSupported' external = go `catchNonAsync` (const (return False))
+checkExportSupported :: External -> Annex Bool
+checkExportSupported external = go `catchNonAsync` (const (return False))
   where
 	go = handleRequest external EXPORTSUPPORTED Nothing $ \resp -> case resp of
 		EXPORTSUPPORTED_SUCCESS -> result True
 		EXPORTSUPPORTED_FAILURE -> result False
+		UNSUPPORTED_REQUEST -> result False
+		_ -> Nothing
+
+checkImportSupported :: External -> Annex Bool
+checkImportSupported external = go `catchNonAsync` (const (return False))
+  where
+	go = handleRequest external IMPORTSUPPORTED Nothing $ \resp -> case resp of
+		IMPORTSUPPORTED_SUCCESS -> result True
+		IMPORTSUPPORTED_FAILURE -> result False
 		UNSUPPORTED_REQUEST -> result False
 		_ -> Nothing
 
@@ -258,10 +310,10 @@ storeKeyM external = fileStorer $ \k f p ->
 				result (Right ())
 			TRANSFER_FAILURE Upload k' errmsg | k == k' ->
 				result (Left (respErrorMessage "TRANSFER" errmsg))
-			DELEGATE ps -> Just $ do
+			DELEGATE ps -> getResult $ do
 				delegate <- getDelegateRemote external ps
 				storeKey delegate k (AssociatedFile Nothing) (Just f) p	
-				return (Result (Right ()))
+				return (Right ())
 			_ -> Nothing
 
 retrieveKeyFileM :: External -> RemoteGitConfig -> Retriever
@@ -276,13 +328,13 @@ retrieveKeyFileM external gc = fileRetriever $ \dest k p ->
 				| k == k' -> result $ Left $
 					respErrorMessage "TRANSFER" errmsg
 			TRANSFER_RETRIEVE_URL k' url
-				| k == k' -> retrieveUrl' gc url dest k p
-			DELEGATE ps -> Just $ do
+				| k == k' -> getResult $ retrieveUrl' gc url dest k p
+			DELEGATE ps -> getResult $ do
 				delegate <- getDelegateRemote external ps
 				_ <- retrieveKeyFile delegate k
 					(AssociatedFile Nothing) dest p
 					NoVerify
-				return (Result (Right ()))
+				return (Right ())
 			_ -> Nothing
 
 removeKeyM :: External -> Remover
@@ -295,10 +347,10 @@ removeKeyM external proof k = either giveup return =<< go
 			REMOVE_FAILURE k' errmsg
 				| k == k' -> result $ Left $
 					respErrorMessage "REMOVE" errmsg
-			DELEGATE ps -> Just $ do
+			DELEGATE ps -> getResult $ do
 				delegate <- getDelegateRemote external ps
 				_ <- removeKey delegate proof k
-				return (Result (Right ()))
+				return (Right ())
 			_ -> Nothing
 
 checkPresentM :: External -> RemoteGitConfig -> CheckPresent
@@ -332,23 +384,36 @@ whereisKeyM external k = handleRequestKey external WHEREIS k Nothing $ \resp -> 
 	UNSUPPORTED_REQUEST -> result []
 	_ -> Nothing
 
-storeExportM :: External -> OsPath -> Key -> ExportLocation -> MeterUpdate -> Annex ()
+storeExportM
+	:: External
+	-> OsPath
+	-> Key
+	-> ExportLocation
+	-> MeterUpdate
+	-> Annex ()
 storeExportM external f k loc p = either giveup return =<< go
   where
 	go = handleRequestExport external loc req k (Just p) $ \resp -> case resp of
 		TRANSFER_SUCCESS Upload k' | k == k' -> result $ Right ()
 		TRANSFER_FAILURE Upload k' errmsg | k == k' ->
 			result $ Left $ respErrorMessage "TRANSFER" errmsg
-		DELEGATE ps -> Just $ do
+		DELEGATE ps -> getResult $ do
 			delegate <- getDelegateRemote external ps
 			_ <- storeExport (exportActions delegate) f k loc p
-			return (Result (Right ()))
+			return (Right ())
 		UNSUPPORTED_REQUEST -> 
 			result $ Left "TRANSFEREXPORT not implemented by external special remote"
 		_ -> Nothing
 	req sk = TRANSFEREXPORT Upload sk (fromOsPath f)
 
-retrieveExportM :: External -> RemoteGitConfig -> Key -> ExportLocation -> OsPath -> MeterUpdate -> Annex Verification
+retrieveExportM
+	:: External
+	-> RemoteGitConfig
+	-> Key
+	-> ExportLocation
+	-> OsPath
+	-> MeterUpdate
+	-> Annex Verification
 retrieveExportM external gc k loc dest p = do
 	verifyKeyContentIncrementally AlwaysVerify k $ \iv ->
 		tailVerify iv dest $
@@ -360,34 +425,102 @@ retrieveExportM external gc k loc dest p = do
 		TRANSFER_FAILURE Download k' errmsg
 			| k == k' -> result $ Left $ respErrorMessage "TRANSFER" errmsg
 		TRANSFER_RETRIEVE_URL k' url
-			| k == k' -> retrieveUrl' gc url dest k p
-		DELEGATE ps -> Just $ do
+			| k == k' -> Just $ Result <$> retrieveUrl' gc url dest k p
+		DELEGATE ps -> getResult $ do
 			delegate <- getDelegateRemote external ps
 			_ <- retrieveExport (exportActions delegate) k loc dest p
-			return (Result (Right ()))
+			return (Right ())
 		UNSUPPORTED_REQUEST ->
 			result $ Left "TRANSFEREXPORT not implemented by external special remote"
 		_ -> Nothing
 	req sk = TRANSFEREXPORT Download sk (fromOsPath dest)
 
-checkPresentExportM :: External -> RemoteGitConfig -> Key -> ExportLocation -> Annex Bool
-checkPresentExportM external gc k loc = either giveup id <$> go
+retrieveImportM
+	:: External
+	-> RemoteGitConfig
+	-> ImportLocation
+	-> [ContentIdentifier]
+	-> OsPath
+	-> Either Key (Annex Key)
+	-> MeterUpdate
+	-> Annex (Key, Verification)
+retrieveImportM external gc loc cids dest gk p =
+	case gk of
+		Right _ -> do
+			k <- go Nothing
+			return (k, UnVerified)
+		Left k -> verifyKeyContentIncrementally' AlwaysVerify k go
   where
-	go = handleRequestExport external loc CHECKPRESENTEXPORT k Nothing $ \resp -> case resp of
+	go iv = tailVerify iv dest $
+		either giveup return =<< go'
+	go' = handleRequestImport' external loc req (Just p) $ \resp -> case resp of
+		RETRIEVEIMPORT_SUCCESS -> getResult $
+			Right <$> either pure id gk
+		RETRIEVEIMPORT_FAILURE errmsg -> 
+			result $ Left $ respErrorMessage "RETRIEVEIMPORT" errmsg
+		RETRIEVEIMPORT_URL url -> getResult $ do
+			retrieveUrl' gc url dest UnknownSize p >>= \case
+				Right () -> Right <$> either pure id gk
+				Left msg -> pure (Left msg)
+		DELEGATE ps -> getResult $ do
+			delegate <- getDelegateRemote external ps
+			Right . fst <$> retrieveImport (importActions delegate) loc cids dest gk p
+		UNSUPPORTED_REQUEST ->
+			result $ Left "RETRIEVEIMPORT not implemented by external special remote"
+		_ -> Nothing
+	req = RETRIEVEIMPORT (fromOsPath dest)
+
+checkPresentExportM
+	:: External
+	-> RemoteGitConfig
+	-> Key
+	-> ExportLocation
+	-> Annex Bool
+checkPresentExportM = checkPresentExportImport
+	CHECKPRESENTEXPORT
+	"CHECKPRESENTEXPORT"
+	(checkPresentExport . exportActions)
+	handleRequestExport
+
+checkPresentImportM
+	:: External
+	-> RemoteGitConfig
+	-> Key
+	-> ExportLocation
+	-> Annex Bool
+checkPresentImportM = checkPresentExportImport
+	CHECKPRESENTIMPORT
+	"CHECKPRESENTIMPORT"
+	(checkPresentImport . importActions)
+	handleRequestImport
+
+checkPresentExportImport
+	:: (SafeKey -> Request)
+	-> String
+	-> (Remote -> Key -> ExportLocation -> Annex Bool)
+	-> (External -> ImportLocation -> (SafeKey -> Request) -> Key -> Maybe MeterUpdate -> ResponseHandler (Either String Bool) -> Annex (Either String Bool))
+	-> External
+	-> RemoteGitConfig
+	-> Key
+	-> ExportLocation
+	-> Annex Bool
+checkPresentExportImport request srequest delegateaction handlereq external gc k loc = either giveup id <$> go
+  where
+	go = handlereq external loc request k Nothing $ \resp -> case resp of
 		CHECKPRESENT_SUCCESS k'
 			| k' == k -> result $ Right True
 		CHECKPRESENT_FAILURE k'
 			| k' == k -> result $ Right False
 		CHECKPRESENT_UNKNOWN k' errmsg
 			| k' == k -> result $ Left $
-				respErrorMessage "CHECKPRESENT" errmsg
+				respErrorMessage srequest errmsg
 		CHECKPRESENT_URL k' url
 			| k == k' -> checkKeyUrl' gc k url
 		DELEGATE ps -> Just $ do
 			delegate <- getDelegateRemote external ps
-			Result . Right <$> checkPresentExport (exportActions delegate) k loc
+			Result . Right <$> delegateaction delegate k loc
 		UNSUPPORTED_REQUEST -> result $
-			Left "CHECKPRESENTEXPORT not implemented by external special remote"
+			Left $ srequest ++ " not implemented by external special remote"
 		_ -> Nothing
 
 removeExportM :: External -> Key -> ExportLocation -> Annex ()
@@ -398,10 +531,10 @@ removeExportM external k loc = either giveup return =<< go
 			| k == k' -> result $ Right ()
 		REMOVE_FAILURE k' errmsg
 			| k == k' -> result $ Left $ respErrorMessage "REMOVE" errmsg
-		DELEGATE ps -> Just $ do
+		DELEGATE ps -> getResult $ do
 			delegate <- getDelegateRemote external ps
 			_ <- removeExport (exportActions delegate) k loc
-			return (Result (Right ()))
+			return (Right ())
 		UNSUPPORTED_REQUEST -> result $
 			Left $ "REMOVEEXPORT not implemented by external special remote"
 		_ -> Nothing
@@ -413,17 +546,22 @@ removeExportDirectoryM external dir = either giveup return =<< go
 		REMOVEEXPORTDIRECTORY_SUCCESS -> result $ Right ()
 		REMOVEEXPORTDIRECTORY_FAILURE -> result $
 			Left "failed to remove directory"
-		DELEGATE ps -> Just $ do
+		DELEGATE ps -> getResult $ do
 			delegate <- getDelegateRemote external ps
 			case removeExportDirectory (exportActions delegate) of
 				Just a -> a dir
 				Nothing -> return ()
-			return (Result (Right ()))
+			return (Right ())
 		UNSUPPORTED_REQUEST -> result $ Right ()
 		_ -> Nothing
 	req = REMOVEEXPORTDIRECTORY dir
 
-renameExportM :: External -> Key -> ExportLocation -> ExportLocation -> Annex (Maybe ())
+renameExportM
+	:: External
+	-> Key
+	-> ExportLocation
+	-> ExportLocation
+	-> Annex (Maybe ())
 renameExportM external k src dest = either giveup return =<< go
   where
 	go = handleRequestExport external src req k Nothing $ \resp -> case resp of
@@ -431,14 +569,40 @@ renameExportM external k src dest = either giveup return =<< go
 			| k' == k -> result $ Right (Just ())
 		RENAMEEXPORT_FAILURE k' 
 			| k' == k -> result $ Left "failed to rename exported file"
-		DELEGATE ps -> Just $ do
+		DELEGATE ps -> getResult $ do
 			delegate <- getDelegateRemote external ps
 			case renameExport (exportActions delegate) of
-				Just a -> Result . Right <$> a k src dest
-				Nothing -> return $ Result $ Right Nothing
+				Just a -> Right <$> a k src dest
+				Nothing -> return $ Right Nothing
 		UNSUPPORTED_REQUEST -> result (Right Nothing)
 		_ -> Nothing
 	req sk = RENAMEEXPORT sk dest
+
+listImportableContentsM
+	:: External
+	-> Annex (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)))
+listImportableContentsM external =
+	handleRequest external LISTIMPORTABLECONTENTS Nothing
+		(go [] Nothing)
+  where
+	go c _ (IMPORTABLECONTENT sz loc) = 
+		let loc' = mkImportLocation (toOsPath loc)
+		in Just $ return $ GetNextMessage $
+			go c (Just (sz, loc'))
+	go c (Just (sz, loc)) (IMPORTABLECONTENTIDENTIFIER cid) =
+		Just $ return $ GetNextMessage $ 
+			go ((loc, (cid, sz)):c) Nothing
+	go c _ IMPORTABLECONTENTEND =
+		result $ Just $
+			ImportableContentsComplete $ ImportableContents
+				{ importableContents = c
+				, importableHistory = []
+				}
+	go _ _ (DELEGATE ps) = Just $ do
+		delegate <- getDelegateRemote external ps
+		Result <$> listImportableContents (importActions delegate)
+	go _ _ UNSUPPORTED_REQUEST = result Nothing
+	go _ _ _ = Nothing
 
 {- Sends a Request to the external remote, and waits for it to generate
  - a Response. That is fed into the responsehandler, which should return
@@ -453,12 +617,23 @@ renameExportM external k src dest = either giveup return =<< go
  - May throw exceptions, for example on protocol errors, or
  - when the repository cannot be used.
  -}
-handleRequest :: External -> Request -> Maybe MeterUpdate -> ResponseHandler a -> Annex a
+handleRequest
+	:: External
+	-> Request
+	-> Maybe MeterUpdate
+	-> ResponseHandler a
+	-> Annex a
 handleRequest external req mp responsehandler = 
 	withExternalState external $ \st -> 
 		handleRequest' st external req mp responsehandler
 
-handleRequestKey :: External -> (SafeKey -> Request) -> Key -> Maybe MeterUpdate -> ResponseHandler a -> Annex a
+handleRequestKey
+	:: External
+	-> (SafeKey -> Request)
+	-> Key
+	-> Maybe MeterUpdate
+	-> ResponseHandler a
+	-> Annex a
 handleRequestKey external mkreq k mp responsehandler = 
 	withSafeKey k $ \sk -> handleRequest external (mkreq sk) mp responsehandler
 
@@ -467,21 +642,72 @@ withSafeKey k a = case mkSafeKey k of
 	Right sk -> a sk
 	Left e -> giveup e
 
-{- Export location is first sent in an EXPORT message before
- - the main request. This is done because the ExportLocation can
- - contain spaces etc. -}
-handleRequestExport :: External -> ExportLocation -> (SafeKey -> Request) -> Key -> Maybe MeterUpdate -> ResponseHandler a -> Annex a
-handleRequestExport external loc mkreq k mp responsehandler = 
-	withSafeKey k $ \sk ->
-		-- Both the EXPORT and subsequent request must be sent to the
-		-- same external process, so run both with the same external
-		-- state.
-		withExternalState external $ \st -> do
-			checkPrepared st external
-			sendMessage st (EXPORT loc)
-			handleRequest' st external (mkreq sk) mp responsehandler
+handleRequestExport
+	:: External
+	-> ExportLocation
+	-> (SafeKey -> Request)
+	-> Key
+	-> Maybe MeterUpdate
+	-> ResponseHandler a
+	-> Annex a
+handleRequestExport = handleRequestExportImport EXPORT
 
-handleRequest' :: ExternalState -> External -> Request -> Maybe MeterUpdate -> ResponseHandler a -> Annex a
+handleRequestImport
+	:: External
+	-> ImportLocation
+	-> (SafeKey -> Request)
+	-> Key
+	-> Maybe MeterUpdate
+	-> ResponseHandler a
+	-> Annex a
+handleRequestImport = handleRequestExportImport IMPORT
+
+handleRequestImport'
+	:: External
+	-> ImportLocation
+	-> Request
+	-> Maybe MeterUpdate
+	-> ResponseHandler a
+	-> Annex a
+handleRequestImport' = handleRequestExportImport' IMPORT
+
+handleRequestExportImport
+	:: (ExportLocation -> Request)
+	-> External
+	-> ImportLocation
+	-> (SafeKey -> Request)
+	-> Key
+	-> Maybe MeterUpdate
+	-> ResponseHandler a
+	-> Annex a
+handleRequestExportImport mklocrequest external loc mkreq k mp responsehandler = 
+	withSafeKey k $ \sk ->
+		handleRequestExportImport' mklocrequest external loc (mkreq sk) mp responsehandler
+
+handleRequestExportImport'
+	:: (ExportLocation -> Request)
+	-> External
+	-> ImportLocation
+	-> Request
+	-> Maybe MeterUpdate
+	-> ResponseHandler a
+	-> Annex a
+handleRequestExportImport' mklocrequest external loc req mp responsehandler = 
+	-- Both the location request and subsequent request must be
+	-- sent to the same external process, so run both with the
+	-- same external state.
+	withExternalState external $ \st -> do
+		checkPrepared st external
+		sendMessage st (mklocrequest loc)
+		handleRequest' st external req mp responsehandler
+
+handleRequest'
+	:: ExternalState
+	-> External
+	-> Request
+	-> Maybe MeterUpdate
+	-> ResponseHandler a
+	-> Annex a
 handleRequest' st external req mp responsehandler
 	| needsPREPARE req = do
 		checkPrepared st external
@@ -605,10 +831,18 @@ handleRequest' st external req mp responsehandler
 	withurl mk uri = handleRemoteRequest $ mk $
 		setDownloader (show uri) OtherDownloader
 
-sendMessage :: (Sendable m, ToAsyncWrapped m) => ExternalState -> m -> Annex ()
+sendMessage
+	:: (Sendable m, ToAsyncWrapped m)
+	=> ExternalState
+	-> m
+	-> Annex ()
 sendMessage st m = liftIO $ externalSend st m
 
-sendMessageAddonProcess :: Sendable m => AddonProcess.ExternalAddonProcess -> m -> IO ()
+sendMessageAddonProcess
+	:: Sendable m
+	=> AddonProcess.ExternalAddonProcess
+	-> m
+	-> IO ()
 sendMessageAddonProcess p m = do
 	AddonProcess.protocolDebug p True line
 	hPutStrLn h line
@@ -617,7 +851,9 @@ sendMessageAddonProcess p m = do
 	h = AddonProcess.externalSend p
 	line = genMessage m
 
-receiveMessageAddonProcess :: AddonProcess.ExternalAddonProcess -> IO (Maybe String)
+receiveMessageAddonProcess
+	:: AddonProcess.ExternalAddonProcess
+	-> IO (Maybe String)
 receiveMessageAddonProcess p = do
 	v <- catchMaybeIO $ hGetLine $ AddonProcess.externalReceive p
 	maybe noop (AddonProcess.protocolDebug p False) v
@@ -636,6 +872,9 @@ type ResponseHandler a = Response -> Maybe (Annex (ResponseHandlerResult a))
 
 result :: a -> Maybe (Annex (ResponseHandlerResult a))
 result = Just . return . Result
+
+getResult :: Annex a -> Maybe (Annex (ResponseHandlerResult a))
+getResult a = Just $ Result <$> a
 
 {- Waits for a message from the external remote, and passes it to the
  - appropriate handler. 
@@ -829,9 +1068,8 @@ checkPrepared st external = do
 		Unprepared ->
 			handleRequest' st external PREPARE Nothing $ \resp ->
 				case resp of
-					PREPARE_SUCCESS -> Just $ do
+					PREPARE_SUCCESS -> getResult $
 						setprepared Prepared
-						return (Result ())
 					PREPARE_FAILURE errmsg -> Just $ do
 						let errmsg' = respErrorMessage "PREPARE" errmsg
 						setprepared $ FailedPrepare errmsg'
@@ -910,13 +1148,13 @@ retrieveUrl gc = fileRetriever' $ \f k p iv -> do
 	unlessM (withUrlOptions (Just gc) $ downloadUrl True k p iv us f) $
 		giveup downloadFailed
 
-retrieveUrl' :: RemoteGitConfig -> URLString -> OsPath -> Key -> MeterUpdate -> Maybe (Annex (ResponseHandlerResult (Either String ())))
-retrieveUrl' gc url dest k p = 
-	Just $ withUrlOptions (Just gc) $ \uo ->
-		downloadUrl' False k p Nothing [url] dest uo >>= return . \case
-			Left msg -> Result (Left msg)
-			Right True -> Result (Right ())
-			Right False -> Result (Left downloadFailed)
+retrieveUrl' :: MeterSize sizer => RemoteGitConfig -> URLString -> OsPath -> sizer -> MeterUpdate -> Annex (Either String ())
+retrieveUrl' gc url dest sizer p = 
+	withUrlOptions (Just gc) $ \uo ->
+		downloadUrl' False sizer p Nothing [url] dest uo >>= return . \case
+			Left msg -> Left msg
+			Right True -> Right ()
+			Right False -> Left downloadFailed
 
 downloadFailed :: String
 downloadFailed = "failed to download content"

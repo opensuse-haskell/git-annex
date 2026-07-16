@@ -503,6 +503,8 @@ These protocol extensions are currently supported.
 * `TRANSFER-RETRIEVE-URL`  
   This allows the `TRANSFER-RETRIEVE-URL` response to be used
   in reply to `TRANSFER` and `TRANSFEREXPORT`.
+  It also allows the `RETRIEVEIMPORT-URL` response to be used
+  in reply to `RETRIEVEIMPORT`.
 * `CHECKPRESENT-URL`  
   This allows the `CHECKPRESENT-URL` response to be used
   in reply to `CHECKPRESENT` and `CHECKPRESENTEXPORT`.

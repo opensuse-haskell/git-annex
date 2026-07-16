@@ -194,7 +194,7 @@ proxySpecialRemote protoversion r ihdl ohdl owaitv oclosedv mexportdb = go
 				gotall <- liftIO $ receivetofile iv h len
 				liftIO $ hClose h
 				verified <- if gotall
-					then fst <$> finishVerifyKeyContentIncrementally' True iv
+					then fst <$> finishVerifyKeyContentIncrementally iv
 					else pure False
 				let store = tryNonAsync (storeput k af tmpfile) >>= \case
 					Right () -> liftIO $ sendmessage SUCCESS

@@ -897,19 +897,19 @@ saveState nocommit = doSideAction $ do
  - Otherwise, only displays one error message, from one of the urls
  - that failed.
  -}
-downloadUrl :: Bool -> Key -> MeterUpdate -> Maybe IncrementalVerifier -> [Url.URLString] -> OsPath -> Url.UrlOptions -> Annex Bool
-downloadUrl listfailedurls k p iv urls file uo =
-	downloadUrl' listfailedurls k p iv urls file uo >>= \case
+downloadUrl :: MeterSize sizer => Bool -> sizer -> MeterUpdate -> Maybe IncrementalVerifier -> [Url.URLString] -> OsPath -> Url.UrlOptions -> Annex Bool
+downloadUrl listfailedurls sizer p iv urls file uo =
+	downloadUrl' listfailedurls sizer p iv urls file uo >>= \case
 		Right r -> return r
 		Left e -> do
 			warning $ UnquotedString e
 			return False
 
-downloadUrl' :: Bool -> Key -> MeterUpdate -> Maybe IncrementalVerifier -> [Url.URLString] -> OsPath -> Url.UrlOptions -> Annex (Either String Bool)
-downloadUrl' listfailedurls k p iv urls file uo = 
+downloadUrl' :: MeterSize sizer => Bool -> sizer -> MeterUpdate -> Maybe IncrementalVerifier -> [Url.URLString] -> OsPath -> Url.UrlOptions -> Annex (Either String Bool)
+downloadUrl' listfailedurls sizer p iv urls file uo = 
 	-- Poll the file to handle configurations where an external
 	-- download command is used.
-	meteredFile file (Just p) k (go urls [])
+	meteredFile file (Just p) sizer (go urls [])
   where
 	go (u:us) errs p' = Url.download' p' iv u file uo >>= \case
 		Right () -> return (Right True)

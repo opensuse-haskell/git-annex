@@ -240,6 +240,8 @@ data Verification
 	| MustFinishIncompleteVerify IncrementalVerifier
 	-- ^ Content likely to have been altered during transfer,
 	-- finish verification even if verification is normally disabled.
+	| VerificationFailed
+	-- ^ Content verification has failed.
 
 unVerified :: Monad m => m a -> m (a, Verification)
 unVerified a = do

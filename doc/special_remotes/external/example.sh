@@ -5,7 +5,7 @@
 # 
 # Install in PATH as git-annex-remote-directory
 #
-# Copyright 2013 Joey Hess; licenced under the GNU GPL version 3 or higher.
+# Copyright 2013-2026 Joey Hess; licenced under the GNU GPL version 3 or higher.
 
 set -e
 
@@ -90,7 +90,7 @@ dostore () {
 	   && runcmd mv -f "$tmp" "$loc"; then
 		echo TRANSFER-SUCCESS STORE "$key"
 	else
-		echo TRANSFER-FAILURE STORE "$key"
+		echo TRANSFER-FAILURE STORE "$key" "failed to write to file"
 	fi
 	rmdir "$mydirectory/tmp"
 }
@@ -105,10 +105,10 @@ doretrieve () {
 		if runcmd cp "$loc" "$file"; then
 			echo TRANSFER-SUCCESS RETRIEVE "$key"
 		else
-			echo TRANSFER-FAILURE RETRIEVE "$key"
+			echo TRANSFER-FAILURE RETRIEVE "$key" "failed to read file"
 		fi
 	else
-		echo TRANSFER-FAILURE RETRIEVE "$key"
+		echo TRANSFER-FAILURE RETRIEVE "$key" "file does not exist"
 	fi
 }
 
@@ -142,7 +142,7 @@ doremove () {
 		if runcmd rm -f "$loc"; then
 			echo REMOVE-SUCCESS "$key"
 		else
-			echo REMOVE-FAILURE "$key"
+			echo REMOVE-FAILURE "$key" "file removal failed"
 		fi
 	else
 		echo REMOVE-SUCCESS "$key"
@@ -242,6 +242,15 @@ while read line; do
 		# that are required to be supported, so it's fine
 		# to respond to any others with UNSUPPORTED-REQUEST.
 
+		# This is optional, only provided as an example.
+		GETINFO)
+			echo INFOFIELD "repository location"
+			echo INFOVALUE "$mydirectory"
+			echo INFOFIELD "login"
+			echo INFOVALUE "$MYLOGIN"
+			echo INFOEND
+		;;
+
 		# Let's also support exporting...
 		EXPORTSUPPORTED)
 			echo EXPORTSUPPORTED-SUCCESS
@@ -296,14 +305,37 @@ while read line; do
 				echo RENAMEEXPORT-FAILURE "$key"
 			fi
 		;;
-
-		# This is optional, only provided as an example.
-		GETINFO)
-			echo INFOFIELD "repository location"
-			echo INFOVALUE "$mydirectory"
-			echo INFOFIELD "login"
-			echo INFOVALUE "$MYLOGIN"
-			echo INFOEND
+		
+		# Let's also support importing...
+		IMPORTSUPPORTED)
+			echo IMPORTSUPPORTED-SUCCESS
+		;;
+		LISTIMPORTABLECONTENTS)
+			find "$mydirectory" -type f -printf 'IMPORTABLECONTENT %s %P\nIMPORTABLECONTENTIDENTIFIER %s %T@\n'
+			echo IMPORTABLECONTENTEND
+		;;
+		IMPORT)
+			shift 1
+			importlocation="$mydirectory/$@"
+			# No response to this one; this value is used below.
+		;;
+		RETRIEVEIMPORT)
+			shift 1
+			file="$@"
+			# XXX when easy to do, send PROGRESS while transferring the file
+			if [ -e "$importlocation" ]; then
+				if runcmd cp "$importlocation" "$file"; then
+					echo RETRIEVEIMPORT-SUCCESS
+				else
+					echo RETRIEVEIMPORT-FAILURE "failed to read file"
+				fi
+			else
+				echo RETRIEVEIMPORT-FAILURE "does not exist"
+			fi
+		;;
+		CHECKPRESENTIMPORT)
+			key="$2"
+			docheckpresent "$key" "$importlocation"
 		;;
 
 		*)

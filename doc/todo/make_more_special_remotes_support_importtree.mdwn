@@ -1,0 +1,18 @@
+Now that importtree=yes is supported for special remotes without also
+needing to implement exporttree=yes, it should be possible to make a lot
+more special remotes support tree importing.
+
+These built-in ones could support it:
+
+* webdav
+* S3
+
+    importtree=yes is only supported when versioning is enabled
+    (or when forced when version is not enabled).
+
+    It would be possible to support importtree=yes without exporttree=yes
+    for any S3 bucket with no need of forcing.
+
+Lots of external special remotes could also probably support it.
+That will be left up to their maintainers, but it would make sense to ping
+the maintainers.
