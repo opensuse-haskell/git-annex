@@ -209,7 +209,7 @@ finishVerifyKeyContentIncrementally' quiet (Just iv) =
 		Just True -> return (True, Verified)
 		Just False -> do
 			unless quiet $
-				warning "verification of content failed"
+				warning "Verification of content failed"
 			return (False, UnVerified)
 		-- Incremental verification was not able to be done.
 		Nothing -> return (True, UnVerified)
