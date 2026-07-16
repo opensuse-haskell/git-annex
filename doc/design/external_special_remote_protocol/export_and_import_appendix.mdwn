@@ -181,7 +181,7 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
     in bytes. The Name is the name of the file on the remote,
     in the form of a relative path, and may contain path separators,
     whitespace, and other special characters.  
-    Always followed by `CONTENTIDENTIFIER`.
+    Always followed by `IMPORTABLECONTENTIDENTIFIER`.
   * `IMPORTABLECONTENTIDENTIFIER ContentIdentifier`  
     Provide the ContentIdentifier for the previous `CONTENT`.
   * `IMPORTABLECONTENTEND`  
