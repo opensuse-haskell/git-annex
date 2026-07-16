@@ -1,6 +1,6 @@
 {- verification
  -
- - Copyright 2010-2024 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -20,6 +20,7 @@ module Annex.Verify (
 	startVerifyKeyContentIncrementally,
 	finishVerifyKeyContentIncrementally,
 	verifyKeyContentIncrementally,
+	verifyKeyContentIncrementally',
 	IncrementalVerifier(..),
 	writeVerifyChunk,
 	resumeVerifyFromOffset,
@@ -208,11 +209,16 @@ finishVerifyKeyContentIncrementally (Just iv) =
 		-- Incremental verification was not able to be done.
 		Nothing -> return (True, UnVerified)
 
-verifyKeyContentIncrementally :: VerifyConfig -> Key -> (Maybe IncrementalVerifier -> Annex ()) -> Annex Verification
-verifyKeyContentIncrementally verifyconfig k a = do
+verifyKeyContentIncrementally :: VerifyConfig -> Key -> (Maybe IncrementalVerifier -> Annex ()) -> Annex (Verification)
+verifyKeyContentIncrementally verifyconfig k a  = 
+	snd <$> verifyKeyContentIncrementally' verifyconfig k a
+
+verifyKeyContentIncrementally' :: VerifyConfig -> Key -> (Maybe IncrementalVerifier -> Annex a) -> Annex (a, Verification)
+verifyKeyContentIncrementally' verifyconfig k a = do
 	miv <- startVerifyKeyContentIncrementally verifyconfig k
-	a miv
-	snd <$> finishVerifyKeyContentIncrementally miv
+	r <- a miv
+	v <- snd <$> finishVerifyKeyContentIncrementally miv
+	return (r, v)
 
 writeVerifyChunk :: Maybe IncrementalVerifier -> Handle -> S.ByteString -> IO ()
 writeVerifyChunk (Just iv) h c = do

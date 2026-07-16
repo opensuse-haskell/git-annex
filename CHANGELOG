@@ -6,6 +6,9 @@ git-annex (10.20260625) UNRELEASED; urgency=medium
     See https://git-annex.branchable.com/no_llm_code/
   * git-annex.cabal: Added NoLLMDependencies build flag.
   * Added stack-NoLLMDependencies.yaml
+  * External special remote protocol extended to support import.
+    Developers of external special remotes should consider if import makes
+    sense for them and add support.
   * Support importtree=yes with rsync special remotes.
   * Avoid redundant hash verification after a hash verification fails.
   * Fix build with time-1.15.

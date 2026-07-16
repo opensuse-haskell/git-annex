@@ -328,7 +328,7 @@ retrieveKeyFileM external gc = fileRetriever $ \dest k p ->
 				| k == k' -> result $ Left $
 					respErrorMessage "TRANSFER" errmsg
 			TRANSFER_RETRIEVE_URL k' url
-				| k == k' -> retrieveUrl' gc url dest k p
+				| k == k' -> Just $ Result <$> retrieveUrl' gc url dest k p
 			DELEGATE ps -> Just $ do
 				delegate <- getDelegateRemote external ps
 				_ <- retrieveKeyFile delegate k
@@ -425,7 +425,7 @@ retrieveExportM external gc k loc dest p = do
 		TRANSFER_FAILURE Download k' errmsg
 			| k == k' -> result $ Left $ respErrorMessage "TRANSFER" errmsg
 		TRANSFER_RETRIEVE_URL k' url
-			| k == k' -> retrieveUrl' gc url dest k p
+			| k == k' -> Just $ Result <$> retrieveUrl' gc url dest k p
 		DELEGATE ps -> Just $ do
 			delegate <- getDelegateRemote external ps
 			_ <- retrieveExport (exportActions delegate) k loc dest p
@@ -446,27 +446,25 @@ retrieveImportM
 	-> Annex (Key, Verification)
 retrieveImportM external gc loc cids dest gk p =
 	case gk of
-		Right mkkey -> do
-			go Nothing
-			k <- mkkey
+		Right _ -> do
+			k <- go Nothing
 			return (k, UnVerified)
-		Left k -> do
-			v <- verifyKeyContentIncrementally AlwaysVerify k go
-			return (k, v)
+		Left k -> verifyKeyContentIncrementally' AlwaysVerify k go
   where
 	go iv = tailVerify iv dest $
 		either giveup return =<< go'
 	go' = handleRequestImport' external loc req (Just p) $ \resp -> case resp of
-		RETRIEVEIMPORT_SUCCESS -> result $ Right ()
+		RETRIEVEIMPORT_SUCCESS -> getResult $
+			Right <$> either pure id gk
 		RETRIEVEIMPORT_FAILURE errmsg -> 
 			result $ Left $ respErrorMessage "RETRIEVEIMPORT" errmsg
-		RETRIEVEIMPORT_URL url -> 
-			retrieveUrl' gc url dest UnknownSize p
-		DELEGATE ps -> Just $ do
+		RETRIEVEIMPORT_URL url -> getResult $ do
+			retrieveUrl' gc url dest UnknownSize p >>= \case
+				Right () -> Right <$> either pure id gk
+				Left msg -> pure (Left msg)
+		DELEGATE ps -> getResult $ do
 			delegate <- getDelegateRemote external ps
-			-- FIXME this will cause gk to be run twice
-			_ <- retrieveImport (importActions delegate) loc cids dest gk p
-			return (Result (Right ()))
+			Right . fst <$> retrieveImport (importActions delegate) loc cids dest gk p
 		UNSUPPORTED_REQUEST ->
 			result $ Left "RETRIEVEIMPORT not implemented by external special remote"
 		_ -> Nothing
@@ -875,6 +873,9 @@ type ResponseHandler a = Response -> Maybe (Annex (ResponseHandlerResult a))
 result :: a -> Maybe (Annex (ResponseHandlerResult a))
 result = Just . return . Result
 
+getResult :: Annex a -> Maybe (Annex (ResponseHandlerResult a))
+getResult a = Just $ Result <$> a
+
 {- Waits for a message from the external remote, and passes it to the
  - appropriate handler. 
  -
@@ -1148,13 +1149,13 @@ retrieveUrl gc = fileRetriever' $ \f k p iv -> do
 	unlessM (withUrlOptions (Just gc) $ downloadUrl True k p iv us f) $
 		giveup downloadFailed
 
-retrieveUrl' :: MeterSize sizer => RemoteGitConfig -> URLString -> OsPath -> sizer -> MeterUpdate -> Maybe (Annex (ResponseHandlerResult (Either String ())))
+retrieveUrl' :: MeterSize sizer => RemoteGitConfig -> URLString -> OsPath -> sizer -> MeterUpdate -> Annex (Either String ())
 retrieveUrl' gc url dest sizer p = 
-	Just $ withUrlOptions (Just gc) $ \uo ->
+	withUrlOptions (Just gc) $ \uo ->
 		downloadUrl' False sizer p Nothing [url] dest uo >>= return . \case
-			Left msg -> Result (Left msg)
-			Right True -> Result (Right ())
-			Right False -> Result (Left downloadFailed)
+			Left msg -> Left msg
+			Right True -> Right ()
+			Right False -> Left downloadFailed
 
 downloadFailed :: String
 downloadFailed = "failed to download content"
