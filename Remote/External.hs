@@ -310,10 +310,10 @@ storeKeyM external = fileStorer $ \k f p ->
 				result (Right ())
 			TRANSFER_FAILURE Upload k' errmsg | k == k' ->
 				result (Left (respErrorMessage "TRANSFER" errmsg))
-			DELEGATE ps -> Just $ do
+			DELEGATE ps -> getResult $ do
 				delegate <- getDelegateRemote external ps
 				storeKey delegate k (AssociatedFile Nothing) (Just f) p	
-				return (Result (Right ()))
+				return (Right ())
 			_ -> Nothing
 
 retrieveKeyFileM :: External -> RemoteGitConfig -> Retriever
@@ -328,13 +328,13 @@ retrieveKeyFileM external gc = fileRetriever $ \dest k p ->
 				| k == k' -> result $ Left $
 					respErrorMessage "TRANSFER" errmsg
 			TRANSFER_RETRIEVE_URL k' url
-				| k == k' -> Just $ Result <$> retrieveUrl' gc url dest k p
-			DELEGATE ps -> Just $ do
+				| k == k' -> getResult $ retrieveUrl' gc url dest k p
+			DELEGATE ps -> getResult $ do
 				delegate <- getDelegateRemote external ps
 				_ <- retrieveKeyFile delegate k
 					(AssociatedFile Nothing) dest p
 					NoVerify
-				return (Result (Right ()))
+				return (Right ())
 			_ -> Nothing
 
 removeKeyM :: External -> Remover
@@ -347,10 +347,10 @@ removeKeyM external proof k = either giveup return =<< go
 			REMOVE_FAILURE k' errmsg
 				| k == k' -> result $ Left $
 					respErrorMessage "REMOVE" errmsg
-			DELEGATE ps -> Just $ do
+			DELEGATE ps -> getResult $ do
 				delegate <- getDelegateRemote external ps
 				_ <- removeKey delegate proof k
-				return (Result (Right ()))
+				return (Right ())
 			_ -> Nothing
 
 checkPresentM :: External -> RemoteGitConfig -> CheckPresent
@@ -397,10 +397,10 @@ storeExportM external f k loc p = either giveup return =<< go
 		TRANSFER_SUCCESS Upload k' | k == k' -> result $ Right ()
 		TRANSFER_FAILURE Upload k' errmsg | k == k' ->
 			result $ Left $ respErrorMessage "TRANSFER" errmsg
-		DELEGATE ps -> Just $ do
+		DELEGATE ps -> getResult $ do
 			delegate <- getDelegateRemote external ps
 			_ <- storeExport (exportActions delegate) f k loc p
-			return (Result (Right ()))
+			return (Right ())
 		UNSUPPORTED_REQUEST -> 
 			result $ Left "TRANSFEREXPORT not implemented by external special remote"
 		_ -> Nothing
@@ -426,10 +426,10 @@ retrieveExportM external gc k loc dest p = do
 			| k == k' -> result $ Left $ respErrorMessage "TRANSFER" errmsg
 		TRANSFER_RETRIEVE_URL k' url
 			| k == k' -> Just $ Result <$> retrieveUrl' gc url dest k p
-		DELEGATE ps -> Just $ do
+		DELEGATE ps -> getResult $ do
 			delegate <- getDelegateRemote external ps
 			_ <- retrieveExport (exportActions delegate) k loc dest p
-			return (Result (Right ()))
+			return (Right ())
 		UNSUPPORTED_REQUEST ->
 			result $ Left "TRANSFEREXPORT not implemented by external special remote"
 		_ -> Nothing
@@ -531,10 +531,10 @@ removeExportM external k loc = either giveup return =<< go
 			| k == k' -> result $ Right ()
 		REMOVE_FAILURE k' errmsg
 			| k == k' -> result $ Left $ respErrorMessage "REMOVE" errmsg
-		DELEGATE ps -> Just $ do
+		DELEGATE ps -> getResult $ do
 			delegate <- getDelegateRemote external ps
 			_ <- removeExport (exportActions delegate) k loc
-			return (Result (Right ()))
+			return (Right ())
 		UNSUPPORTED_REQUEST -> result $
 			Left $ "REMOVEEXPORT not implemented by external special remote"
 		_ -> Nothing
@@ -546,12 +546,12 @@ removeExportDirectoryM external dir = either giveup return =<< go
 		REMOVEEXPORTDIRECTORY_SUCCESS -> result $ Right ()
 		REMOVEEXPORTDIRECTORY_FAILURE -> result $
 			Left "failed to remove directory"
-		DELEGATE ps -> Just $ do
+		DELEGATE ps -> getResult $ do
 			delegate <- getDelegateRemote external ps
 			case removeExportDirectory (exportActions delegate) of
 				Just a -> a dir
 				Nothing -> return ()
-			return (Result (Right ()))
+			return (Right ())
 		UNSUPPORTED_REQUEST -> result $ Right ()
 		_ -> Nothing
 	req = REMOVEEXPORTDIRECTORY dir
@@ -569,11 +569,11 @@ renameExportM external k src dest = either giveup return =<< go
 			| k' == k -> result $ Right (Just ())
 		RENAMEEXPORT_FAILURE k' 
 			| k' == k -> result $ Left "failed to rename exported file"
-		DELEGATE ps -> Just $ do
+		DELEGATE ps -> getResult $ do
 			delegate <- getDelegateRemote external ps
 			case renameExport (exportActions delegate) of
-				Just a -> Result . Right <$> a k src dest
-				Nothing -> return $ Result $ Right Nothing
+				Just a -> Right <$> a k src dest
+				Nothing -> return $ Right Nothing
 		UNSUPPORTED_REQUEST -> result (Right Nothing)
 		_ -> Nothing
 	req sk = RENAMEEXPORT sk dest
@@ -1068,9 +1068,8 @@ checkPrepared st external = do
 		Unprepared ->
 			handleRequest' st external PREPARE Nothing $ \resp ->
 				case resp of
-					PREPARE_SUCCESS -> Just $ do
+					PREPARE_SUCCESS -> getResult $
 						setprepared Prepared
-						return (Result ())
 					PREPARE_FAILURE errmsg -> Just $ do
 						let errmsg' = respErrorMessage "PREPARE" errmsg
 						setprepared $ FailedPrepare errmsg'
