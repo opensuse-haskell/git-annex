@@ -4,7 +4,7 @@ Some special remotes interface to a key/value datastore using keys that are
 eg hashes, and it won't make sense for them to implement any of this.
 
 When a special remote interfaces with something that looks like a directory
-of files, it can either or both of the interfaces described here.
+of files, it can implement either or both of the interfaces described here.
 
 The export interface can be implemented to allow the
 [[git-annex-export]] command to be used to store file trees on the special
