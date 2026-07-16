@@ -255,24 +255,24 @@ git-annex asks for a list of files stored in the special remote:
 
 Which responds:
 
-	CONTENT 100 foo
-	CONTENTIDENTIFIER 100 48511528411921470
-	CONTENT 200 bar
-	CONTENTIDENTIFIER 200 48511528411963410
-	END
+	IMPORTABLECONTENT 100 foo
+	IMPORTABLECONTENTIDENTIFIER 100 48511528411921470
+	IMPORTABLECONTENT 200 bar
+	IMPORTABLECONTENTIDENTIFIER 200 48511528411963410
+	IMPORTABLECONTENTEND
 
 Next git-annex asks for the content of a file to be retrieved.
 
 	IMPORT foo
-	RETRIEVEIMPORTED tmpfile
+	RETRIEVEIMPORT tmpfile
 
 If the file no longer exists, the response would be:
 
-    RETRIEVE-FAILURE file not found
+    RETRIEVEIMPORT-FAILURE file not found
 
 If the file exists, the response would be:
 
-    RETRIEVE-SUCCESS
+    RETRIEVEIMPORT-SUCCESS
 
 What if the file exists but has been modified in the time
 since LISTIMPORTABLECONTENTS? The external special remote

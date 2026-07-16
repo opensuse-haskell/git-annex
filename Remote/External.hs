@@ -525,11 +525,6 @@ checkPresentExportImport request srequest delegateaction handlereq external gc k
 			Left $ srequest ++ " not implemented by external special remote"
 		_ -> Nothing
 
-listImportableContentsM
-	:: External
-	-> Annex (Maybe (ImportableContentsChunkable a (ContentIdentifier, ByteSize)))
-listImportableContentsM = undefined
-
 removeExportM :: External -> Key -> ExportLocation -> Annex ()
 removeExportM external k loc = either giveup return =<< go
   where
@@ -584,6 +579,32 @@ renameExportM external k src dest = either giveup return =<< go
 		UNSUPPORTED_REQUEST -> result (Right Nothing)
 		_ -> Nothing
 	req sk = RENAMEEXPORT sk dest
+
+listImportableContentsM
+	:: External
+	-> Annex (Maybe (ImportableContentsChunkable Annex (ContentIdentifier, ByteSize)))
+listImportableContentsM external =
+	handleRequest external LISTIMPORTABLECONTENTS Nothing
+		(go [] Nothing)
+  where
+	go c _ (IMPORTABLECONTENT sz loc) = 
+		let loc' = mkImportLocation (toOsPath loc)
+		in Just $ return $ GetNextMessage $
+			go c (Just (sz, loc'))
+	go c (Just (sz, loc)) (IMPORTABLECONTENTIDENTIFIER cid) =
+		Just $ return $ GetNextMessage $ 
+			go ((loc, (cid, sz)):c) Nothing
+	go c _ IMPORTABLECONTENTEND =
+		result $ Just $
+			ImportableContentsComplete $ ImportableContents
+				{ importableContents = c
+				, importableHistory = []
+				}
+	go _ _ (DELEGATE ps) = Just $ do
+		delegate <- getDelegateRemote external ps
+		Result <$> listImportableContents (importActions delegate)
+	go _ _ UNSUPPORTED_REQUEST = result Nothing
+	go _ _ _ = Nothing
 
 {- Sends a Request to the external remote, and waits for it to generate
  - a Response. That is fed into the responsehandler, which should return
