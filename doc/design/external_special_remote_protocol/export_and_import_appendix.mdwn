@@ -25,7 +25,7 @@ remote.
 ## export interface
 
 git-annex will use this when the special remote is initialized with
-exporttree=yes and without importtree=yes and indicates that it supports
+exporttree=yes and indicates that it supports
 exports.
 
 These are requests git-annex sends to the special remote program.
