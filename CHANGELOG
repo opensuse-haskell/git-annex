@@ -1,16 +1,20 @@
 git-annex (10.20260717) UNRELEASED; urgency=medium
 
+  * External special remote protocol extended to support import.
+    Developers of external special remotes should consider if import makes
+    sense for them and add support.
+  * Support importtree=yes with rsync special remotes.
+  * Added git-annex-remote-internetarchive special remote that imports an
+    Internet Archive item and serves as an example for how to easily write
+    importtree=yes external special remotes.
+    https://git-annex.branchable.com/tips/how_to_make_a_simple_importtree_special_remote/
+  * Added DOWNLOAD-URL extension to the external special remote protocol.
   * git-annex is guaranteed to not contain LLM generated code,
     and will attempt to remain buildable with versions of dependencies
     that predate the addition of any LLM generated code.
     See https://git-annex.branchable.com/no_llm_code/
   * git-annex.cabal: Added NoLLMDependencies build flag.
   * Added stack-NoLLMDependencies.yaml
-  * External special remote protocol extended to support import.
-    Developers of external special remotes should consider if import makes
-    sense for them and add support.
-  * Support importtree=yes with rsync special remotes.
-  * Added DOWNLOAD-URL extension to the external special remote protocol.
   * Avoid redundant hash verification after a hash verification fails.
   * Fix build with time-1.15.
 
