@@ -3,7 +3,7 @@ importing a tree of files from it with [[git-annex-import]]? This is
 really simple to build with a short shell script.
 
 As an example, see [[special_remotes/external/git-annex-remote-internetarchive]].
-This treats an [[special_remote/Internet_Archive]] item as an
+This treats an [[special_remotes/Internet_Archive]] item as an
 [[external_special_remote|special_remotes/external]].
 
 Using it looks like this:
