@@ -23,7 +23,7 @@ It's not hard!
 
 It's *especially* easy to implement special remotes that are read-only
 imports of some web resource. See
-[[tips/how_to_make_a_simple_importree_special_remote]].
+[[tips/how_to_make_a_simple_importtree_special_remote]].
 
 ## libraries
 
