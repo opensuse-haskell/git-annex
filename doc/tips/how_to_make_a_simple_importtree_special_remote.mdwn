@@ -1,5 +1,5 @@
 Would you like to treat some web resource as a git-annex special remote,
-importing a tree of files from it with [[git-annex-importree]]? This is
+importing a tree of files from it with [[git-annex-import]]? This is
 really simple to build with a short shell script.
 
 As an example, see [[special_remotes/external/git-annex-remote-internetarchive]].
