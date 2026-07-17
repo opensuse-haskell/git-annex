@@ -1,7 +1,9 @@
 [The Internet Archive](http://www.archive.org/) allows members to upload
-collections using an Amazon S3 
+items using an Amazon S3 
 [compatible API](http://www.archive.org/help/abouts3.txt), and this can
 be used with git-annex's [[special_remotes/S3]] support. 
+
+(If you only want to import files from an Internet Archive item, 
 
 So, you can locally archive things with git-annex, define remotes that
 correspond to "items" at the Internet Archive, and use git-annex to upload

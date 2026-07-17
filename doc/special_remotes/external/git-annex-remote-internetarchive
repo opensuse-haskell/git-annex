@@ -1,0 +1,73 @@
+#!/bin/sh
+# This makes an Internet Archive item into a git-annex special remote.
+#
+# Dependencies: curl, jq
+#
+# Install in PATH, and then use as follows:
+# 	git-annex initremote iaitem type=external encryption=none \
+# 		externaltype=internetarchive importtree=yes \
+# 		item=<item name here>
+#	git-annex import master --from iaitem
+#	git-annex merge iaitem/master
+#
+# Copyright 2013-2026 Joey Hess; licenced under the GNU GPL version 3 or higher.
+set -e
+getconfig () {
+	echo GETCONFIG item
+	read resp
+	item=$(echo "$resp" | sed 's/^VALUE \?//')
+}
+
+echo VERSION 2
+while read line; do
+	set -- $line
+	case "$1" in
+		INITREMOTE)
+			getconfig
+			if [ -z "$item" ]; then
+				echo INITREMOTE-FAILURE "Specify item="
+			else
+				echo INITREMOTE-SUCCESS
+			fi
+		;;
+		PREPARE)
+			getconfig
+			echo PREPARE-SUCCESS
+		;;
+		LISTIMPORTABLECONTENTS)
+			curl --silent "https://archive.org/metadata/$item/files" | \
+				jq -r '.result[] | (.name, .size, .sha1)' | \
+			while read name; do
+				read size
+				read sha1
+				if [ "$sha1" != null ]; then
+					echo IMPORTABLECONTENT "$size" "$name"
+					echo IMPORTABLECONTENTIDENTIFIER "$sha1"
+				fi
+			done
+			echo IMPORTABLECONTENTEND
+		;;
+		RETRIEVEIMPORT)
+			echo RETRIEVEIMPORT-URL "https://archive.org/download/$item/$importlocation"
+		;;
+		CHECKPRESENTIMPORT)
+			key="$2"
+			echo CHECKPRESENT-URL "$key" "https://archive.org/download/$item//$importlocation"
+		;;
+		# Below is all the boilerplate needed to make this work as an
+		# importtree-only remote.
+		IMPORTSUPPORTED)
+			echo IMPORTREQUIRED
+		;;
+		IMPORT)
+			shift 1
+			importlocation="$@"
+		;;
+		INITREMOTE)
+			echo INITREMOTE-SUCCESS
+		;;
+		*)
+			echo UNSUPPORTED-REQUEST
+		;;
+	esac
+done
