@@ -2,6 +2,6 @@
 remote in two different ways:
 
 1. To upload files to it, see
-   [[tips/[The Internet Archive](http://www.archive.org/)]]
+   [[tips/Internet_Archive_via_S3]]
 2. To [[import a tree of files|git-annex-import]] from an existing 
    Internet Archive item, use [[external/git-annex-remote-internetarchive]].
