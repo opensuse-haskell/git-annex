@@ -113,13 +113,13 @@ request is git-annex asking that a file be downloaded from the remote.
 (This uses an `$importlocation` while we've not dealt with setting
 yet, see below.)
 
-If anyone can download the url, perhaps with some HTTP basic auth,
-you can just tell git-annex what url to download and let it do
-the work. That's what the example does.
-
     		RETRIEVEIMPORT)
     			echo RETRIEVEIMPORT-URL "https://archive.org/download/$item/$importlocation"
     		;;
+
+If anyone can download the url, perhaps with some HTTP basic auth,
+you can just tell git-annex what url to download and let it do
+the work. That's what the example above does.
 
 If you need to download the url yourself, you'll instead need something
 like this:
@@ -131,8 +131,10 @@ like this:
     		;;
 
 Similarly, the CHECKPRESENTIMPORT request is git-annex just checking
-if the file still appears to be present in the remote. (It does not need to
-verify that the has the same content.)
+if the file still appears to be present in the remote. 
+(It does not need to verify that the has the same content that it did when
+imported, checking the size or even if HTTP HEAD succeeds is enough.
+Although if you can verify the content inexpensively, by all means do so.)
 
     		CHECKPRESENTIMPORT)
     			key="$2"
