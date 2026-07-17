@@ -153,7 +153,7 @@ And if you need to hit the url yourself, you could do something like this:
     		;;
 
 And that's all! Well, all except for some necessary boilerplate code 
-to handle the rest of the protocol that you should need to modify,
+to handle the rest of the protocol that you should never need to modify,
 feel free to just copy the rest of this.
 
     		IMPORTSUPPORTED)
