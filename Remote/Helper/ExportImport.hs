@@ -33,8 +33,8 @@ import Control.Concurrent.STM
 class HasExportUnsupported a where
 	exportUnsupported :: a
 
-instance HasExportUnsupported (ParsedRemoteConfig -> RemoteGitConfig -> Annex Bool) where
-	exportUnsupported = \_ _ -> return False
+instance HasExportUnsupported (ParsedRemoteConfig -> RemoteGitConfig -> Annex ExportSupported) where
+	exportUnsupported = \_ _ -> return (ExportSupported False)
 
 instance HasExportUnsupported (ExportActions Annex) where
 	exportUnsupported = ExportActions
@@ -52,8 +52,8 @@ instance HasExportUnsupported (ExportActions Annex) where
 class HasImportUnsupported a where
 	importUnsupported :: a
 
-instance HasImportUnsupported (ParsedRemoteConfig -> RemoteGitConfig -> Annex Bool) where
-	importUnsupported = \_ _ -> return False
+instance HasImportUnsupported (ParsedRemoteConfig -> RemoteGitConfig -> Annex ImportSupported) where
+	importUnsupported = \_ _ -> return (ImportSupported False)
 
 instance HasImportUnsupported (ImportActions Annex) where
 	importUnsupported = ImportActions
@@ -84,11 +84,11 @@ instance HasExportImportUnsupported (ExportImportActions Annex) where
 	  where
 		nope = giveup "import combined with export not supported"
 
-exportIsSupported :: ParsedRemoteConfig -> RemoteGitConfig -> Annex Bool
-exportIsSupported = \_ _ -> return True
+exportIsSupported :: ParsedRemoteConfig -> RemoteGitConfig -> Annex ExportSupported
+exportIsSupported = \_ _ -> return (ExportSupported True)
 
-importIsSupported :: ParsedRemoteConfig -> RemoteGitConfig -> Annex Bool
-importIsSupported = \_ _ -> return True
+importIsSupported :: ParsedRemoteConfig -> RemoteGitConfig -> Annex ImportSupported
+importIsSupported = \_ _ -> return (ImportSupported True)
 
 exportImportIsSupported :: ParsedRemoteConfig -> RemoteGitConfig -> Annex Bool
 exportImportIsSupported = \_ _ -> return True
@@ -103,7 +103,7 @@ adjustExportImportRemoteType rt = rt { setup = setup' }
 			=<< configParser rt c
 		let checkconfig supported configured configfield cont =
 			let allowed = 
-				( supported rt pc gc 
+				( pure supported
 					<||> exportImportSupported rt pc gc)
 				<&&> pure (not (thirdPartyPopulated rt))
 			in ifM allowed
@@ -128,8 +128,13 @@ adjustExportImportRemoteType rt = rt { setup = setup' }
 						++ fromProposedAccepted exportTreeField
 					)
 			| otherwise = cont
-		checkconfig exportSupported exportTree exportTreeField $
-			checkconfig importSupported importTree importTreeField $
+		exportsupported <- exportSupported rt pc gc
+		importsupported <- importSupported rt pc gc
+		when (isImportRequired importsupported && not (importTree pc)) $
+			giveup $ "This special remote must be configured with " ++ 
+				fromProposedAccepted importTreeField ++ "=" ++ yesNoGenerator True
+		checkconfig (isExportSupported' exportsupported) exportTree exportTreeField $
+			checkconfig (isImportSupported' importsupported) importTree importTreeField $
 				checkexportimport $
 					setup rt st mu remotename cp c gc
 	
@@ -148,7 +153,7 @@ adjustExportImport r rs = do
 		-- Use ExportImportActions even when
 		-- not configured with exporttree=yes,
 		-- when it's supported, since it
-		-- handled content identifiers more
+		-- handles content identifiers more
 		-- strongly than ImportActions does.
 		( importconfigured
 		-- thirdPartyPopulated is handled using 

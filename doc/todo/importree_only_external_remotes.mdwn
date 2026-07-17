@@ -13,7 +13,7 @@ data store, and even if key-value storage is not appropriate.
 If the external special remote had a way to indicate that it only supported
 importtree, it would not even be necessary to configure it with
 importtree=yes. And it could skip implementing the rest of the protocol.
-This could be eg an `IMPORTSUPPORTED-REQUIRED` response.
+This could be eg an `IMPORTREQUIRED` response.
 
 Also it would be good to have a way for `LISTIMPORTABLECONTENTS`
 to outsource an url download to git-annex. This might take the form
@@ -34,7 +34,7 @@ only external remote in about 1 page of shell script:
 				echo PREPARE-SUCCESS
 			;;
 			IMPORTSUPPORTED)
-				echo IMPORTSUPPORTED-REQUIRED
+				echo IMPORTREQUIRED
 			;;
 			LISTIMPORTABLECONTENTS)
 				echo DOWNLOAD-URL http://example.com/

@@ -95,15 +95,16 @@ Now git-annex will send its next request.
 Once git-annex is done with the special remote, it will close its stdin.
 The special remote program can then exit.
 
-## git-annex request messages and replies
+# setup requests
 
-These are messages git-annex sends to the special remote program.
+All special remotes *must* implement these requests.
 
-Once the special remote has finished performing the request, it should
-send one of the listed replies.
-
-The following requests *must* all be supported by the special remote.
-
+* `VERSION Int`  
+  Supported protocol version. Current version is 2. Must be sent first
+  thing at startup, as until it sees this git-annex does not know how to
+  talk with the special remote program!  
+  (git-annex does not send a reply to this message, but may give up if it
+  doesn't support the necessary protocol version.)
 * `INITREMOTE`  
   Requests the remote to initialize itself. This is where any one-time
   setup tasks can be done, for example creating an Amazon S3 bucket.  
@@ -124,6 +125,17 @@ The following requests *must* all be supported by the special remote.
     Sent as a response to PREPARE once the special remote is ready for use.
   * `PREPARE-FAILURE ErrorMsg`  
     Sent as a response to PREPARE if the special remote cannot be used.
+
+# key/value storage requests
+
+These are messages git-annex sends to the special remote program.
+
+Once the special remote has finished performing the request, it should
+send one of the listed replies.
+
+The following requests *must* all be supported by the special remote
+in order for it to support being used for key/value storage.
+
 * `TRANSFER STORE|RETRIEVE Key File`  
   Requests the transfer of a key. This is the main thing a special remote
   does. For STORE, the File contains the content to upload;
@@ -184,11 +196,15 @@ The following requests *must* all be supported by the special remote.
     Delegate this request to a different type of special remote.
     See [[delegate_appendix]].
 
+# import and export requests
+
 Special remotes can optionally support tree exports or imports,
 which makes the [[git-annex-export]] and [[git-annex-import]] commands
 work with them. See the [[export_and_import_appendix]] for
 additional requests that git-annex will make when using special remotes in
-this way.
+that way.
+
+# additional requests
 
 The following requests can optionally be supported. If not supported,
 the special remote can reply with `UNSUPPORTED-REQUEST`.
@@ -312,12 +328,6 @@ so if an unknown request is seen, don't crash, just reply with
 These messages may be sent by the special remote at any time that it's
 handling a request.
 
-* `VERSION Int`  
-  Supported protocol version. Current version is 2. Must be sent first
-  thing at startup, as until it sees this git-annex does not know how to
-  talk with the special remote program!  
-  (git-annex does not send a reply to this message, but may give up if it
-  doesn't support the necessary protocol version.)
 * `PROGRESS Int`  
   Indicates the current progress of the transfer. The Int is the
   number of bytes from the beginning of the file that have been

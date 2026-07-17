@@ -110,10 +110,10 @@ gen rt externalprogram r u rc gc rs
 		Annex.addCleanupAction (RemoteCleanup u) $ stopExternal external
 		cst <- getCost external r gc c
 		exportsupported <- if exportTree c
-			then checkExportSupported external
+			then isExportSupported' <$> checkExportSupported (Just external)
 			else return False
 		importsupported <- if importTree c
-			then checkImportSupported external
+			then isImportSupported' <$> checkImportSupported (Just external)
 			else return False
 		let exportactions = if exportsupported
 			then ExportActions
@@ -267,37 +267,42 @@ externalSetup externalprogram setgitconfig ss mu remotename _ c gc = do
 
 checkSupportedWith
 	:: Maybe ExternalProgram
-	-> (External -> Annex Bool)
+	-> (Maybe External -> Annex a)
 	-> ParsedRemoteConfig
 	-> RemoteGitConfig
-	-> Annex Bool
+	-> Annex a
 checkSupportedWith Nothing checker c gc = do
 	let externaltype = fromMaybe (giveup "Specify externaltype=") $
 		remoteAnnexExternalType gc <|> getRemoteConfigValue externaltypeField c
 	if externaltype == "readonly"
-		then return False
+		then checker Nothing
 		else checkSupportedWith (Just (ExternalType externaltype)) checker c gc
 checkSupportedWith (Just externalprogram) checker c gc = 
-	checker 
+	checker . Just
 		=<< newExternal externalprogram Nothing c (Just gc) Nothing Nothing
 
-checkExportSupported :: External -> Annex Bool
-checkExportSupported external = go `catchNonAsync` (const (return False))
+checkExportSupported :: Maybe External -> Annex ExportSupported
+checkExportSupported (Just external) = go
+	`catchNonAsync` (const (return (ExportSupported False)))
   where
 	go = handleRequest external EXPORTSUPPORTED Nothing $ \resp -> case resp of
-		EXPORTSUPPORTED_SUCCESS -> result True
-		EXPORTSUPPORTED_FAILURE -> result False
-		UNSUPPORTED_REQUEST -> result False
+		EXPORTSUPPORTED_SUCCESS -> result (ExportSupported True)
+		EXPORTSUPPORTED_FAILURE -> result (ExportSupported False)
+		UNSUPPORTED_REQUEST -> result (ExportSupported False)
 		_ -> Nothing
+checkExportSupported Nothing = return (ExportSupported False)
 
-checkImportSupported :: External -> Annex Bool
-checkImportSupported external = go `catchNonAsync` (const (return False))
+checkImportSupported :: Maybe External -> Annex ImportSupported
+checkImportSupported (Just external) = go
+	`catchNonAsync` (const (return (ImportSupported False)))
   where
 	go = handleRequest external IMPORTSUPPORTED Nothing $ \resp -> case resp of
-		IMPORTSUPPORTED_SUCCESS -> result True
-		IMPORTSUPPORTED_FAILURE -> result False
-		UNSUPPORTED_REQUEST -> result False
+		IMPORTSUPPORTED_SUCCESS -> result (ImportSupported True)
+		IMPORTSUPPORTED_FAILURE -> result (ImportSupported False)
+		IMPORTREQUIRED -> result ImportRequired
+		UNSUPPORTED_REQUEST -> result (ImportSupported False)
 		_ -> Nothing
+checkImportSupported Nothing = return (ImportSupported False)
 
 storeKeyM :: External -> Storer
 storeKeyM external = fileStorer $ \k f p ->

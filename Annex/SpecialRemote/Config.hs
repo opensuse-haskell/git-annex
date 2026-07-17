@@ -288,6 +288,10 @@ yesNoParser f mdef fd = genParser yesno f mdef fd
 	yesno "no" = Just False
 	yesno _ = Nothing
 
+yesNoGenerator :: Bool -> String
+yesNoGenerator True = "yes"
+yesNoGenerator False = "no"
+
 trueFalseParser :: RemoteConfigField -> Maybe Bool -> FieldDesc -> RemoteConfigFieldParser
 trueFalseParser f mdef fd = genParser trueFalseParser' f mdef fd
 	(Just (ValueDesc "true or false"))

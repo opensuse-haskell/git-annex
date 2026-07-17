@@ -20,8 +20,13 @@ module Types.Remote
 	, Verification(..)
 	, unVerified
 	, RetrievalSecurityPolicy(..)
+	, ExportSupported(..)
 	, isExportSupported
+	, isExportSupported'
+	, ImportSupported(..)
 	, isImportSupported
+	, isImportSupported'
+	, isImportRequired
 	, isExportImportSupported
 	, ExportActions(..)
 	, ExportImportActions(..)
@@ -69,9 +74,9 @@ data RemoteTypeA a = RemoteType
 	-- initializes or enables a remote
 	, setup :: SetupStage -> Maybe UUID -> RemoteName -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> a (RemoteConfig, UUID)
 	-- check if a remote of this type is able to support export
-	, exportSupported :: ParsedRemoteConfig -> RemoteGitConfig -> a Bool
+	, exportSupported :: ParsedRemoteConfig -> RemoteGitConfig -> a ExportSupported
 	-- check if a remote of this type is able to support import
-	, importSupported :: ParsedRemoteConfig -> RemoteGitConfig -> a Bool
+	, importSupported :: ParsedRemoteConfig -> RemoteGitConfig -> a ImportSupported
 	-- check if a remote of this type is able to support both import
 	-- and export at the same time
 	, exportImportSupported :: ParsedRemoteConfig -> RemoteGitConfig -> a Bool
@@ -274,11 +279,32 @@ data RetrievalSecurityPolicy
 	| RetrievalAllKeysSecure
 	-- ^ Any key can be securely retrieved.
 
-isExportSupported :: RemoteA a -> a Bool
-isExportSupported r = exportSupported (remotetype r) (config r) (gitconfig r)
+newtype ExportSupported = ExportSupported Bool
 
-isImportSupported :: RemoteA a -> a Bool
-isImportSupported r = importSupported (remotetype r) (config r) (gitconfig r)
+isExportSupported :: Monad a => RemoteA a -> a Bool
+isExportSupported r = 
+	exportSupported (remotetype r) (config r) (gitconfig r)
+		>>= return . isExportSupported'
+
+isExportSupported' :: ExportSupported -> Bool
+isExportSupported' (ExportSupported b) = b
+
+data ImportSupported = ImportSupported Bool | ImportRequired
+
+isImportSupported :: Monad a => RemoteA a -> a Bool
+isImportSupported r = 
+	importSupported (remotetype r) (config r) (gitconfig r) 
+		>>= return . \case 
+			ImportSupported b -> b
+			ImportRequired -> True
+
+isImportSupported' :: ImportSupported -> Bool
+isImportSupported' (ImportSupported b) = b
+isImportSupported' ImportRequired = True
+
+isImportRequired :: ImportSupported -> Bool
+isImportRequired (ImportSupported _) = False
+isImportRequired ImportRequired = True
 
 isExportImportSupported :: RemoteA a -> a Bool
 isExportImportSupported r = exportImportSupported (remotetype r) (config r) (gitconfig r)

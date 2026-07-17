@@ -172,6 +172,12 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
     Indicates that it makes sense to import from this special remote.
   * `IMPORTSUPPORTED-FAILURE`  
     Indicates that it does not make sense to import from this special remote.
+  * `IMPORTREQUIRED`
+    Indicates that this special remote *only* supports imports. It cannot
+    be used for exports, or used as a key/value store. This allows
+    responding to `TRANSFER`, `CHECKPRESENT`, and `REMOVE` with
+    `UNSUPPORTED-REQUEST`. When initializing such a special remote,
+    the user will be required to specify the `exporttree=yes` parameter.
 * `LISTIMPORTABLECONTENTS`  
   Used to get a list of all the files that are stored in the special 
   remote. A block of responses
