@@ -1,4 +1,4 @@
-git-annex (10.20260625) UNRELEASED; urgency=medium
+git-annex (10.20260717) UNRELEASED; urgency=medium
 
   * git-annex is guaranteed to not contain LLM generated code,
     and will attempt to remain buildable with versions of dependencies

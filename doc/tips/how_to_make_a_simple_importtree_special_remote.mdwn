@@ -17,6 +17,8 @@ Using it looks like this:
 	...
 	> git merge mobydick/master --allow-unrelated-histories
 
+Note that this needs git-annex 10.20260717 or newer.
+
 Here we'll walk through that example program and explain what it does,
 which is an easier start for you building you own than reading the
 [[design/external_special_remote_protocol]] and 
