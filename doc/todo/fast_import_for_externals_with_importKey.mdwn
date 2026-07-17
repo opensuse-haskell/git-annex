@@ -1,0 +1,18 @@
+External special remotes using importree=yes are not able to provide
+`importKey`. If they were, when it's possible to query a hash from the API
+the external is using, it would be able to import without downloading the
+file.
+
+`git-annex-remote-internetarchive` is an example of a program that could
+use this.
+
+`importKey` is currently only in ExportImportActions,
+not in ImportActions so would first need to be added to it. Easy.
+
+The external would need to convert whatever ContentIdentifier it chooses to
+use into a key. Eg if it uses a sha1, it would make a SHA1 key. IIRC
+git-annex does not provide an interface to generate a key from a hash
+although it does document the key format and the external could be expected
+to generate it by itself. Or there could be a reply like 
+"IMPORTKEY-SUCCESS SHA1 $hash".
+--[[Joey]]:
