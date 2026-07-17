@@ -33,12 +33,6 @@ only external remote in about 1 page of shell script:
 			PREPARE)
 				echo PREPARE-SUCCESS
 			;;
-			EXTENSIONS)
-				# not strictly necessary because git-annex versions that support
-				# importtree should support these extensions. 
-				# Need to verify if it works w/o this. 
-				echo EXTENSIONS TRANSFER-RETRIEVE-URL CHECKPRESENT-URL
-			;;
 			IMPORTSUPPORTED)
 				echo IMPORTSUPPORTED-REQUIRED
 			;;

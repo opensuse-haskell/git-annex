@@ -207,9 +207,7 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
     Indicates the retrieve failed.
   * `RETRIEVEIMPORT-URL Url`  
     Rather than the special remote downloading content from an url itself,
-    this lets it offload that work to git-annex. This response is a
-    protocol extension; it's only safe to send it to git-annex after
-    it sent an `EXTENSIONS` that included `TRANSFER-RETRIEVE-URL`.
+    this lets it offload that work to git-annex.
   * `DELEGATE type=value [params]`  
     Delegate this request to a different type of special remote.
     See [[delegate_appendix]].
@@ -227,9 +225,7 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
     present in the remote. (Perhaps the remote cannot be contacted.)
   * `CHECKPRESENT-URL Key Url`  
     Rather than the special remote checking an url itself, 
-    this lets it offload that work to git-annex. This response is a protocol
-    extension; it's only safe to send it to git-annex after it sent an
-    `EXTENSIONS` that included `CHECKPRESENT-URL`.
+    this lets it offload that work to git-annex.
   * `DELEGATE type=value [params]`  
     Delegate this request to a different type of special remote.
     See [[delegate_appendix]].
