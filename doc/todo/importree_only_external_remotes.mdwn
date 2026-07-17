@@ -58,3 +58,6 @@ only external remote in about 1 page of shell script:
 			;;
 		esac
 	done
+
+> [[done]], I didn't implement `DOWNLOAD-URL` though, being unsure if it is
+> really an ergonomic benefit worth the complexity. --[[Joey]]
