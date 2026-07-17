@@ -1,0 +1,66 @@
+It could be simpler to write an external special remote that
+imports a tree from some web resource that is tree-like.
+
+Conceptually, all such a special
+remote needs to do is access an url that lists the files in the data
+store, parse it, and then use `RETRIEVEIMPORT-URL` and `CHECKPRESENT-URL`
+to tell git-annex what urls to use.
+
+But currently, the whole external special remote protocol needs to be
+implemented including storing keys. Even if there is no way to write to the
+data store, and even if key-value storage is not appropriate.
+
+If the external special remote had a way to indicate that it only supported
+importtree, it would not even be necessary to configure it with
+importtree=yes. And it could skip implementing the rest of the protocol.
+This could be eg an `IMPORTSUPPORTED-REQUIRED` response.
+
+Also it would be good to have a way for `LISTIMPORTABLECONTENTS`
+to outsource an url download to git-annex. This might take the form
+of a special remote message `DOWNLOAD-URL` that downloads a given url
+to a file and responds with the filename. (The file would be deleted
+once the current request is done.)
+
+Putting all this together, it should be possible to write an importtree
+only external remote in about 1 page of shell script:
+
+	#!/bin/sh
+	set -e
+	echo VERSION 2
+	while read line; do
+		set -- $line
+		case "$1" in
+			PREPARE)
+				echo PREPARE-SUCCESS
+			;;
+			EXTENSIONS)
+				# not strictly necessary because git-annex versions that support
+				# importtree should support these extensions. 
+				# Need to verify if it works w/o this. 
+				echo EXTENSIONS TRANSFER-RETRIEVE-URL CHECKPRESENT-URL
+			;;
+			IMPORTSUPPORTED)
+				echo IMPORTSUPPORTED-REQUIRED
+			;;
+			LISTIMPORTABLECONTENTS)
+				echo DOWNLOAD-URL http://example.com/
+				read file
+				# parse $file here and output IMPORTABLECONTENT and IMPORTABLECONTENTIDENTIFIER lines
+				echo IMPORTABLECONTENTEND
+			;;
+			IMPORT)
+				shift 1
+				importlocation="$@"
+			;;
+			RETRIEVEIMPORT)
+				echo RETRIEVEIMPORT-URL "http://example.com/$importlocation"
+			;;
+			CHECKPRESENTIMPORT)
+				key="$2"
+				echo CHECKPRESENT-URL "$key" "http://example.com/$importlocation"
+			;;
+			*)
+				echo UNSUPPORTED-REQUEST
+			;;
+		esac
+	done
