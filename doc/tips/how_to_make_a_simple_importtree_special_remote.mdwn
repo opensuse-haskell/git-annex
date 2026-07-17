@@ -95,8 +95,8 @@ about an item, and `jq` is used to extract the information it needs.
     			echo IMPORTABLECONTENTEND
     		;;
 
-Don't worry too much about the details of the above example though. This is
-where you'll code up something entirely different.
+Don't worry too much about the parsing details of the above example though.
+This is where you'll code up something entirely different.
 
 The main thing you need to determine is what content identifier to use
 for a file in your remote. In the example, the Internet Archive has a handy
