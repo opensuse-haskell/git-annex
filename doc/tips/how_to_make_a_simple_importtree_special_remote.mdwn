@@ -19,8 +19,8 @@ Using it looks like this:
 
 Here we'll walk through that example program and explain what it does,
 which is an easier start for you building you own than reading the
-[[doc/design/external_special_remote_protocol]] and 
-its [[import_appendix|doc/design/external_special_remote_protocol/export_and_import_appendix]].
+[[design/external_special_remote_protocol]] and 
+its [[import_appendix|design/external_special_remote_protocol/export_and_import_appendix]].
 
 Starting off, it's a portable shell script. But of course you could use
 some other language, probably with better results.
