@@ -126,7 +126,7 @@ well as using its User-Agent etc. Here's how to do that:
                         tmpfile="$@"
                         # now process "$tmpfile" and output IMPORTABLECONTENT
                         # and IMPORTABLECONTENTIDENTIFIER as before
-                        # (Left as an exersise for the reader.)
+                        # (Left as an exercise for the reader.)
                         echo LISTIMPORTABLECONTENTS-SUCCESS
                     ;;
                     DOWNLOAD-URL-FAILURE)
