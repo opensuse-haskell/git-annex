@@ -463,13 +463,22 @@ handling a request.
 * `DEBUG message`  
   Tells git-annex to display the message if --debug is enabled.  
   (git-annex does not send a reply to this message.)
-* `INFO message`
+* `INFO message`  
   Tells git-annex to display the message to the user.  
   When git-annex is in --json mode, the message will be emitted immediately
   in its own json object, with an "info" field.  
   This message is a protocol extension; it's only safe to send it to
   git-annex after it sent an `EXTENSIONS` that included `INFO`.  
   (git-annex does not send a reply to this message.)  
+* `DOWNLOAD-URL Url`  
+  Requests the git-annex download the url to a temporary file.
+  This uses the same url download machinery git-annex usually uses,
+  inluding using `git-credential` as needed.  
+  (git-annex replies with DOWNLOAD-URL-SUCCESS followed by the name of
+  the temporary file, or with DOWNLOAD-URL-FAILURE followed by an error
+  message.)  
+  This message is a protocol extension; it's only safe to send it to
+  git-annex after it sent an `EXTENSIONS` that included `DOWNLOAD-URL`.
 
 ## general messages
 
@@ -507,6 +516,8 @@ These protocol extensions are currently supported.
   programs. See the [[async_appendix]] for details.
 * `GETGITREMOTENAME`  
   This allows using the `GETGITREMOTENAME` message.
+* `DOWNLOAD-URL`  
+  This allows using the `DOWNLOAD-URL` message.
 * `UNAVAILABLERESPONSE`  
   This allows the `AVAILABILITY UNAVAILABLE` response to be used
   in reply to `GETAVAILABILITY`.

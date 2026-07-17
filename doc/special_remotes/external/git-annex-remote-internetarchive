@@ -48,7 +48,7 @@ while read line; do
 					echo IMPORTABLECONTENTIDENTIFIER "$sha1"
 				fi
 			done
-			echo IMPORTABLECONTENTEND
+			echo LISTIMPORTABLECONTENTS-SUCCESS
 		;;
 		RETRIEVEIMPORT)
 			echo RETRIEVEIMPORT-URL "https://archive.org/download/$item/$importlocation"

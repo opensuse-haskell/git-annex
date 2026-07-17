@@ -78,7 +78,7 @@ Here it's used to call the `getconfig` function which sets
 Now the main event, the LISTIMPORTABLECONTENTS request is
 sent when git-annex wants to import from your remote.
 It outputs 2 lines for each file in the remote,
-followed by IMPORTABLECONTENTEND.
+followed by LISTIMPORTABLECONTENTS-SUCCESS.
 
 In the example, the Internet Archive has a JSON API to get information
 about an item, and `jq` is used to extract the information it needs.
@@ -94,10 +94,10 @@ about an item, and `jq` is used to extract the information it needs.
     					echo IMPORTABLECONTENTIDENTIFIER "$sha1"
     				fi
     			done
-    			echo IMPORTABLECONTENTEND
+    			echo LISTIMPORTABLECONTENTS-SUCCESS
     		;;
 
-Don't worry too much about the parsing details of the above example though.
+Don't worry too much about the parsing details of the above example.
 This is where you'll code up something entirely different.
 
 The main thing you need to determine is what content identifier to use
@@ -110,6 +110,32 @@ remote. It's ok if it turns out to not be as unique as you think, because
 git-annex of course hashes the files itself, and will notice if a hash
 changed.
 
+The example above uses `curl` because it's easy and the Internet Archive
+does not need any authentication. If your resource does use authentication,
+you may want to let git-annex handle the url download for you, which will 
+let it do authentication as supported by `git-credential(1)`, as
+well as using its User-Agent etc. Here's how to do that:
+
+            LISTIMPORTABLECONTENTS)
+                echo DOWNLOAD-URL "https://archive.org/metadata/$item/files"
+                read res
+                set -- $res
+                case "$1" in
+                    DOWNLOAD-URL-SUCCESS)
+                        shift 1
+                        tmpfile="$@"
+                        # now process "$tmpfile" and output IMPORTABLECONTENT
+                        # and IMPORTABLECONTENTIDENTIFIER as before
+                        # (Left as an exersise for the reader.)
+                        echo LISTIMPORTABLECONTENTS-SUCCESS
+                    ;;
+                    DOWNLOAD-URL-FAILURE)
+                        shift 1
+                        echo LISTIMPORTABLECONTENTS-FAILURE "$@"
+                    ;;
+                esac
+    		;;
+
 Continuing on, and nearing the home stretch, the RETRIEVEIMPORT
 request is git-annex asking that a file be downloaded from the remote.
 (This uses an `$importlocation` while we've not dealt with setting
@@ -120,6 +146,7 @@ yet, see below.)
     		;;
 
 If anyone can download the url, perhaps with some HTTP basic auth,
+or other authentication supported by `git-credential(1)`,
 you can just tell git-annex what url to download and let it do
 the work. That's what the example above does.
 

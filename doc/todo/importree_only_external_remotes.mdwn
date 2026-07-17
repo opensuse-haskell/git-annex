@@ -40,7 +40,7 @@ only external remote in about 1 page of shell script:
 				echo DOWNLOAD-URL http://example.com/
 				read file
 				# parse $file here and output IMPORTABLECONTENT and IMPORTABLECONTENTIDENTIFIER lines
-				echo IMPORTABLECONTENTEND
+				echo LISTIMPORTABLECONTENTS-SUCCESS
 			;;
 			IMPORT)
 				shift 1

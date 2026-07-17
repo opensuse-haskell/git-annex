@@ -181,7 +181,8 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
 * `LISTIMPORTABLECONTENTS`  
   Used to get a list of all the files that are stored in the special 
   remote. A block of responses
-  can be made to this, which must always end with `IMPORTABLECONTENTEND`.
+  can be made to this, which must always end with
+  `LISTIMPORTABLECONTENTS-SUCCESS` or `LISTIMPORTABLECONTENTS-FAILURE.
   * `IMPORTABLECONTENT Size Name`  
     A file stored in the special remote. The Size is its size
     in bytes. The Name is the name of the file on the remote,
@@ -190,8 +191,11 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
     Always followed by `IMPORTABLECONTENTIDENTIFIER`.
   * `IMPORTABLECONTENTIDENTIFIER ContentIdentifier`  
     Provide the ContentIdentifier for the previous `CONTENT`.
-  * `IMPORTABLECONTENTEND`  
-    Indicates the end of the block of responses.
+  * `LISTIMPORTABLECONTENTS-SUCCESS`  
+    Indicates the end of the block of responses and success.
+  * `LISTIMPORTABLECONTENTS-FAILURE ErrorMsg`  
+    Indicates the end of the block of responses (which may be empty)
+    and failure.
   * `DELEGATE type=value [params]`  
     Delegate this request to a different type of special remote.
     See [[delegate_appendix]].
@@ -236,6 +240,10 @@ support a request, it can reply with `UNSUPPORTED-REQUEST`.
     Delegate this request to a different type of special remote.
     See [[delegate_appendix]].
 
+Note that the special remote can send `DOWNLOAD-URL` without negotiating
+support for it in the protocol, because versions of git-annex that support
+this also support `DOWNLOAD-URL`.
+
 ### import example
 
 The protocol starts off with VERSION etc as usual, and
@@ -261,7 +269,7 @@ Which responds:
 	IMPORTABLECONTENTIDENTIFIER 100 48511528411921470
 	IMPORTABLECONTENT 200 bar
 	IMPORTABLECONTENTIDENTIFIER 200 48511528411963410
-	IMPORTABLECONTENTEND
+	IMPORTABLECONTENTS-SUCCESS
 
 Next git-annex asks for the content of a file to be retrieved.
 

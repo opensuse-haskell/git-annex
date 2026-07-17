@@ -313,7 +313,8 @@ data Response
 	| IMPORTREQUIRED
 	| IMPORTABLECONTENT Size FilePath
 	| IMPORTABLECONTENTIDENTIFIER ContentIdentifier
-	| IMPORTABLECONTENTEND
+	| LISTIMPORTABLECONTENTS_SUCCESS
+	| LISTIMPORTABLECONTENTS_FAILURE ErrorMsg
 	| RETRIEVEIMPORT_SUCCESS
 	| RETRIEVEIMPORT_FAILURE ErrorMsg
 	| RETRIEVEIMPORT_URL URLString
@@ -363,7 +364,8 @@ instance Proto.Receivable Response where
 	parseCommand "IMPORTREQUIRED" = Proto.parse0 IMPORTREQUIRED
 	parseCommand "IMPORTABLECONTENT" = Proto.parse2 IMPORTABLECONTENT
 	parseCommand "IMPORTABLECONTENTIDENTIFIER" = Proto.parse1 IMPORTABLECONTENTIDENTIFIER
-	parseCommand "IMPORTABLECONTENTEND" = Proto.parse0 IMPORTABLECONTENTEND
+	parseCommand "LISTIMPORTABLECONTENTS-SUCCESS" = Proto.parse0 LISTIMPORTABLECONTENTS_SUCCESS
+	parseCommand "LISTIMPORTABLECONTENTS-FAILURE" = Proto.parse1 LISTIMPORTABLECONTENTS_FAILURE
 	parseCommand "RETRIEVEIMPORT-SUCCESS" = Proto.parse0 RETRIEVEIMPORT_SUCCESS
 	parseCommand "RETRIEVEIMPORT-FAILURE" = Proto.parse1 RETRIEVEIMPORT_FAILURE
 	parseCommand "RETRIEVEIMPORT-URL" = Proto.parse1 RETRIEVEIMPORT_URL
@@ -395,6 +397,7 @@ data RemoteRequest
 	| GETURLS Key String
 	| DEBUG String
 	| INFO String
+	| DOWNLOAD_URL URLString
 	deriving (Show)
 
 instance Proto.Receivable RemoteRequest where
@@ -420,12 +423,15 @@ instance Proto.Receivable RemoteRequest where
 	parseCommand "GETURLS" = Proto.parse2 GETURLS
 	parseCommand "DEBUG" = Proto.parse1 DEBUG
 	parseCommand "INFO" = Proto.parse1 INFO
+	parseCommand "DOWNLOAD-URL" = Proto.parse1 DOWNLOAD_URL
 	parseCommand _ = Proto.parseFail
 
 -- Responses to RemoteRequest.
 data RemoteResponse
 	= VALUE String
 	| CREDS String String
+	| DOWNLOAD_URL_SUCCESS FilePath
+	| DOWNLOAD_URL_FAILURE String
 	deriving (Show)
 
 instance Proto.Sendable RemoteResponse where
@@ -433,6 +439,10 @@ instance Proto.Sendable RemoteResponse where
 		[ "VALUE", Proto.serialize s ]
 	formatMessage (CREDS login password) = Proto.mkMessage
 		[ "CREDS", Proto.serialize login, Proto.serialize password ]
+	formatMessage (DOWNLOAD_URL_SUCCESS file) = Proto.mkMessage
+		[ "DOWNLOAD-URL-SUCCESS", Proto.serialize file ]
+	formatMessage (DOWNLOAD_URL_FAILURE msg) = Proto.mkMessage
+		[ "DOWNLOAD-URL-FAILURE", Proto.serialize msg ]
 
 -- Messages that can be sent at any time by either git-annex or the remote.
 data ExceptionalMessage

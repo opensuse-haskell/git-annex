@@ -1,6 +1,6 @@
 {- Temporary files.
  -
- - Copyright 2010-2025 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2026 Joey Hess <id@joeyh.name>
  -
  - License: BSD-2-clause
  -}
@@ -15,12 +15,15 @@ module Utility.Tmp (
 	withTmpFile,
 	withTmpFileIn,
 	openTmpFileIn,
+	removeTmpFile,
+	systemTmpDirectory,
 	relatedTemplate,
 	relatedTemplate',
 ) where
 
 import System.IO
 import Control.Monad.IO.Class
+import Control.Monad
 import System.IO.Error
 #ifndef mingw32_HOST_OS
 import Data.Char
@@ -48,6 +51,10 @@ openTmpFileIn dir template = F.openTempFile dir template
 	decoraterrror e = throwM $
 		let loc = ioeGetLocation e ++ " template " ++ decodeBS (fromOsPath template)
 		in annotateIOError e loc Nothing Nothing
+
+{- Remove a temporary file if it is still present. -}
+removeTmpFile :: OsPath -> IO ()
+removeTmpFile = void . tryIO . removeFile
 
 {- Runs an action like writeFileString, writing to a temp file first and
  - then moving it into place. The temp file is stored in the same
@@ -85,8 +92,12 @@ viaTmp a file content = bracketIO setup cleanup use
  - (or in "." if there is none) then removes the file. -}
 withTmpFile :: (MonadIO m, MonadMask m) => Template -> (OsPath -> Handle -> m a) -> m a
 withTmpFile template a = do
-	tmpdir <- liftIO $ catchDefaultIO (literalOsPath ".") getTemporaryDirectory
+	tmpdir <- liftIO systemTmpDirectory
 	withTmpFileIn tmpdir template a
+	
+{- The system's tmp directory (or "." if there is none). -} 
+systemTmpDirectory :: IO OsPath
+systemTmpDirectory = catchDefaultIO (literalOsPath ".") getTemporaryDirectory
 
 {- Runs an action with a tmp file located in the specified directory,
  - then removes the file.
@@ -100,7 +111,7 @@ withTmpFileIn tmpdir template a = bracket create remove use
 	create = liftIO $ openTmpFileIn tmpdir template
 	remove (name, h) = liftIO $ do
 		hClose h
-		tryIO $ removeFile name
+		removeTmpFile name
 	use (name, h) = a name h
 
 {- It's not safe to use a FilePath of an existing file as the template

@@ -34,6 +34,7 @@ import Remote.Helper.ExportImport
 import Remote.Helper.ReadOnly
 import Utility.Metered
 import Utility.Hash
+import Utility.Tmp
 import Types.Transfer
 import Logs.PreferredContent.Raw
 import Logs.RemoteState
@@ -597,12 +598,14 @@ listImportableContentsM external =
 	go c (Just (sz, loc)) (IMPORTABLECONTENTIDENTIFIER cid) =
 		Just $ return $ GetNextMessage $ 
 			go ((loc, (cid, sz)):c) Nothing
-	go c _ IMPORTABLECONTENTEND =
+	go c _ LISTIMPORTABLECONTENTS_SUCCESS =
 		result $ Just $
 			ImportableContentsComplete $ ImportableContents
 				{ importableContents = c
 				, importableHistory = []
 				}
+	go _ _ (LISTIMPORTABLECONTENTS_FAILURE err) =
+		giveup err
 	go _ _ (DELEGATE ps) = Just $ do
 		delegate <- getDelegateRemote external ps
 		Result <$> listImportableContents (importActions delegate)
@@ -721,18 +724,24 @@ handleRequest' st external req mp responsehandler
   where
 	go = do
 		sendMessage st req
-		loop
-	loop = receiveMessage st external responsehandler
-		(\rreq -> Just $ handleRemoteRequest rreq >> loop)
-		(\msg -> Just $ handleExceptionalMessage msg >> loop)
+		cleanupv <- liftIO $ atomically $ newTMVar []
+		loop cleanupv
+			`finally` cleanup cleanupv
+	
+	loop cleanupv = receiveMessage st external responsehandler
+		(\rreq -> Just $ handleRemoteRequest cleanupv rreq >> loop cleanupv)
+		(\msg -> Just $ handleExceptionalMessage msg >> loop cleanupv)
 
-	handleRemoteRequest (PROGRESS bytesprocessed) =
+	cleanup cleanupv = liftIO $
+		sequence =<< atomically (takeTMVar cleanupv)
+
+	handleRemoteRequest _ (PROGRESS bytesprocessed) =
 		maybe noop (\a -> liftIO $ a bytesprocessed) mp
-	handleRemoteRequest (DIRHASH k) = 
+	handleRemoteRequest _ (DIRHASH k) = 
 		send $ VALUE $ fromOsPath $ hashDirMixed def k
-	handleRemoteRequest (DIRHASH_LOWER k) = 
+	handleRemoteRequest _ (DIRHASH_LOWER k) = 
 		send $ VALUE $ fromOsPath $ hashDirLower def k
-	handleRemoteRequest (SETCONFIG setting value) =
+	handleRemoteRequest _ (SETCONFIG setting value) =
 		liftIO $ atomically $ do
 			ParsedRemoteConfig m c <- takeTMVar (externalConfig st)
 			let !m' = M.insert
@@ -747,13 +756,13 @@ handleRequest' st external req mp responsehandler
 			f <- takeTMVar (externalConfigChanges st)
 			let !f' = M.insert (Accepted setting) (Accepted value) . f
 			putTMVar (externalConfigChanges st) f'
-	handleRemoteRequest (GETCONFIG setting) = do
+	handleRemoteRequest _ (GETCONFIG setting) = do
 		value <- maybe "" fromProposedAccepted
 			. (M.lookup (Accepted setting))
 			. unparsedRemoteConfig
 			<$> liftIO (atomically $ readTMVar $ externalConfig st)
 		send $ VALUE value
-	handleRemoteRequest (SETCREDS setting login password) = case (externalUUID external, externalGitConfig external) of
+	handleRemoteRequest _ (SETCREDS setting login password) = case (externalUUID external, externalGitConfig external) of
 		(Just u, Just gc) -> do
 			pc <- liftIO $ atomically $ takeTMVar (externalConfig st)
 			pc' <- setRemoteCredPair' pc encryptionAlreadySetup gc
@@ -769,56 +778,78 @@ handleRequest' st external req mp responsehandler
 				let !f' = M.union configchanges . f
 				putTMVar (externalConfigChanges st) f'
 		_ -> senderror "cannot send SETCREDS here"
-	handleRemoteRequest (GETCREDS setting) = case (externalUUID external, externalGitConfig external) of
+	handleRemoteRequest _ (GETCREDS setting) = case (externalUUID external, externalGitConfig external) of
 		(Just u, Just gc) -> do
 			c <- liftIO $ atomically $ readTMVar $ externalConfig st
 			creds <- fromMaybe ("", "") <$> 
 				getRemoteCredPair c gc (credstorage setting u)
 			send $ CREDS (fst creds) (snd creds)
 		_ -> senderror "cannot send GETCREDS here"
-	handleRemoteRequest GETUUID = case externalUUID external of
+	handleRemoteRequest _ GETUUID = case externalUUID external of
 		Just u -> send $ VALUE $ fromUUID u
 		Nothing -> senderror "cannot send GETUUID here"
-	handleRemoteRequest GETGITDIR = 
+	handleRemoteRequest _ GETGITDIR = 
 		send . VALUE . fromOsPath =<< fromRepo Git.localGitDir
-	handleRemoteRequest GETGITREMOTENAME =
+	handleRemoteRequest _ GETGITREMOTENAME =
 		case externalRemoteName external of
 			Just n -> send $ VALUE n
 			Nothing -> senderror "git remote name not known"
-	handleRemoteRequest (SETWANTED expr) = case externalUUID external of
+	handleRemoteRequest _ (SETWANTED expr) = case externalUUID external of
 		Just u -> preferredContentSet u expr
 		Nothing -> senderror "cannot send SETWANTED here"
-	handleRemoteRequest GETWANTED = case externalUUID external of
+	handleRemoteRequest _ GETWANTED = case externalUUID external of
 		Just u -> do
 			expr <- fromMaybe "" . M.lookup u
 				<$> preferredContentMapRaw
 			send $ VALUE expr
 		Nothing -> senderror "cannot send GETWANTED here"
-	handleRemoteRequest (SETSTATE key state) =
+	handleRemoteRequest _ (SETSTATE key state) =
 		case externalRemoteStateHandle external of
 			Just h -> setRemoteState h key state
 			Nothing -> senderror "cannot send SETSTATE here"
-	handleRemoteRequest (GETSTATE key) =
+	handleRemoteRequest _ (GETSTATE key) =
 		case externalRemoteStateHandle external of
 			Just h -> do
 				state <- fromMaybe ""
 					<$> getRemoteState h key
 				send $ VALUE state
 			Nothing -> senderror "cannot send GETSTATE here"
-	handleRemoteRequest (SETURLPRESENT key url) =
+	handleRemoteRequest _ (SETURLPRESENT key url) =
 		setUrlPresent key url
-	handleRemoteRequest (SETURLMISSING key url) =
+	handleRemoteRequest _ (SETURLMISSING key url) =
 		setUrlMissing key url
-	handleRemoteRequest (SETURIPRESENT key uri) =
-		withurl (SETURLPRESENT key) uri
-	handleRemoteRequest (SETURIMISSING key uri) =
-		withurl (SETURLMISSING key) uri
-	handleRemoteRequest (GETURLS key prefix) = do
+	handleRemoteRequest cleanupv (SETURIPRESENT key uri) =
+		withurl cleanupv (SETURLPRESENT key) uri
+	handleRemoteRequest cleanupv (SETURIMISSING key uri) =
+		withurl cleanupv (SETURLMISSING key) uri
+	handleRemoteRequest _ (GETURLS key prefix) = do
 		mapM_ (send . VALUE) =<< getUrlsWithPrefix key prefix
 		send (VALUE "") -- end of list
-	handleRemoteRequest (DEBUG msg) = fastDebug "Remote.External" msg
-	handleRemoteRequest (INFO msg) = showInfo (UnquotedString msg)
-	handleRemoteRequest (VERSION _) = senderror "too late to send VERSION"
+	handleRemoteRequest _ (DEBUG msg) = fastDebug "Remote.External" msg
+	handleRemoteRequest _ (INFO msg) = showInfo (UnquotedString msg)
+	handleRemoteRequest cleanupv (DOWNLOAD_URL url) = do
+		case externalGitConfig external of
+			Just gc -> do
+				(tmpf, h) <- liftIO $ do
+					tmpdir <- systemTmpDirectory
+					openTmpFileIn tmpdir (literalOsPath "url")
+				liftIO $ hClose h
+				liftIO $ atomically $ do
+					l <- takeTMVar cleanupv
+					putTMVar cleanupv (removeTmpFile tmpf:l)
+				res <- withUrlOptions (Just gc) $
+					downloadUrl' False UnknownSize 
+						nullMeterUpdate Nothing [url]
+						tmpf
+				case res of
+					Right True -> 
+						send $ DOWNLOAD_URL_SUCCESS (fromOsPath tmpf)
+					Left err -> 
+						send $ DOWNLOAD_URL_FAILURE err
+					Right False -> 
+						send $ DOWNLOAD_URL_FAILURE "download failed"
+			_ -> senderror "cannot send DOWNLOAD-URL here"
+	handleRemoteRequest _ (VERSION _) = senderror "too late to send VERSION"
 
 	handleExceptionalMessage (ERROR err) = giveup $ "external special remote error: " ++ err
 
@@ -832,8 +863,8 @@ handleRequest' st external req mp responsehandler
 		}
 	  where
 		base = replace "/" "_" $ fromUUID u ++ "-" ++ setting
-			
-	withurl mk uri = handleRemoteRequest $ mk $
+	
+	withurl cleanupv mk uri = handleRemoteRequest cleanupv $ mk $
 		setDownloader (show uri) OtherDownloader
 
 sendMessage

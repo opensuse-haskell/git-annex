@@ -312,7 +312,7 @@ while read line; do
 		;;
 		LISTIMPORTABLECONTENTS)
 			find "$mydirectory" -type f -printf 'IMPORTABLECONTENT %s %P\nIMPORTABLECONTENTIDENTIFIER %s %T@\n'
-			echo IMPORTABLECONTENTEND
+			echo LISTIMPORTABLECONTENTS-SUCCESS
 		;;
 		IMPORT)
 			shift 1
