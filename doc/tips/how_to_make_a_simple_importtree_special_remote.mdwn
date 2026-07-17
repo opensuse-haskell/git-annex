@@ -1,0 +1,175 @@
+Would you like to treat some web resource as a git-annex special remote,
+importing a tree of files from it with [[git-annex-importree]]? This is
+really simple to build with a short shell script.
+
+As an example, see [[special_remotes/external/git-annex-remote-internetarchive]].
+This treats an [[special_remote/Internet_Archive]] item as an
+[[external_special_remote|special_remotes/external]].
+
+Using it looks like this:
+
+	> git-annex initremote mobydick type=external encryption=none \
+        externaltype=internetarchive importtree=yes item=moby_dick_librivox
+	> git-annex wanted mobydick include="*.mp3"
+	> git-annex import master --from mobydick
+	list mobydick ok
+	import mobydick mobydick_135_melville_64kb.mp3
+	...
+	> git merge mobydick/master --allow-unrelated-histories
+
+Here we'll walk through that example program and explain what it does,
+which is an easier start for you building you own than reading the
+[[doc/design/external_special_remote_protocol]] and 
+its [[import_appendix|doc/design/external_special_remote_protocol/export_and_import_appendix]].
+
+Starting off, it's a portable shell script. But of course you could use
+some other language, probably with better results.
+
+    #!/bin/sh
+    set -e
+
+This is using version 2 of the protocol, which we start off as follows.
+
+    echo VERSION 2
+
+Probably you'll want some configuration. In this case, it expects
+the user to provide an "item=" parameter, which is the Internet Archive
+item's name. The `GETCONFIG` message can be used to query for such parameters,
+and git-annex will respond with "VALUE whatever". This is a shell
+function since it's needed in a couple of different places below.
+
+    getconfig () {
+    	echo GETCONFIG item
+    	read resp
+    	item=$(echo "$resp" | sed 's/^VALUE \?//')
+    }
+
+Now the meat of the program, which is just a loop that reads lines from
+stdin and dispatches on requests that git-annex sends to it.
+
+    while read line; do
+    	set -- $line
+    	case "$1" in
+
+The INITREMOTE request is sent when `git-annex initremote` is run,
+and it's where you validate any configuration, like the "item" parameter.
+
+    		INITREMOTE)
+    			getconfig
+    			if [ -z "$item" ]; then
+    				echo INITREMOTE-FAILURE "Specify item="
+    			else
+    				echo INITREMOTE-SUCCESS
+    			fi
+    		;;
+
+The PREPARE request is sent when git-annex is starting to use the
+remote, and is just a place to do any one-time startup actions.
+Here it's used to call the `getconfig` function which sets
+"$item", which is used below.
+
+    		PREPARE)
+    			getconfig
+    			echo PREPARE-SUCCESS
+    		;;
+
+Now the main event, the LISTIMPORTABLECONTENTS request is
+sent when git-annex wants to import from your remote.
+It outputs 2 lines for each file in the remote,
+followed by IMPORTABLECONTENTEND.
+
+In the example, the Internet Archive has a JSON API to get information
+about an item, and `jq` is used to extract the information it needs.
+
+    		LISTIMPORTABLECONTENTS)
+    			curl --silent "https://archive.org/metadata/$item/files" | \
+    				jq -r '.result[] | (.name, .size, .sha1)' | \
+    			while read name; do
+    				read size
+    				read sha1
+    				if [ "$sha1" != null ]; then
+    					echo IMPORTABLECONTENT "$size" "$name"
+    					echo IMPORTABLECONTENTIDENTIFIER "$sha1"
+    				fi
+    			done
+    			echo IMPORTABLECONTENTEND
+    		;;
+
+Don't worry too much about the details of the above example though. This is
+where you'll code up something entirely different.
+
+The main thing you need to determine is what content identifier to use
+for a file in your remote. In the example, the Internet Archive has a handy
+sha1 available, which is a perfect content identifier. If you're not so
+lucky, you can use things like the size+mtime of the file as the content
+identifier. It just needs to be unique enough to uniquely identify a
+particular version of a file in the web resource that you're treating as a
+remote. It's ok if it turns out to not be as unique as you think, because
+git-annex of course hashes the files itself, and will notice if a hash
+changed.
+
+Continuing on, and nearing the home stretch, the RETRIEVEIMPORT
+request is git-annex asking that a file be downloaded from the remote.
+(This uses an `$importlocation` while we've not dealt with setting
+yet, see below.)
+
+If anyone can download the url, perhaps with some HTTP basic auth,
+you can just tell git-annex what url to download and let it do
+the work. That's what the example does.
+
+    		RETRIEVEIMPORT)
+    			echo RETRIEVEIMPORT-URL "https://archive.org/download/$item/$importlocation"
+    		;;
+
+If you need to download the url yourself, you'll instead need something
+like this:
+    		
+            RETRIEVEIMPORT)
+                shift 1
+                file="$@"
+                curl -o "$file" "https://archive.org/download/$item/$importlocation"
+    		;;
+
+Similarly, the CHECKPRESENTIMPORT request is git-annex just checking
+if the file still appears to be present in the remote. (It does not need to
+verify that the has the same content.)
+
+    		CHECKPRESENTIMPORT)
+    			key="$2"
+    			echo CHECKPRESENT-URL "$key" "https://archive.org/download/$item//$importlocation"
+    		;;
+
+And if you need to hit the url yourself, you could do something like this:
+
+            CHECKPRESENTIMPORT)
+                key="$2"
+                if curl --output /dev/null --silent --head --fail "https://archive.org/download/$item/$importlocation"; then
+                    echo CHECKPRESENTIMPORT-SUCCESS
+                else
+                    echo CHECKPRESENTIMPORT-FAILURE
+                fi
+    		;;
+
+And that's all! Well, all except for some necessary boilerplate code 
+to handle the rest of the protocol that you should need to modify,
+feel free to just copy the rest of this.
+
+    		IMPORTSUPPORTED)
+    			echo IMPORTREQUIRED
+    		;;
+			IMPORT)
+				shift 1
+				importlocation="$@"
+			;;
+    		INITREMOTE)
+    			echo INITREMOTE-SUCCESS
+    		;;
+    		*)
+    			echo UNSUPPORTED-REQUEST
+    		;;
+    	esac
+    done
+
+If you got this far and have a working program, please
+edit [[special_remotes]] and add it to the list of things
+that git-annex can use!
