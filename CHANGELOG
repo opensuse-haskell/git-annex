@@ -1,4 +1,4 @@
-git-annex (10.20260717) UNRELEASED; urgency=medium
+git-annex (10.20260717) upstream; urgency=medium
 
   * External special remote protocol extended to support import.
     Developers of external special remotes should consider if import makes
@@ -18,7 +18,7 @@ git-annex (10.20260717) UNRELEASED; urgency=medium
   * Avoid redundant hash verification after a hash verification fails.
   * Fix build with time-1.15.
 
- -- Joey Hess <id@joeyh.name>  Wed, 01 Jul 2026 14:12:59 -0400
+ -- Joey Hess <id@joeyh.name>  Mon, 20 Jul 2026 13:04:47 -0400
 
 git-annex (10.20260624) upstream; urgency=medium
 
