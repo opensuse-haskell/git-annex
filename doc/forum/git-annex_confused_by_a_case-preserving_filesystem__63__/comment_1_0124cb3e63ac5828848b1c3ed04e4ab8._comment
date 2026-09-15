@@ -1,0 +1,11 @@
+[[!comment format=mdwn
+ username="matteo@4122eaeed50d58332e6ae9e6ba7237fe81294399"
+ nickname="matteo"
+ avatar="http://cdn.libravatar.org/avatar/b113a0f7867c398c5e9c24646f8495b8"
+ subject="docker build"
+ date="2026-09-15T07:52:41Z"
+ content="""
+This issue still exists today with version 10.20260213
+
+I came across it while trying to run a docker build from macOS host to a linux image. All annex symlinks became broken inside of the image. Thank you for reporting this!
+"""]]
