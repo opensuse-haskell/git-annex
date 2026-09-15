@@ -1,0 +1,100 @@
+### Please describe the problem in your own words.
+
+I have a directory special remote with importtree=yes for which I have ran a `git annex import` to make the files stored there known to git-annex. The same directory is also available via ssh, so I have added another rsync special remote with importtree=yes and --sameas= the directory remote. The content tracking properly shows that they both have the same keys available. The issue is that get'ing a key from the rsync remote fails with the error message "no content identifier is recorded, unable to retrieve".
+
+
+### What steps will reproduce the problem?
+
+```
+mkdir importdir
+echo test1 > importdir/test1.txt
+echo test2 > importdir/test2.txt
+mkdir test-sameas-importtree
+cd test-sameas-importtree/
+git init
+git annex init
+git annex initremote importdir type=directory directory=../importdir importtree=yes encryption=none
+git annex import importdir --from importdir
+git annex drop --all --force
+git annex get --key SHA256E-s6--634b027b1b69e1242d40d53e312b3b4ac7710f55be81f289b549446ef6778bee.txt
+git annex initremote --sameas=importdir sameas-importdir type=directory directory=../importdir importtree=yes encryption=none
+git annex findkeys --in sameas-importdir
+git annex get --key SHA256E-s6--7d6fd7774f0d87624da6dcf16d0d3d104c3191e771fbe2f39c86aed4b2bf1a0f.txt --from sameas-importdir
+git annex get --key SHA256E-s6--7d6fd7774f0d87624da6dcf16d0d3d104c3191e771fbe2f39c86aed4b2bf1a0f.txt --from importdir
+```
+
+(full transcript of this sequence with outputs is below)
+
+
+### What version of git-annex are you using? On what operating system?
+
+```
+$ git annex version
+git-annex version: 10.20260717-g0c917920c80ab1e8cc3d8f5886537708949e1659
+build flags: Assistant Webapp Inotify DBus DesktopNotify TorrentParser MagicMime Benchmark Feeds Testsuite S3 WebDAV Servant OsPath Botan Blake3 XXH3
+dependency versions: aws-0.24.4 bloomfilter-2.0.1.3 crypton-1.0.4 DAV-1.3.4 feed-1.3.2.1 ghc-9.10.3 http-client-0.7.19 torrent-10000.1.3 uuid-1.3.16 yesod-1.6.2.1
+key/value backends: SHA256E SHA256 SHA512E SHA512 SHA224E SHA224 SHA384E SHA384 SHA3_256E SHA3_256 SHA3_512E SHA3_512 SHA3_224E SHA3_224 SHA3_384E SHA3_384 SKEIN256E SKEIN256 SKEIN512E SKEIN512 BLAKE2B256E BLAKE2B256 BLAKE2B512E BLAKE2B512 BLAKE2B160E BLAKE2B160 BLAKE2B224E BLAKE2B224 BLAKE2B384E BLAKE2B384 BLAKE2BP512E BLAKE2BP512 BLAKE2S256E BLAKE2S256 BLAKE2S160E BLAKE2S160 BLAKE2S224E BLAKE2S224 BLAKE2SP256E BLAKE2SP256 BLAKE2SP224E BLAKE2SP224 BLAKE3_256E BLAKE3_256 XXH3E XXH3 SHA1E SHA1 MD5E MD5 WORM URL GITBUNDLE GITMANIFEST VURL X*
+remote types: git gcrypt p2p S3 bup directory rsync web bittorrent webdav adb tahoe glacier ddar git-lfs httpalso borg rclone hook external compute mask
+operating system: linux x86_64
+supported repository versions: 8 9 10
+upgrade supported from repository versions: 0 1 2 3 4 5 6 7 8 9 10
+local repository version: 10
+```
+
+
+### Please provide any additional information below.
+
+[[!format sh """
+# If you can, paste a complete transcript of the problem occurring here.
+# If the problem is with the git-annex assistant, paste in .git/annex/daemon.log
+
+$ mkdir importdir
+$ echo test1 > importdir/test1.txt
+$ echo test2 > importdir/test2.txt
+$ mkdir test-sameas-importtree
+$ cd test-sameas-importtree/
+$ git init
+Leeres Git-Repository in /home/icg149/Playground/test-sameas-importtree/.git/ initialisiert
+$ git annex init
+init  ok
+(recording state in git...)
+$ git annex initremote importdir type=directory directory=../importdir importtree=yes encryption=none
+initremote importdir ok
+(recording state in git...)
+$ git annex import importdir --from importdir
+list importdir ok
+import importdir test2.txt 
+ok                                
+import importdir test1.txt 
+ok                                
+update refs/remotes/importdir/importdir ok
+(recording state in git...)
+$ git annex drop --all --force
+drop SHA256E-s6--634b027b1b69e1242d40d53e312b3b4ac7710f55be81f289b549446ef6778bee.txt ok
+drop SHA256E-s6--7d6fd7774f0d87624da6dcf16d0d3d104c3191e771fbe2f39c86aed4b2bf1a0f.txt ok
+(recording state in git...)
+$ git annex get --key SHA256E-s6--634b027b1b69e1242d40d53e312b3b4ac7710f55be81f289b549446ef6778bee.txt
+get SHA256E-s6--634b027b1b69e1242d40d53e312b3b4ac7710f55be81f289b549446ef6778bee.txt (from importdir...) ok
+(recording state in git...)
+$ git annex initremote --sameas=importdir sameas-importdir type=directory directory=../importdir importtree=yes encryption=none
+initremote sameas-importdir ok
+(recording state in git...)
+$ git annex findkeys --in sameas-importdir
+SHA256E-s6--634b027b1b69e1242d40d53e312b3b4ac7710f55be81f289b549446ef6778bee.txt
+SHA256E-s6--7d6fd7774f0d87624da6dcf16d0d3d104c3191e771fbe2f39c86aed4b2bf1a0f.txt
+$ git annex get --key SHA256E-s6--7d6fd7774f0d87624da6dcf16d0d3d104c3191e771fbe2f39c86aed4b2bf1a0f.txt --from sameas-importdir
+get SHA256E-s6--7d6fd7774f0d87624da6dcf16d0d3d104c3191e771fbe2f39c86aed4b2bf1a0f.txt (from sameas-importdir...) 
+  no content identifier is recorded, unable to retrieve
+failed
+get: 1 failed
+[ble: exit 1]
+$ git annex get --key SHA256E-s6--7d6fd7774f0d87624da6dcf16d0d3d104c3191e771fbe2f39c86aed4b2bf1a0f.txt --from importdir
+get SHA256E-s6--7d6fd7774f0d87624da6dcf16d0d3d104c3191e771fbe2f39c86aed4b2bf1a0f.txt (from importdir...) ok
+(recording state in git...)
+
+# End of transcript or log.
+"""]]
+
+### Have you had any luck using git-annex before? (Sometimes we get tired of reading bug reports all day and a lil' positive end note does wonders)
+
+
