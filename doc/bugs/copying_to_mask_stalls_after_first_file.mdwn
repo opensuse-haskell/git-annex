@@ -68,4 +68,6 @@ fsck f3.dat    # stalls here
 
 Plenty - and I think I must have used mask special remote with more than one file before.
 
+[[!tag projects/INM7]]
+
 > [[fixed|done]]
