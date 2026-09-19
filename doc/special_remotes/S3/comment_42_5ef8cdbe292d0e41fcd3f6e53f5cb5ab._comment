@@ -1,0 +1,13 @@
+[[!comment format=mdwn
+ username="gioele@678b7c03f524f2669b179b603f65352fcc16774e"
+ nickname="gioele"
+ avatar="http://cdn.libravatar.org/avatar/366dbda84e78aff8a8a070622aeb63ce"
+ subject="Can fileprefix be changed on S3 remotes?"
+ date="2026-09-19T22:28:36Z"
+ content="""
+git-annex stored a bunch of files on a S3 bucket under `foo/` and now I'd like to \"move\" them to `bar/`.
+
+Assuming I manually \"move\" the files on S3 to `bar/`, would `git annex enableremote s3 fileprefix=bar/` be enough to access the existing encrypted files?
+
+Or does `fileprefix` influence the S3 location of future files only?
+"""]]
