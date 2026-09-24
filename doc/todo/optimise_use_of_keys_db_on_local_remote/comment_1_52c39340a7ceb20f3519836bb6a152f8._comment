@@ -1,0 +1,14 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 1"""
+ date="2026-09-24T14:15:47Z"
+ content="""
+When this was filed in 2020 I'm not sure why it would do that,
+but later on [[!commit ba7ecbc6a9c3763e8152e4f46522d14a4ee2b59d]]
+made `quiesce` call `Database.Keys.closeDb` and so this is entirely the
+expected behavior.
+
+There is certainly the potential for less frequent use of `quiesce`
+avoiding this overhead though. It could eg wait 1 second after last
+use before quiescing.
+"""]]
