@@ -481,8 +481,8 @@ data ImportActions a = ImportActions
 	-- key.
 	, importKey :: a (Maybe (ImportLocation -> ContentIdentifier -> ByteSize -> MeterUpdate -> a (Maybe Key)))
 	-- Like retrieveExportWithContentIdentifier, but does not
-	-- need to guarantee that the file it retrieves has one
-	-- of the requested ContentIdentifiers.
+	-- need to guarantee that the file it retrieves corresponds
+	-- to any of the listed ContentIdentifiers.
 	, retrieveImport
 		:: ImportLocation
 		-> [ContentIdentifier]

@@ -452,20 +452,15 @@ adjustExportImport' isexport isimport isexportimport annexobjects r rs gc = do
 			else retrieveWithoutContentIdentifier $
 				retrieveFromExport getlocs k af dest p
 	
-	retrieveFromImport getlocs ciddbv k af dest p = do
+	retrieveFromImport getlocs ciddbv k _af dest p = do
 		cids <- getkeycids ciddbv k
-		if not (null cids)
-			then getlocs $ \loc ->
-				-- retrieveImport does not guarantee that
-				-- the file it retrieves has the content
-				-- identifier, so it must be strongly
-				-- verified.
-				stronglyverify $
-					snd <$> retrieveImport (importActions r) loc cids dest (Left k) p
-			-- In case a content identifier is somehow missing,
-			-- try this instead.
-			else retrieveWithoutContentIdentifier $
-				retrieveFromExport getlocs k af dest p
+		getlocs $ \loc ->
+			-- retrieveImport does not guarantee that
+			-- the file it retrieves corresponds to any 
+			-- content identifier, so it must be strongly
+			-- verified.
+			stronglyverify $
+				snd <$> retrieveImport (importActions r) loc cids dest (Left k) p
 
 	retrieveWithoutContentIdentifier a
 		| isexport = a
