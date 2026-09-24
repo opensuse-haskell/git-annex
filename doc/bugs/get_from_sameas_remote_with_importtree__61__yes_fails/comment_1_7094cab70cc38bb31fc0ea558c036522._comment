@@ -1,0 +1,25 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 1"""
+ date="2026-09-24T13:45:26Z"
+ content="""
+This happens because the meaning of a content identifier is dependent on
+the implementation of the special remote. Using a content identifier
+generated for a directory special remote with a rsync special remote will
+not work.
+
+So, for the --sameas remote, the content identifier is accessed using
+its annex-config-uuid rather than the annex-uuid. And that's why 
+it says no content identifier is recorded, since none has been stored
+using the annex-config-uuid.
+
+For this to work there would need to be another step taken to record
+the content identifiers for the --sameas remote. Which could be something
+like `git-annex import` from it -- except when I tried doing that, it
+doesn't record them, because it skips over already imported files.
+
+I doubt that needing a second import step would meet your needs though?
+
+It may be that the best fix for this is to prohibit initializing a --sameas
+remote with importtree=yes.
+"""]]
