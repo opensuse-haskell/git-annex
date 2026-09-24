@@ -1,0 +1,18 @@
+It would be useful in some cases to be able to have a local git remote
+that acts as a proxy to other remotes. That is not currently supported.
+See [[!commit f98605bce7ecfa7fd155d501accb2734d3e9a422]].
+
+Supporting this could be as easy as using git-annex-shell on the path of
+the local git remote and speaking P2P protocol to it.
+
+A possible complication with that: In between uses of a local git remote,
+git-annex is careful to flush files and close handles. That is to support
+removable drives, so nothing is lost if one is ejected while git-annex is
+running, and to make it possible to unmount them. If git-annex-shell 
+has to be spun up once per file, and then shut down afterwards, that might
+be quite slow. Possible approaches to deal with that would be a) document
+that a local git remote that acts as a proxy will keep a removable drive in
+use as long as git-annex is running or b) avoid tearing down the
+git-annex-shell for a few seconds so it's still available for the next use.
+
+[[!tag projects/INM7]]
