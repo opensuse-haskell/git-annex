@@ -1,0 +1,15 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 2"""
+ date="2026-09-24T14:23:45Z"
+ content="""
+A use case for this is having a directory special remote that is --sameas a
+rsync special remote. `git-annex import --fast` from the directory special
+remote imports the tree and that avoids needing to import from the rsync
+special remote, which would be much slower for a large data set.
+
+A second import step would be acceptable in this situation. 
+The user would need to make sure that the files on the remotes
+are unchanged from the directory import when running the rsync import.
+This seems like it could be handled as a special flag to `git-annex import`.
+"""]]
