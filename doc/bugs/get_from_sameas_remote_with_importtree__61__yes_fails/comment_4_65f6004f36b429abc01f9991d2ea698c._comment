@@ -1,0 +1,18 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 4"""
+ date="2026-09-24T15:35:02Z"
+ content="""
+Maybe this patch is ok to apply without worrying about those other cases.
+--sameas is not guaranteed to work for all combinations of special remotes
+and that's why [[tips/multiple_remotes_accessing_the_same_data_store]]
+documents combinations that work. 
+
+So it could just be documented that this one specific combination also works.
+And it happens to be a useful combination to support. If we later want some
+other combination like import from rsync followed by get from sameas
+directory to also work, the extra code can be written then to support it.
+(By eg making Remote.Directory not implement importActions using
+exportImportActions, or making its retrieveExportWithContentIdentifier
+not fail when the `[ContentIdentifier]` list is empty)
+"""]]
