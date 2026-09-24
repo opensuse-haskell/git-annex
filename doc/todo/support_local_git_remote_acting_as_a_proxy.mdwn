@@ -15,4 +15,4 @@ that a local git remote that acts as a proxy will keep a removable drive in
 use as long as git-annex is running or b) avoid tearing down the
 git-annex-shell for a few seconds so it's still available for the next use.
 
-[[!tag projects/INM7]]
+[[!tag projects/ICE4]]
