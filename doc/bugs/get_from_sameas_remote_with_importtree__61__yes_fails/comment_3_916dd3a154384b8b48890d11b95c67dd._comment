@@ -1,0 +1,55 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 3"""
+ date="2026-09-24T15:11:26Z"
+ content="""
+Following is a small patch that makes import from directory, followed by get
+from the sameas rsync work.
+
+Note that, import from rsync followed by get from sameas directory *won't*
+work with this patch. The reason is that directory special remotes support
+importree+exporttree. And even if they are only configured with exporttree,
+they currently verify ContentIdentifiers when retrieiving. And when no
+ContentIdentifier is known, it will fail.
+
+So, applying this patch seems like it would need remotes like directory to
+have a separate implementation of importActions, rather than the current way
+that exportImportActions is used to implement importActions. There are not
+too many remotes that support importtree+exporttree, so maybe that is worth
+doing.
+
+The other limitation of the patch is that import from rsync followed by get
+from sameas directory that is configured with importree+exporttree still
+won't work. And this approach cannot deal with that case.
+
+	diff --git a/Remote/Helper/ExportImport.hs b/Remote/Helper/ExportImport.hs
+	index 23bd86c1ec..7db9ddebfb 100644
+	--- a/Remote/Helper/ExportImport.hs
+	+++ b/Remote/Helper/ExportImport.hs
+	@@ -454,18 +454,13 @@ adjustExportImport' isexport isimport isexportimport annexobjects r rs gc = do
+	 	
+	 	retrieveFromImport getlocs ciddbv k af dest p = do
+	 		cids <- getkeycids ciddbv k
+	-		if not (null cids)
+	-			then getlocs $ \loc ->
+	-				-- retrieveImport does not guarantee that
+	-				-- the file it retrieves has the content
+	-				-- identifier, so it must be strongly
+	-				-- verified.
+	-				stronglyverify $
+	-					snd <$> retrieveImport (importActions r) loc cids dest (Left k) p
+	-			-- In case a content identifier is somehow missing,
+	-			-- try this instead.
+	-			else retrieveWithoutContentIdentifier $
+	-				retrieveFromExport getlocs k af dest p
+	+		getlocs $ \loc ->
+	+			-- retrieveImport does not guarantee that
+	+			-- the file it retrieves has any content
+	+			-- identifier, so it must be strongly
+	+			-- verified.
+	+			stronglyverify $
+	+				snd <$> retrieveImport (importActions r) loc cids dest (Left k) p
+	 
+	 	retrieveWithoutContentIdentifier a
+	 		| isexport = a
+"""]]
