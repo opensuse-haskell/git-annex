@@ -67,6 +67,6 @@ If you find combinations that work, please edit this page to list them.
   `git-annex export` to the directory remote.
   Once that is done, `git-annex get` will work from the rsync remote.
 * directory configured with importtree=yes and/or exporttree=yes and rsync configured with
-  importtree=yes
+  importtree=yes  
   Works same as the previous combination, since git-annex
   version 10.20260924.
