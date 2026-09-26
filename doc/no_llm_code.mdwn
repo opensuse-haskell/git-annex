@@ -118,6 +118,14 @@ changelog.
 git-annex supports being built with older versions. The botan build flag
 enables using botan for most things rather than crypton.
 
+### tls
+
+[tls](https://hackage.haskell.org/package/tls) since 2.4.4
+
+[First LLM generated code](https://github.com/haskell-tls/hs-tls/commit/218abdd67a4cde30854b5ca9b146b269da53bc07)
+
+git-annex supports being built with older versions.
+
 ### Cabal
 
 [First LLM generated code](https://github.com/haskell/cabal/commit/da8b314563feb15a3df7bc1baeef4b7aa08f7578)

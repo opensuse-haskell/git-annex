@@ -30,3 +30,4 @@ extra-deps:
 - yesod-static-1.6.1.2
 - magic-1.1
 - crypton-1.0.6
+- tls-2.1.8
