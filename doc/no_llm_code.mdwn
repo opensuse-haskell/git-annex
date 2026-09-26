@@ -111,9 +111,20 @@ changelog.
 
 ### crypton
 
-[cryton](https://hackage.haskell.org/package/crypton) since 1.1.0
+[crypton](https://hackage.haskell.org/package/crypton) since 1.1.0
 
 [First LLM generated code](https://github.com/kazu-yamamoto/crypton/commit/cfe36d439a075aa4cce72baafa8bbcc58dabf85b)
+
+Later LLM generated code includes large amounts of C code that
+seems likely to have attribution or licencing issues.
+For example, see
+[this issue](https://github.com/kazu-yamamoto/crypton/issues/232).
+
+The point of cryptonite was to package up industry standard C
+implementations of crypto functions in haskell. This is no longer
+that, and as such, does not seem like a trustworthly package to use.
+Unfortunately, it is a dependency of several other packages,
+including `tls`.
 
 git-annex supports being built with older versions. The botan build flag
 enables using botan for most things rather than crypton.
