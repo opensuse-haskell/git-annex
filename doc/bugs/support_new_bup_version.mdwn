@@ -1,0 +1,12 @@
+bup 0.34 or so changed in ways that breaks the bup special remote
+when not operating on a ssh remote. This affects `git-annex test`.
+
+--remote no longer accepts a local path, but only a host:path or
+some url forms (not file:// though even though it is documented to be
+supported).
+
+Instead, use eg `bup -d <path> split`. Will also work for `init`,
+even though the new bup does also support `bup init <path>`
+
+The `bup -d` approach seems to work with older versions of bup as
+well. --[[Joey]]
