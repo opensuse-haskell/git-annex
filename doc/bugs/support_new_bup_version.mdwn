@@ -10,3 +10,5 @@ even though the new bup does also support `bup init <path>`
 
 The `bup -d` approach seems to work with older versions of bup as
 well. --[[Joey]]
+
+> [[done]] --[[Joey]]

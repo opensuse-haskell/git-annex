@@ -1,6 +1,6 @@
 {- Using bup as a remote.
  -
- - Copyright 2011-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -41,7 +41,22 @@ import Annex.Perms
 import Utility.Metered
 import Types.ProposedAccepted
 
-type BupRepo = String
+data BupRepo
+	= BupRepoPath FilePath
+	| BupRepoRemote String
+
+parseBupRepo :: String -> BupRepo
+parseBupRepo s
+	| ':' `elem` s = BupRepoRemote s
+	| otherwise = BupRepoPath s
+
+serializeBupRepo :: BupRepo -> String
+serializeBupRepo (BupRepoPath p) = p
+serializeBupRepo (BupRepoRemote r) = r
+
+bupRepoLocal :: BupRepo -> Bool
+bupRepoLocal (BupRepoPath _) = True
+bupRepoLocal (BupRepoRemote _ ) = False
 
 remote :: RemoteType
 remote = specialRemoteType $ RemoteType
@@ -67,7 +82,7 @@ gen r u rc gc rs = do
 	c <- parsedRemoteConfig remote rc
 	bupr <- liftIO $ bup2GitRemote buprepo
 	cst <- remoteCost gc c $
-		if bupLocal buprepo
+		if bupRepoLocal buprepo
 			then nearlyCheapRemoteCost
 			else expensiveRemoteCost
 	(u', bupr') <- getBupUUID bupr u
@@ -86,7 +101,7 @@ gen r u rc gc rs = do
 		, removeKey = removeKeyDummy
 		, lockContent = Nothing
 		, checkPresent = checkPresentDummy
-		, checkPresentCheap = bupLocal buprepo
+		, checkPresentCheap = bupRepoLocal buprepo
 		, exportActions = exportUnsupported
 		, importActions = importUnsupported
 		, exportImportActions = exportImportUnsupported
@@ -97,18 +112,21 @@ gen r u rc gc rs = do
 		, config = c
 		, getRepo = return r
 		, gitconfig = gc
-		, localpath = if bupLocal buprepo && not (null buprepo)
-			then Just (toOsPath buprepo)
-			else Nothing
+		, localpath = case buprepo of
+			BupRepoPath p | not (null p) -> Just (toOsPath p)
+			_ -> Nothing
 		, remotetype = remote
-		, availability = if null buprepo
-			then pure LocallyAvailable
-			else checkPathAvailability (bupLocal buprepo) (toOsPath buprepo)
+		, availability = case buprepo of
+			BupRepoPath p
+				| null p -> pure LocallyAvailable
+				| otherwise ->
+					checkPathAvailability True (toOsPath p)
+			BupRepoRemote _ -> pure GloballyAvailable
 		, readonly = False
 		, appendonly = False
 		, untrustworthy = False
 		, mkUnavailable = return Nothing
-		, getInfo = return [("repo", buprepo)]
+		, getInfo = return [("repo", serializeBupRepo buprepo)]
 		, claimUrl = Nothing
 		, checkUrl = Nothing
 		, remoteStateHandle = rs
@@ -124,15 +142,17 @@ gen r u rc gc rs = do
 		(checkKey bupr')
 		this
   where
-	buprepo = fromMaybe (giveup "missing buprepo") $ remoteAnnexBupRepo gc
+	buprepo = maybe (giveup "missing buprepo") parseBupRepo $
+		remoteAnnexBupRepo gc
 
 bupSetup :: SetupStage -> Maybe UUID -> RemoteName -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
 bupSetup ss mu _ _ c gc = do
 	u <- maybe (liftIO genUUID) return mu
 
 	-- verify configuration is sane
-	let buprepo = maybe (giveup "Specify buprepo=") fromProposedAccepted $
-		M.lookup buprepoField c
+	let buprepo = maybe (giveup "Specify buprepo=") 
+		(parseBupRepo . fromProposedAccepted)
+		(M.lookup buprepoField c)
 	(c', _encsetup) <- encryptionSetup ss c gc
 
 	-- bup init will create the repository.
@@ -144,13 +164,15 @@ bupSetup ss mu _ _ c gc = do
 
 	-- The buprepo is stored in git config, as well as this repo's
 	-- persistent state, so it can vary between hosts.
-	gitConfigSpecialRemote u c' [("buprepo", buprepo)]
+	gitConfigSpecialRemote u c' [("buprepo", serializeBupRepo buprepo)]
 
 	return (c', u)
 
 bupParams :: String -> BupRepo -> [CommandParam] -> [CommandParam]
-bupParams command buprepo params = 
-	Param command : [Param "-r", Param buprepo] ++ params
+bupParams command (BupRepoPath buprepo) params = 
+	Param "-d" : Param buprepo : Param command : params
+bupParams command (BupRepoRemote buprepo) params = 
+	Param command : Param "-r" : Param buprepo : params
 
 bup :: String -> BupRepo -> [CommandParam] -> Annex Bool
 bup command buprepo params = do
@@ -295,19 +317,18 @@ getBupUUID r u
 			Right r' -> return (toUUID $ Git.Config.get configkeyUUID mempty r', r')
 			Left _ -> return (NoUUID, r)
 
-{- Converts a bup remote path spec into a Git.Repo. There are some
- - differences in path representation between git and bup. -}
+{- Converts a BupRepo into a Git.Repo. There are some
+ - differences in representation between git and bup. -}
 bup2GitRemote :: BupRepo -> IO Git.Repo
-bup2GitRemote "" = do
-	-- bup -r "" operates on ~/.bup
+bup2GitRemote (BupRepoPath "") = do
+	-- bup -d "" operates on ~/.bup
 	h <- myHomeDir
 	Git.Construct.fromPath $ toOsPath h </> literalOsPath ".bup"
-bup2GitRemote r
-	| bupLocal r = 
-		if "/" `isPrefixOf` r
-			then Git.Construct.fromPath (toOsPath r)
-			else giveup "please specify an absolute path"
-	| otherwise = Git.Construct.fromUrl False $ "ssh://" ++ host ++ slash dir
+bup2GitRemote (BupRepoPath r)
+	| "/" `isPrefixOf` r = Git.Construct.fromPath (toOsPath r)
+	| otherwise = giveup "please specify an absolute path"
+bup2GitRemote (BupRepoRemote r) = 
+	Git.Construct.fromUrl False $ "ssh://" ++ host ++ slash dir
   where
 	bits = splitc ':' r
 	host = fromMaybe "" $ headMaybe bits
@@ -328,9 +349,6 @@ bupRef k
 	| otherwise = "git-annex-" ++ show (digestToHash (sha2_256 (fromString shown)))
   where
 	shown = serializeKey k
-
-bupLocal :: BupRepo -> Bool
-bupLocal = notElem ':'
 
 {- Bup is not concurrency safe, so use a lock file. Only one writer process
  - should run at a time; multiple readers may run if no writer is running. -}
