@@ -1,0 +1,23 @@
+### Please describe the problem in your own words.
+
+crypton 1.1.0 switched from memory to ram, the latter providing the same interface with its own definitions. Thus, using memory is incompatible with crypton 1.1.0.
+
+### What steps will reproduce the problem?
+
+Build the latest release 10.20260901 against crypton 1.1.0.
+The build fails with an error message regarding mismatching types.
+
+### What version of git-annex are you using? On what operating system?
+
+* OS: Arch Linux
+* Kernel: Linux 7.2.6-arch2-1
+* GHC: 9.6.6
+* git-annex: 10.20260901
+* crypton: 1.1.0
+* memory: 0.18.0
+
+ram: 0.22.1
+
+### Please provide any additional information below.
+
+The relevant imports explicitly mention the memory module: `import "memory" ...` and `import qualified "memory" ...`. Without the explicit module mention, it would work as-is, as ram provides the same interface.
