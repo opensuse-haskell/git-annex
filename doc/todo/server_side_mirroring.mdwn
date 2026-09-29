@@ -1,0 +1,52 @@
+Use case is wanting to set up a server with a git-annex repository which is
+a mirror of an original repository.
+All git refs are mirrored, using eg `git push --mirror`.
+
+So, the git-annex branch cannot diverge. Or if it does, any divergence will get
+overwritten the next time the refs mirror is updated.
+
+The mirror can contain some, but not necessarily all annex objects as the
+original repository. If a client requents an annex object that is not
+present in the mirror, it transparently proxies the request to the original
+repository. It may also, optionally, cache the object in the mirror (if 
+the mirror's preferred content configuration wants it).
+
+A client dropping an object from the mirror would have it proxy the drop to
+the original repository, and only delete its cache if that drop succeeded.
+
+It seems at first that the mirror repository would need to have
+the same uuid as the original repository. Since the client sees the
+original git-annex branch, it only knows about the uuid in that branch
+for location tracking.
+
+But using the same uuid would bring in a ton of special cases and problems.
+Just a few of them are:
+* `git-annex get` in the mirror repository would fail to get files from the
+  original repository, because the local repo uuid is filtered out of the
+  remote list in `keyPossibilities'`.
+* The mirror couldn't have its own preferred content configuration.
+
+The mirror repository could have the same uuid as the original set in
+annex.uuid, so the client *thinks* it has the same uuid, but actually have
+a different uuid that is configured elsewhere. Make git-annex use that
+other uuid, and with annex.private set, it will never reach the git-annex
+branch.
+
+In the P2P protocol, `AUTH-SUCCESS` includes the server's uuid.
+That would need to be the original repository's uuid, to avoid a
+client thinking it's talking to the wrong repository.
+
+---
+
+Concretely, a mirror could be configured like this:
+
+    git remote add original http://example.com/foo
+    git pull --prune mirror
+    git config annex.mirroring original
+    git config annex.private true
+    git-annex init
+    # that sets annex.uuid to the discovered uuid of original
+    # and it sets annex.mirror-uuid to the repo's true uuid
+    git-annex mirror --from=original # optional
+
+[[!tag projects/INM7]]
