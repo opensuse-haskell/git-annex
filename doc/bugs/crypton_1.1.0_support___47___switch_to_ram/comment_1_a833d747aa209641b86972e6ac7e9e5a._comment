@@ -1,0 +1,9 @@
+[[!comment format=mdwn
+ username="vekhir@e0f2b370dc5ee632235b2b67ea19272db6560883"
+ nickname="vekhir"
+ avatar="http://cdn.libravatar.org/avatar/4c48a5ac216c1a5dc55c1653ed26a3a2"
+ subject="Alternative: botan instead of crypton"
+ date="2026-09-30T02:19:53Z"
+ content="""
+The botan flag allows avoiding the dependency on crypton, instead depending on botan which is free from LLM generated code and better supported. More info in the blog entry [no llm code](https://git-annex.branchable.com/no_llm_code/#index7h3).
+"""]]
