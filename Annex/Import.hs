@@ -55,7 +55,7 @@ import Types.KeySource
 import Messages.Progress
 import Utility.DataUnits
 import Utility.Metered
-import Utility.Hash (sha1s)
+import Utility.Hash (sha1s, hashByteString, digestToHash)
 import Logs.Import
 import Logs.Export
 import Logs.Location
@@ -72,7 +72,6 @@ import Backend.Utilities
 import Control.Concurrent.STM
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
-import qualified "memory" Data.ByteArray.Encoding as BA
 #ifdef mingw32_HOST_OS
 import qualified System.FilePath.Posix as Posix
 #endif
@@ -410,7 +409,7 @@ convertContentIdentifierTree mv _ ls = do
 		-- ok, hopefully. This checksum never needs to be verified
 		-- by git, which is why this does not bother to prefix the
 		-- cid with its length, like git would.
-		sha1 = Ref $ BA.convertToBase BA.Base16 $ sha1s cid
+		sha1 = Ref $ hashByteString $ digestToHash $ sha1s cid
 
 buildImportTreesGeneric
 	:: (Maybe TopFilePath -> [(ImportLocation, v)] -> Annex Tree)

@@ -22,7 +22,6 @@ module Annex.DirHashes (
 import Data.Default
 import Data.Bits
 import qualified Data.List.NonEmpty as NE
-import qualified "memory" Data.ByteArray as BA
 import qualified Data.ByteString as S
 
 import Common
@@ -80,8 +79,9 @@ hashDirLower n k = hashDirs n 3 $ S.take 6 $ hashByteString $ digestToHash $
 hashDirMixed :: HashLevels -> Hasher
 hashDirMixed n k = hashDirs n 2 $ S.pack $ take 4 $
 	concatMap display_32bits_as_dir $
-		encodeWord32 $ map fromIntegral $ BA.unpack $
-			md5s $ serializeKey' $ nonChunkKey k
+		encodeWord32 $ map fromIntegral $ 
+			S.unpack $ hashDigestByteString $
+				md5s $ serializeKey' $ nonChunkKey k
   where
 	encodeWord32 (b1:b2:b3:b4:rest) =
 		(shiftL b4 24 .|. shiftL b3 16 .|. shiftL b2 8 .|. b1)
