@@ -120,14 +120,21 @@ seems likely to have attribution or licencing issues.
 For example, see
 [this issue](https://github.com/kazu-yamamoto/crypton/issues/232).
 
+The developer 
+[states](https://kazu-yamamoto.hatenablog.jp/entry/2026/09/25/110313)
+that "I am not a cryptography expert, so I cannot write code that is
+both correct and performant." This begs the question: Does anyone
+understand and has anyone reviewed the LLM generated code?
+
 The point of cryptonite was to package up industry standard C
 implementations of crypto functions in haskell. This is no longer
 that, and as such, does not seem like a trustworthly package to use.
-Unfortunately, it is a dependency of several other packages,
-including `tls`.
 
 git-annex supports being built with older versions. The botan build flag
-enables using botan for most things rather than crypton.
+makes git-annex use botan rather than crypton.
+
+Unfortunately, crypton is a dependency of several other packages,
+including `tls`. 
 
 ### tls
 
