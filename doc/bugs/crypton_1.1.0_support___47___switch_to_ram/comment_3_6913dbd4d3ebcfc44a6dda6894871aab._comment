@@ -1,0 +1,10 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 3"""
+ date="2026-10-01T15:29:58Z"
+ content="""
+I suspect but have not verified that the problem is the use of memory in
+Utility/Hash/Crypton.hs, which is the only place it should touch crypton
+types. And it will probably need to be ifdefed in order to support old and
+new versions of crypton.
+"""]]
