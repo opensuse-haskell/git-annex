@@ -1,4 +1,4 @@
-{- Convenience wrapper around crypton's HMACs
+{- Convenience wrapper for HMACs, using 
  -
  - Copyright 2013-2026 Joey Hess <id@joeyh.name>
  -
@@ -7,28 +7,36 @@
 
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE OverloadedStrings, CPP #-}
 
 module Utility.HMAC (
 	Mac(..),
 	calcMac,
-	Digest,
 	props_macs_stable,
 ) where
 
+import Utility.Hash.Types
 import qualified Data.ByteString as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+#ifdef WITH_BOTAN
+import Botan.Low.MAC
+import Botan.Low.Hash hiding (HashDigest)
+import System.IO.Unsafe (unsafePerformIO)
+#else
+import Utility.Hash.Crypton (hashDigest)
 import "crypton" Crypto.MAC.HMAC hiding (Context)
 import "crypton" Crypto.Hash
+#endif
 
 data Mac = HmacSha1 | HmacSha224 | HmacSha256 | HmacSha384 | HmacSha512
 	deriving (Eq)
 
 calcMac
-	:: (forall a. Digest a -> t)    -- ^ applied to MAC'ed message
-	-> Mac          -- ^ MAC
-	-> S.ByteString -- ^ secret key
-	-> S.ByteString -- ^ message
+	:: (HashDigest -> t) -- ^ applied to MAC'ed message
+	-> Mac               -- ^ MAC
+	-> S.ByteString      -- ^ secret key
+	-> S.ByteString      -- ^ message
 	-> t
 calcMac f mac = case mac of
 	HmacSha1   -> use SHA1
@@ -37,14 +45,23 @@ calcMac f mac = case mac of
 	HmacSha384 -> use SHA384
 	HmacSha512 -> use SHA512
   where
-	use alg k m = f (hmacGetDigest (hmacWitnessAlg alg k m))
+#ifdef WITH_BOTAN
+	use alg k m = unsafePerformIO $ do
+		maccer <- macInit (hmac alg)
+		macSetKey maccer k
+		macUpdate maccer m
+		auth <- macFinal maccer
+		return (f (HashDigest auth))
+#else
+	use alg k m = f (hashDigest (hmacGetDigest (hmacWitnessAlg alg k m)))
 
 	hmacWitnessAlg :: HashAlgorithm a => a -> S.ByteString -> S.ByteString -> HMAC a
 	hmacWitnessAlg _ = hmac
+#endif
 
 -- Check that all the MACs continue to produce the same.
 props_macs_stable :: [(String, Bool)]
-props_macs_stable = map (\(desc, mac, result) -> (desc ++ " stable", calcMac show mac key msg == result))
+props_macs_stable = map (\(desc, mac, result) -> (desc ++ " stable", calcMac digestToHash mac key msg == result))
 	[ ("HmacSha1", HmacSha1, "46b4ec586117154dacd49d664e5d63fdc88efb51")
 	, ("HmacSha224", HmacSha224, "4c1f774863acb63b7f6e9daa9b5c543fa0d5eccf61e3ffc3698eacdd")
 	, ("HmacSha256", HmacSha256, "f9320baf0249169e73850cd6156ded0106e2bb6ad8cab01b7bbbebe6d1065317")

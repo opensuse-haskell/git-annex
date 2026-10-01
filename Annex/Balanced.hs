@@ -12,12 +12,13 @@ module Annex.Balanced where
 import Key
 import Types.UUID
 import Utility.HMAC
+import Utility.Hash.Types
 
 import Data.Maybe
 import qualified Data.List as L
 import Data.Bits (shiftL)
 import qualified Data.Set as S
-import qualified "memory" Data.ByteArray as BA
+import qualified Data.ByteString as B
 
 -- The Int is how many UUIDs to pick.
 type BalancedPicker = S.Set UUID -> Key -> Int -> [UUID]
@@ -34,9 +35,9 @@ balancedPicker s = \s' key num ->
   where
 	combineduuids = mconcat (map fromUUID (S.toAscList s))
 
-	tointeger :: Digest a -> Integer
+	tointeger :: HashDigest -> Integer
 	tointeger = L.foldl' (\i b -> (i `shiftL` 8) + fromIntegral b) 0 
-		. BA.unpack
+		. B.unpack . hashDigestByteString
 
 {- The selection for a given key never changes. -}
 prop_balanced_stable :: Bool

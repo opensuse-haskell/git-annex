@@ -64,6 +64,7 @@ module Utility.Hash.Crypton (
 	Context,
 	mkIncrementalHasher,
 	mkIncrementalVerifier,
+	hashDigest,
 ) where
 
 import qualified Data.ByteString as S

@@ -33,7 +33,7 @@ instance IsString Hash where
 instance NFData Hash
 
 -- the raw hash digest
-newtype HashDigest = HashDigest S.ByteString
+newtype HashDigest = HashDigest { hashDigestByteString :: S.ByteString }
 	deriving (Eq, Generic)
 
 digestToHash :: HashDigest -> Hash
