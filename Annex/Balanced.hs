@@ -11,7 +11,7 @@ module Annex.Balanced where
 
 import Key
 import Types.UUID
-import Utility.HMAC
+import Utility.Hash.HMAC
 import Utility.Hash.Types
 
 import Data.Maybe

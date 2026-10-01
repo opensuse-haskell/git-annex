@@ -1,4 +1,4 @@
-{- Convenience wrapper for HMACs, using 
+{- Convenience wrapper for HMACs
  -
  - Copyright 2013-2026 Joey Hess <id@joeyh.name>
  -
@@ -9,7 +9,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE OverloadedStrings, CPP #-}
 
-module Utility.HMAC (
+module Utility.Hash.HMAC (
 	Mac(..),
 	calcMac,
 	props_macs_stable,

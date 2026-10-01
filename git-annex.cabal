@@ -1119,7 +1119,7 @@ Executable git-annex
     Utility.Hash.Crypton
     Utility.Hash.Incremental
     Utility.Hash.Types
-    Utility.HMAC
+    Utility.Hash.HMAC
     Utility.HtmlDetect
     Utility.HumanNumber
     Utility.HumanTime
