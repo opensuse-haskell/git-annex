@@ -11,7 +11,6 @@
 module Utility.Hash.Types where
 
 import qualified Data.ByteString as S
-import "memory" Data.ByteArray
 import qualified "memory" Data.ByteArray.Encoding as BAE
 import Data.String
 import Control.DeepSeq
@@ -40,7 +39,3 @@ digestToHash :: HashDigest -> Hash
 digestToHash (HashDigest d) = Hash $ BAE.convertToBase BAE.Base16 d
 
 instance NFData HashDigest
-
-instance ByteArrayAccess HashDigest where
-	length (HashDigest d) = length d
-	withByteArray (HashDigest d) = withByteArray d
