@@ -1,11 +1,12 @@
 {- git-annex command
  -
- - Copyright 2014-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2014-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
 {-# LANGUAGE RankNTypes, DeriveFunctor, PackageImports, OverloadedStrings #-}
+{-# LANGUAGE CPP #-}
 
 module Command.TestRemote where
 
@@ -38,6 +39,9 @@ import Test.Framework
 import Test.Tasty
 import Test.Tasty.Runners
 import Test.Tasty.HUnit
+#ifdef WITH_TASTYTAP
+import Test.Tasty.Runners.TAP
+#endif
 import "crypto-api" Crypto.Random
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
@@ -47,13 +51,14 @@ import Control.Concurrent.STM hiding (check)
 import qualified Data.List.NonEmpty as NE
 
 cmd :: Command
-cmd = command "testremote" SectionTesting
+cmd = noMessages $ command "testremote" SectionTesting
 	"test transfers to/from a remote"
 	paramRemote (seek <$$> optParser)
 
 data TestRemoteOptions = TestRemoteOptions
 	{ testRemote :: RemoteName
 	, sizeOption :: ByteSize
+	, tapOutput :: Bool
 	, testReadonlyFile :: [FilePath]
 	}
 
@@ -64,6 +69,10 @@ optParser desc = TestRemoteOptions
 		( long "size" <> metavar paramSize
 		<> value (1024 * 1024)
 		<> help "base key size (default 1MiB)"
+		)
+	<*> switch
+		( long "tap"
+		<> help "use TAP output"
 		)
 	<*> many testreadonly
   where
@@ -99,13 +108,13 @@ start o = starting "testremote" (ActionItemOther (Just (UnquotedString (testRemo
 	let exportr = if Remote.readonly r'
 		then return Nothing
 		else exportTreeVariant cache r'
-	perform drs unavailr exportr ks
+	perform o drs unavailr exportr ks
   where
 	basesz = fromInteger $ sizeOption o
 	si = SeekInput [testRemote o]
 
-perform :: [Described (Annex (Maybe Remote))] -> Maybe Remote -> Annex (Maybe Remote) -> NE.NonEmpty Key -> CommandPerform
-perform drs unavailr exportr ks = do
+perform :: TestRemoteOptions -> [Described (Annex (Maybe Remote))] -> Maybe Remote -> Annex (Maybe Remote) -> NE.NonEmpty Key -> CommandPerform
+perform o drs unavailr exportr ks = do
 	st <- liftIO . newTVarIO =<< (,)
 		<$> Annex.getState id
 		<*> Annex.getRead id
@@ -115,13 +124,22 @@ perform drs unavailr exportr ks = do
 		(pure unavailr)
 		exportr
 		(NE.map (\k -> Described (desck k) (pure k)) ks)
-	ok <- case tryIngredients [consoleTestReporter] mempty tests of
+	ok <- case tryIngredients testingredients mempty tests of
 		Nothing -> error "No tests found!?"
 		Just act -> liftIO act
 	rs <- catMaybes <$> mapM getVal drs
 	next $ cleanup rs (NE.toList ks) ok
   where
 	desck k = unwords [ "key size", show (fromKey keySize k) ]
+	testingredients =
+		if tapOutput o
+#ifdef WITH_TASTYTAP
+			then [ tapRunner ]
+#else
+			then error "git-annex was built without --tap support"
+#endif
+			else []
+		++ [ consoleTestReporter ]
 
 remoteVariants :: RemoteVariantCache -> Described (Annex Remote) -> Int -> Bool -> [Described (Annex (Maybe Remote))]
 remoteVariants cache dr basesz fast = 

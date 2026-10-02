@@ -1,0 +1,9 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 4"""
+ date="2026-10-02T17:17:38Z"
+ content="""
+TAP output is now supported: `git-annex testremote --tap`
+
+It needs git-annex to be built with the TastyTap build flag.
+"""]]
