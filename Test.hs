@@ -266,7 +266,7 @@ testRemote testvariants remotetype setupremote =
 			cv <- annexeval cache
 			liftIO $ atomically $ putTMVar v
 				(r, (unavailr, (exportr, (ks, cv))))
-	go getv = Command.TestRemote.mkTestTrees runannex mkrs mkunavailr mkexportr (NE.fromList mkks)
+	go getv = Command.TestRemote.mkTestTrees runannex mkrs mkunavailr mkexportr (NE.fromList mkks) Nothing
 	  where
 		runannex = inmainrepo . annexeval
 		mkrs = if testvariants

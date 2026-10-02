@@ -41,6 +41,19 @@ is limited to checking various properties of downloading from it.
 
   This option can be repeated.
 
+  When this option is used, testremote will avoid changing the remote in
+  any way, even if it is not usually limited to readonly access.
+
+* `--ensure-readonly=file`
+
+  This tests that a remote only supports read access, by trying to send
+  content to it and remove content from it, both of which should not be
+  allowed by the remote's configuration. If it allows any writes, the test
+  will fail.
+
+  The file you specify must be present in the remote being tested,
+  and in the local repository.
+
 * `--size=NUnits`
 
   Tune the base size of generated objects. The default is 1MiB.

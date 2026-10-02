@@ -60,6 +60,7 @@ data TestRemoteOptions = TestRemoteOptions
 	, sizeOption :: ByteSize
 	, tapOutput :: Bool
 	, testReadonlyFile :: [FilePath]
+	, ensureReadonlyFile :: Maybe FilePath
 	}
 
 optParser :: CmdParamsDesc -> Parser TestRemoteOptions
@@ -75,10 +76,14 @@ optParser desc = TestRemoteOptions
 		<> help "use TAP output"
 		)
 	<*> many testreadonly
+	<*> optional (option str
+		( long "ensure-readonly" <> metavar paramFile
+		<> help "readonly test object (may be deleted from remote)"
+		))
   where
 	testreadonly = option str
 		( long "test-readonly" <> metavar paramFile
-		<> help "readonly test object"
+		<> help "readonly test object (will not be modified)"
 		)
 
 seek :: TestRemoteOptions -> CommandSeek
@@ -90,15 +95,17 @@ start o = starting "testremote" (ActionItemOther (Just (UnquotedString (testRemo
 	cache <- liftIO newRemoteVariantCache
 	r <- either giveup (disableExportTree cache)
 		=<< Remote.byName' (testRemote o)
-	ks <- case testReadonlyFile o of
-		[] -> if Remote.readonly r
-			then giveup "This remote is readonly, so you need to use the --test-readonly option."
-			else do
-				showAction "generating test keys"
-				NE.fromList
-					<$> mapM randKey (keySizes basesz fast)
-		fs -> NE.fromList <$> mapM (getReadonlyKey r . toOsPath) fs
-	let r' = if null (testReadonlyFile o)
+	ks <- if ensureReadonlyFile o == Nothing
+		then case testReadonlyFile o of
+			[] -> if Remote.readonly r
+				then giveup "This remote is readonly, so you need to use the --test-readonly option."
+				else gentestkeys fast
+			fs -> NE.fromList <$> mapM (getReadonlyKey r . toOsPath) fs
+		else gentestkeys fast
+	ensurereadonlyk <- case ensureReadonlyFile o of
+		Nothing -> pure Nothing
+		Just f -> Just <$> getReadonlyKey r (toOsPath f)
+	let r' = if null (testReadonlyFile o) && ensureReadonlyFile o == Nothing
 		then r
 		else r { Remote.readonly = True }
 	let drs = if Remote.readonly r'
@@ -108,13 +115,16 @@ start o = starting "testremote" (ActionItemOther (Just (UnquotedString (testRemo
 	let exportr = if Remote.readonly r'
 		then return Nothing
 		else exportTreeVariant cache r'
-	perform o drs unavailr exportr ks
+	perform o drs unavailr exportr ks ensurereadonlyk
   where
 	basesz = fromInteger $ sizeOption o
 	si = SeekInput [testRemote o]
+	gentestkeys fast = do
+		showAction "generating test keys"
+		NE.fromList <$> mapM randKey (keySizes basesz fast)
 
-perform :: TestRemoteOptions -> [Described (Annex (Maybe Remote))] -> Maybe Remote -> Annex (Maybe Remote) -> NE.NonEmpty Key -> CommandPerform
-perform o drs unavailr exportr ks = do
+perform :: TestRemoteOptions -> [Described (Annex (Maybe Remote))] -> Maybe Remote -> Annex (Maybe Remote) -> NE.NonEmpty Key -> Maybe Key -> CommandPerform
+perform o drs unavailr exportr ks ensurereadonlyk = do
 	st <- liftIO . newTVarIO =<< (,)
 		<$> Annex.getState id
 		<*> Annex.getRead id
@@ -123,7 +133,8 @@ perform o drs unavailr exportr ks = do
 		drs
 		(pure unavailr)
 		exportr
-		(NE.map (\k -> Described (desck k) (pure k)) ks)
+		(NE.map mkdesck ks)
+		(mkdesck <$> ensurereadonlyk)
 	ok <- case tryIngredients testingredients mempty tests of
 		Nothing -> error "No tests found!?"
 		Just act -> liftIO act
@@ -131,6 +142,7 @@ perform o drs unavailr exportr ks = do
 	next $ cleanup rs (NE.toList ks) ok
   where
 	desck k = unwords [ "key size", show (fromKey keySize k) ]
+	mkdesck k = Described (desck k) (pure k)
 	testingredients =
 		if tapOutput o
 #ifdef WITH_TASTYTAP
@@ -239,22 +251,31 @@ mkTestTrees
 	-> Annex (Maybe Remote)
 	-> Annex (Maybe Remote)
 	-> (NE.NonEmpty (Described (Annex Key)))
+	-> (Maybe (Described (Annex Key)))
 	-> [TestTree]
-mkTestTrees runannex mkrs mkunavailr mkexportr mkks = concat $
-	[ [ inOrderTestGroup "unavailable remote" (testUnavailable runannex mkunavailr (getVal (NE.head mkks))) ]
-	, [ inOrderTestGroup (desc mkr mkk) (test runannex (getVal mkr) (getVal mkk)) | mkk <- NE.toList mkks, mkr <- mkrs ]
-	, [ inOrderTestGroup (descexport mkk1 mkk2) (testExportTree runannex mkexportr (getVal mkk1) (getVal mkk2)) | mkk1 <- take 2 (NE.toList mkks), mkk2 <- take 2 (reverse (NE.toList mkks)) ]
-	]
+mkTestTrees runannex mkrs mkunavailr mkexportr mkks mkensurereadonlyk = concat $
+	case mkensurereadonlyk of
+		Nothing ->
+			[ [ inOrderTestGroup "unavailable remote" (testUnavailable runannex mkunavailr (getVal (NE.head mkks))) ]
+			, [ inOrderTestGroup (desc mkr mkk) (test runannex (getVal mkr) (getVal mkk)) | mkk <- NE.toList mkks, mkr <- mkrs ]
+			, [ inOrderTestGroup (descexport mkk1 mkk2) (testExportTree runannex mkexportr (getVal mkk1) (getVal mkk2)) | mkk1 <- take 2 (NE.toList mkks), mkk2 <- take 2 (reverse (NE.toList mkks)) ]
+			]
+		Just ensurereadonlyk ->
+			[ [ inOrderTestGroup (desc mkr mkk) (testEnsureReadOnly runannex (getVal mkr) (getVal mkk) (getVal ensurereadonlyk)) | mkk <- NE.toList mkks, mkr <- mkrs ]
+			]
    where
-	desc r k = intercalate "; " $ map unwords
+	desc r k = combinedescs
 		[ [ getDesc k ]
 		, [ getDesc r ]
+		, map getDesc $ maybeToList mkensurereadonlyk
 		]
-	descexport k1 k2 = intercalate "; " $ map unwords
+	descexport k1 k2 = combinedescs
 		[ [ "exporttree=yes" ]
 		, [ getDesc k1 ]
 		, [ getDesc k2 ]
+		, map getDesc $ maybeToList mkensurereadonlyk
 		]
+	combinedescs = intercalate "; " . map unwords . filter (not . null)
 
 test :: RunAnnex -> Annex (Maybe Remote) -> Annex Key -> [TestTree]
 test runannex mkr mkk =
@@ -324,6 +345,33 @@ test runannex mkr mkk =
 		tryNonAsync (Remote.retrieveKeyFile r k (AssociatedFile Nothing) dest nullMeterUpdate (RemoteVerify r)) >>= \case
 			Right v -> return (True, v)
 			Left _ -> return (False, UnVerified)
+	store r k = Remote.storeKey r k (AssociatedFile Nothing) Nothing nullMeterUpdate
+	remove r k = Remote.removeKey r Nothing k
+
+testEnsureReadOnly :: RunAnnex -> Annex (Maybe Remote) -> Annex Key -> Annex Key -> [TestTree]
+testEnsureReadOnly runannex mkr mkk mkensurereadonlyk =
+	[ check "removeKey when present fails" $ \r _ k ->
+		shouldfail $ runBool (remove r k)
+	, check "removeKey did not remove" $ \r _ k ->
+		present r k True
+	, check "removeKey when not present fails" $ \r k _ ->
+		shouldfail $ runBool (remove r k)
+	, check "storeKey when not present fails" $ \r k _ ->
+		shouldfail $ runBool (store r k)
+	]
+  where
+	check desc a = testCase desc $ do
+		let a' = mkr >>= \case
+			Just r -> do
+				k <- mkk
+				ensurereadonlyk <- mkensurereadonlyk
+				a r k ensurereadonlyk
+			Nothing -> return True
+		runannex a' @? "failed"
+	shouldfail a = tryNonAsync a >>= \case
+		Left _ -> return True
+		Right _ -> return False
+	present r k b = (== Right b) <$> Remote.hasKey r k
 	store r k = Remote.storeKey r k (AssociatedFile Nothing) Nothing nullMeterUpdate
 	remove r k = Remote.removeKey r Nothing k
 

@@ -1,0 +1,9 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 6"""
+ date="2026-10-02T17:48:34Z"
+ content="""
+Added --ensure-readonly option.
+
+I think that and the TAP support let this be closed.
+"""]]
