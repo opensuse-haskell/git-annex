@@ -3,7 +3,7 @@
  subject="""comment 2"""
  date="2026-10-02T14:33:10Z"
  content="""
-I have thought of three different ways to support concurrent tests with TAP
+I have thought of several different ways to support concurrent tests with TAP
 output:
 
 1. Include a TAP parser (or at least a parser for the subset of TAP that
@@ -20,6 +20,10 @@ output:
    processes can be concacenated easily. This would probably entail forking
    tasty-tap, but it is a small amount of code, so total code would
    probably be less than option #1.
+4. Clean up git-annex's hacks around parallelism and tasty by making
+   tasty itself support running the sub-test processes. That would leave
+   tasty-tap reporting on the collection of all the tasty test results at
+   the top level. This would be the best solution.
 
 However, I think this should be deferred to a later todo if it turns out to
 be needed.
