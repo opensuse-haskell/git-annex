@@ -1,0 +1,16 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 5"""
+ date="2026-10-02T17:30:10Z"
+ content="""
+> Now that you are saying this, is a new option even necessary?
+> --test-readonly already takes a filename that is expected to be present
+> on the remote, so instead of adding a new option --test-readonly could
+> ensure that this key can't be removed, and that a different key can't be
+> stored (and that removeKey succeeds on this not-present key).
+
+I think it needs a new option. Someone might be using --test-readonly with
+a file that they don't want to lose. Currently it never tries to remove a
+file from a readonly remote, so that is safe enough, though not really
+documented as such.
+"""]]
