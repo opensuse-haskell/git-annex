@@ -20,4 +20,7 @@ output:
    processes can be concacenated easily. This would probably entail forking
    tasty-tap, but it is a small amount of code, so total code would
    probably be less than option #1.
+
+However, I think this should be deferred to a later todo if it turns out to
+be needed.
 """]]
