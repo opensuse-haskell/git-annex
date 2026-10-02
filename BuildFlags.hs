@@ -83,6 +83,11 @@ buildFlags = filter (not . null)
 #ifdef WITH_NOLLMDEPENDENCIES
 	, "NoLLMDependencies"
 #endif
+#ifdef WITH_TASTYTAP
+	, "TastyTap"
+#else
+#warning Building without tasty-tap support.
+#endif
 	]
 
 -- Not a complete list, let alone a listing transitive deps, but only

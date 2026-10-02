@@ -21,6 +21,9 @@ import Test.Tasty.Options
 import Test.Tasty.Ingredients.Rerun
 import Test.Tasty.Ingredients.ConsoleReporter
 import qualified Test.Tasty.Patterns.Types as TP
+#ifdef WITH_TASTYTAP
+import Test.Tasty.Runners.TAP
+#endif
 import Options.Applicative.Types
 import Control.Concurrent
 import Control.Concurrent.Async
@@ -772,6 +775,23 @@ runFakeSsh (_host:cmd:[]) =
 		\_ _ _ pid -> exitWith =<< waitForProcess pid
 runFakeSsh ps = error $ "fake ssh option parse error: " ++ show ps
 
+testRunner :: TestOptions -> (Int -> Bool -> TestOptions -> [TestTree]) -> IO ()
+testRunner opts mkts
+	| fakeSsh opts = runFakeSsh (internalData opts)
+	| tapOutput opts = 
+#ifdef WITH_TASTYTAP
+		parallelTestRunner 1 opts mkts
+#else
+		error "git-annex was built without --tap support"
+#endif
+	| otherwise = do
+		numjobs <- case concurrentJobs opts of
+			Just NonConcurrent -> pure 1
+			Just (Concurrent n) -> pure n
+			Just ConcurrentPerCpu -> getNumProcessors
+			Nothing -> getNumProcessors
+		parallelTestRunner numjobs opts mkts
+
 {- Tests each TestTree in parallel, and exits with success/failure.
  -
  - Tasty supports parallel tests, but this does not use it, because
@@ -782,17 +802,8 @@ runFakeSsh ps = error $ "fake ssh option parse error: " ++ show ps
  - leave open are closed before finalCleanup is run at the end. This
  - prevents some failures to clean up after the test suite.
  -}
-parallelTestRunner :: TestOptions -> (Int -> Bool -> TestOptions -> [TestTree]) -> IO ()
-parallelTestRunner opts mkts = do
-	numjobs <- case concurrentJobs opts of
-		Just NonConcurrent -> pure 1
-		Just (Concurrent n) -> pure n
-		Just ConcurrentPerCpu -> getNumProcessors
-		Nothing -> getNumProcessors
-	parallelTestRunner' numjobs opts mkts
-
-parallelTestRunner' :: Int -> TestOptions -> (Int -> Bool -> TestOptions -> [TestTree]) -> IO ()
-parallelTestRunner' numjobs opts mkts
+parallelTestRunner :: Int -> TestOptions -> (Int -> Bool -> TestOptions -> [TestTree]) -> IO ()
+parallelTestRunner numjobs opts mkts
 	| fakeSsh opts = runFakeSsh (internalData opts)
 	| otherwise = go =<< Utility.Env.getEnv subenv
   where
@@ -808,6 +819,11 @@ parallelTestRunner' numjobs opts mkts
 		then 1
 		else numjobs * 2
 
+	mkts' crippledfilesystem
+		| tapOutput opts = 
+			[topLevelTestGroup $ mkts 1 crippledfilesystem opts]
+		| otherwise = mkts numparts crippledfilesystem opts
+
 	worker rs nvar a = do
 		(n, m) <- atomically $ do
 			(n, m) <- readTVar nvar
@@ -819,7 +835,12 @@ parallelTestRunner' numjobs opts mkts
 				r <- a n
 				worker (r:rs) nvar a
 	
-	summarizeresults a = do
+	summarizeresults a
+		| tapOutput opts = do
+			_ <- a
+			return ()
+		| otherwise = summarizeresults' a
+	summarizeresults' a = do
 		starttime <- getCurrentTime
 		(numts, exitcodes) <- a
 		duration <- Utility.HumanTime.durationSince starttime
@@ -846,8 +867,8 @@ parallelTestRunner' numjobs opts mkts
 			<$> Annex.Init.probeCrippledFileSystem'
 				(toOsPath tmpdir)
 				Nothing Nothing False
-		let ts = mkts numparts crippledfilesystem opts
-		let warnings = fst (tastyParser ts)
+		let ts = mkts' crippledfilesystem
+		let warnings = fst (tastyParser opts ts)
 		unless (null warnings) $ do
 			hPutStrLn stderr "warnings from tasty:"
 			mapM_ (hPutStrLn stderr) warnings
@@ -855,9 +876,11 @@ parallelTestRunner' numjobs opts mkts
 		args <- getArgs
 		pp <- fromOsPath <$> Annex.Path.programPath
 		termcolor <- hSupportsANSIColor stdout
-		let ps = if useColor (lookupOption tastyopts) termcolor
-			then "--color=always":args
-			else "--color=never":args
+		let ps = if tapOutput opts
+			then args
+			else if useColor (lookupOption tastyopts) termcolor
+				then "--color=always":args
+				else "--color=never":args
 		let runone n = do
 			let subdir = fromOsPath $ toOsPath tmpdir </> toOsPath (show n)
 			ensuredir subdir
@@ -875,9 +898,11 @@ parallelTestRunner' numjobs opts mkts
 	go (Just subenvval) = case readish subenvval of
 		Nothing -> error ("Bad " ++ subenv)
 		Just (n, crippledfilesystem) -> setTestEnv $ do
-			let ts = mkts numparts crippledfilesystem opts
-			let t = topLevelTestGroup [ ts !! (n - 1) ]
-			case tryIngredients ingredients tastyopts t of
+			let ts = mkts' crippledfilesystem
+			let t = if tapOutput opts
+				then ts !! 0
+				else topLevelTestGroup [ ts !! (n - 1) ]
+			case tryIngredients (ingredients opts) tastyopts t of
 				Nothing -> error "No tests found!?"
 				Just act -> ifM act
 					( exitSuccess
@@ -901,14 +926,20 @@ topLevelTestGroup = inOrderTestGroup "Tests"
 initTestsName :: String
 initTestsName = "Init Tests"
 
-tastyParser :: [TestTree] -> ([String], Parser Test.Tasty.Options.OptionSet)
-tastyParser ts = suiteOptionParser ingredients (topLevelTestGroup ts)
+tastyParser :: TestOptions -> [TestTree] -> ([String], Parser Test.Tasty.Options.OptionSet)
+tastyParser opts ts = suiteOptionParser (ingredients opts) (topLevelTestGroup ts)
 
-ingredients :: [Ingredient]
-ingredients =
-	[ listingTests
-	, rerunningTests [consoleTestReporter]
-	]
+ingredients :: TestOptions -> [Ingredient]
+ingredients opts =
+	listingTests :
+#ifdef WITH_TASTYTAP
+	if tapOutput opts
+		then [ tapRunner ]
+		else []
+#else
+	[]
+#endif
+	++ [ rerunningTests [consoleTestReporter] ]
 
 -- Prior to tasty 1.5.4, testGroup ran in order.
 #if ! MIN_VERSION_tasty(1,5,4)

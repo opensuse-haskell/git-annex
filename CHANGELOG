@@ -28,6 +28,7 @@ git-annex (10.20260902) UNRELEASED; urgency=medium
   * NoLLMDependencies: Update for tls.
   * Support bup 0.34, while also still working with previous versions.
   * When built with Botan, also use it for HMAC.
+  * test: Support --tap output when built with TastyTap build flag.
 
  -- Joey Hess <id@joeyh.name>  Wed, 02 Sep 2026 11:04:59 -0400
 

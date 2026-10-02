@@ -194,6 +194,10 @@ Flag XXH3
   Description: Enable XXH3 support
   Default: False
 
+Flag TastyTap
+  Description: Use tasty-tap to support git-annex test TAP output
+  Default: True
+
 source-repository head
   type: git
   location: https://git.joeyh.name/git/git-annex.git/
@@ -365,6 +369,10 @@ Executable git-annex
     CPP-Options: -DWITH_XXH3
     Other-Modules:
       Utility.Hash.XXH3
+
+  if flag(TastyTap)
+    Build-Depends: tasty-tap
+    CPP-Options: -DWITH_TASTYTAP
 
   if (os(windows))
     Build-Depends:

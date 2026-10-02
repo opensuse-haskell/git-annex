@@ -58,6 +58,12 @@ framework. Pass --help for details about those.
   It's a good idea to use `-J1` in combinaton with this, otherwise
   the output of concurrent tests will be mixed together.
 
+* `--tap`
+
+  Use TAP output (see https://testanything.org/).
+
+  Note that using this option prevents running tests in parallel.
+
 # SEE ALSO
 
 [[git-annex]](1)

@@ -1,6 +1,6 @@
 {- git-annex test data types.
  -
- - Copyright 2011-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -20,6 +20,7 @@ data TestOptions = TestOptions
 	, concurrentJobs :: Maybe Concurrency
 	, testGitConfig :: [(ConfigKey, ConfigValue)]
 	, testDebug :: Bool
+	, tapOutput :: Bool
 	, internalData :: CmdParams
 	}
 

@@ -98,7 +98,7 @@ import qualified Utility.Gpg
 
 optParser :: Parser TestOptions
 optParser = TestOptions
-	<$> snd (tastyParser (tests 1 False defaulttos))
+	<$> snd (tastyParser defaulttos (tests 1 False defaulttos))
 	<*> switch
 		( long "keep-failures"
 		<> help "preserve repositories on test failure"
@@ -121,6 +121,10 @@ optParser = TestOptions
 		( long "test-debug"
 		<> help "show debug messages for commands run by test suite"
 		)
+	<*> switch
+		( long "tap"
+		<> help "use TAP output"
+		)
 	<*> cmdParams "non-options are for internal use only"
   where
 	parseconfigvalue s = case break (== '=') s of
@@ -136,11 +140,12 @@ optParser = TestOptions
 		, concurrentJobs = Nothing
 		, testGitConfig = mempty
 		, testDebug = False
+		, tapOutput = False
 		, internalData = mempty
 		}
 
 runner :: TestOptions -> IO ()
-runner opts = parallelTestRunner opts tests
+runner opts = testRunner opts tests
 
 tests :: Int -> Bool -> TestOptions -> [TestTree]
 tests numparts crippledfilesystem opts = 
