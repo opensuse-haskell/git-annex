@@ -1,0 +1,47 @@
+[[!comment format=mdwn
+ username="vekhir@e0f2b370dc5ee632235b2b67ea19272db6560883"
+ nickname="vekhir"
+ avatar="http://cdn.libravatar.org/avatar/4c48a5ac216c1a5dc55c1653ed26a3a2"
+ subject="comment 4"
+ date="2026-10-03T00:01:09Z"
+ content="""
+For the 10.20260901 release, the two errors are
+
+```
+[ 41 of 757] Compiling Utility.Hash.Crypton ( Utility/Hash/Crypton.hs, dist/build/git-annex/git-annex-tmp/Utility/Hash/Crypton.dyn_o )
+
+Utility/Hash/Crypton.hs:227:27: error: [GHC-39999]
+    • No instance for ‘BA.ByteArrayAccess (Digest a)’
+        arising from a use of ‘BA.convert’
+    • In the second argument of ‘(.)’, namely ‘BA.convert’
+      In the expression: HashDigest . BA.convert
+      In an equation for ‘hashDigest’:
+          hashDigest = HashDigest . BA.convert
+    |
+227 | hashDigest = HashDigest . BA.convert
+    |                           ^^^^^^^^^^
+```
+and
+```
+[187 of 757] Compiling Annex.Balanced   ( Annex/Balanced.hs, dist/build/git-annex/git-annex-tmp/Annex/Balanced.dyn_o )
+
+Annex/Balanced.hs:39:19: error: [GHC-39999]
+    • No instance for ‘BA.ByteArrayAccess (Digest a)’
+        arising from a use of ‘BA.unpack’
+    • In the second argument of ‘(.)’, namely ‘BA.unpack’
+      In the expression:
+        L.foldl' (\ i b -> (i `shiftL` 8) + fromIntegral b) 0 . BA.unpack
+      In an equation for ‘tointeger’:
+          tointeger
+            = L.foldl' (\ i b -> (i `shiftL` 8) + fromIntegral b) 0 . BA.unpack
+   |
+39 |                 . BA.unpack
+   |                   ^^^^^^^^^
+```
+
+Going off `master`, the latter issue in Annex/Balanced.hs has been resolved while Utility/Hash/Crypton.hs is still affected.
+
+On a different note, I've tried building with botan-low, which failed to build due to the same issue above, i.e. Utility/Hash/Crypton.hs gets compiled even when using botan. I would expect that using botan would remove any use of crypton.
+
+I like your work regarding the use of LLMs even in dependencies. I wasn't previously aware that there were already so many (and so widely used!) projects that included LLM generated code.
+"""]]
