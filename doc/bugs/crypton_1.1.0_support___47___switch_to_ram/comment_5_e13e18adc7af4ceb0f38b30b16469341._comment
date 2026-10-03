@@ -1,0 +1,52 @@
+[[!comment format=mdwn
+ username="vekhir@e0f2b370dc5ee632235b2b67ea19272db6560883"
+ nickname="vekhir"
+ avatar="http://cdn.libravatar.org/avatar/4c48a5ac216c1a5dc55c1653ed26a3a2"
+ subject="comment 5"
+ date="2026-10-03T01:09:05Z"
+ content="""
+I had success compiling with crypton 1.1.0 with the patch below. We need to specify `ram` to use it in Utility/Hash/Crypton.hs
+
+```
+diff --git a/Utility/Hash/Crypton.hs b/Utility/Hash/Crypton.hs
+index 520dd2ff79..101ad3e00f 100644
+--- a/Utility/Hash/Crypton.hs
++++ b/Utility/Hash/Crypton.hs
+@@ -7,6 +7,7 @@
+
+ {-# LANGUAGE BangPatterns, PackageImports #-}
+ {-# LANGUAGE RankNTypes #-}
++{-# LANGUAGE CPP #-}
+
+ module Utility.Hash.Crypton (
+        sha1,
+@@ -70,7 +71,11 @@ module Utility.Hash.Crypton (
+ import qualified Data.ByteString as S
+ import qualified Data.ByteString.Lazy as L
+ import Data.IORef
++#if MIN_VERSION_crypton(1,1,0)
++import qualified \"ram\" Data.ByteArray as BA
++#else
+ import qualified \"memory\" Data.ByteArray as BA
++#endif
+ import \"crypton\" Crypto.Hash
+
+ import Utility.Hash.Types
+diff --git a/git-annex.cabal b/git-annex.cabal
+index 806d23f60f..0fe8bfa522 100644
+--- a/git-annex.cabal
++++ b/git-annex.cabal
+@@ -318,8 +318,9 @@ Executable git-annex
+     Build-Depends:
+      base (>= 4.18.2.1 && < 5),
+      persistent (>= 2.13.3),
+-     crypton,
+-     tls
++     crypton (>= 1.1.0),
++     ram (>= 0.20.1 && < 0.23),
++     tls (>= 2.3.0 && < 2.5)
+
+   -- Fully optimize for production.
+   if flag(Production)
+```
+"""]]
