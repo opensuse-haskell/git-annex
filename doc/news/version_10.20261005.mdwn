@@ -1,0 +1,33 @@
+git-annex 10.20261005 released with [[!toggle text="these changes"]]
+[[!toggleable text="""  * Fix mask special remote to not hang after the first file.
+  * Fix concurrent import of identical files to not fail with
+    "transfer already in progress".
+  * Also fixes possible data corruption when importing identical small files.
+  * Use git-credential in more situations when accessing urls that need a
+    password or other authentication, including the web, bittorrent and
+    httpalso special remotes, and git-annex addurl and importfeed.
+  * external: Fix DOWNLOAD-URL to support git-credential, which it
+    was already documented to do.
+  * external: Support git-credential in TRANSFER-RETRIEVE-URL,
+    CHECKPRESENT-URL, and RETRIEVEIMPORT-URL
+  * webdav: Fix a hang when credentials are not available.
+    (Reversion introduced in 10.20260901)
+  * export: Display a warning when the user is either in the middle
+    of an export conflict, or has been unsafely writing directly to a
+    remote that is configured with exporttree=yes but without
+    importtree=yes.
+  * importfeed: Avoid displaying empty feed titles.
+  * Allow retrieval from some importtree=yes special remotes when there
+    is no recorded content identifier.
+  * Automate updating remote.name.annexUrl for annex+https servers,
+    by re-probing the http remote's annex.url config when unable to connect
+    to an annex+https server.
+  * test, testremote: Support --tap output when built with TastyTap build
+    flag.
+  * testremote: Add --ensure-readonly mode.
+  * Support bup 0.34, while also still working with previous versions.
+  * When built with Botan, also use it for HMAC.
+  * NoLLMDependencies: Update for crypton.
+  * NoLLMDependencies: Update for tls.
+  * Support building with QuickCheck 2.17.
+  * Support building with crypton 1.1.0."""]]
