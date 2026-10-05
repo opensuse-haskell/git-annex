@@ -1,5 +1,9 @@
-git-annex (10.20260902) UNRELEASED; urgency=medium
+git-annex (10.20261005) upstream; urgency=medium
 
+  * Fix mask special remote to not hang after the first file.
+  * Fix concurrent import of identical files to not fail with
+    "transfer already in progress".
+  * Also fixes possible data corruption when importing identical small files.
   * Use git-credential in more situations when accessing urls that need a
     password or other authentication, including the web, bittorrent and
     httpalso special remotes, and git-annex addurl and importfeed.
@@ -7,33 +11,29 @@ git-annex (10.20260902) UNRELEASED; urgency=medium
     was already documented to do.
   * external: Support git-credential in TRANSFER-RETRIEVE-URL,
     CHECKPRESENT-URL, and RETRIEVEIMPORT-URL
-  * Fix concurrent import of identical files to not fail with
-    "transfer already in progress".
-  * Also fixes possible data corruption when importing identical small files.
-  * Support building with QuickCheck 2.17.
-  * importfeed: Avoid displaying empty feed titles.
   * webdav: Fix a hang when credentials are not available.
     (Reversion introduced in 10.20260901)
   * export: Display a warning when the user is either in the middle
     of an export conflict, or has been unsafely writing directly to a
     remote that is configured with exporttree=yes but without
     importtree=yes.
-  * Fix mask special remote to not hang after the first file.
+  * importfeed: Avoid displaying empty feed titles.
+  * Allow retrieval from some importtree=yes special remotes when there
+    is no recorded content identifier.
   * Automate updating remote.name.annexUrl for annex+https servers,
     by re-probing the http remote's annex.url config when unable to connect
     to an annex+https server.
-  * Allow retrieval from some importtree=yes special remotes when there
-    is no recorded content identifier.
-  * NoLLMDependencies: Update for crypton.
-  * NoLLMDependencies: Update for tls.
-  * Support bup 0.34, while also still working with previous versions.
-  * When built with Botan, also use it for HMAC.
   * test, testremote: Support --tap output when built with TastyTap build
     flag.
   * testremote: Add --ensure-readonly mode.
+  * Support bup 0.34, while also still working with previous versions.
+  * When built with Botan, also use it for HMAC.
+  * NoLLMDependencies: Update for crypton.
+  * NoLLMDependencies: Update for tls.
+  * Support building with QuickCheck 2.17.
   * Support building with crypton 1.1.0.
 
- -- Joey Hess <id@joeyh.name>  Wed, 02 Sep 2026 11:04:59 -0400
+ -- Joey Hess <id@joeyh.name>  Mon, 05 Oct 2026 10:44:55 -0400
 
 git-annex (10.20260901) upstream; urgency=medium
 
