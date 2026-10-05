@@ -31,6 +31,7 @@ git-annex (10.20260902) UNRELEASED; urgency=medium
   * test, testremote: Support --tap output when built with TastyTap build
     flag.
   * testremote: Add --ensure-readonly mode.
+  * Support building with crypton 1.1.0.
 
  -- Joey Hess <id@joeyh.name>  Wed, 02 Sep 2026 11:04:59 -0400
 

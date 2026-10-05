@@ -319,6 +319,7 @@ Executable git-annex
      base (>= 4.18.2.1 && < 5),
      persistent (>= 2.13.3),
      crypton,
+     ram,
      tls
 
   -- Fully optimize for production.

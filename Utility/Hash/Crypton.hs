@@ -5,7 +5,7 @@
  - License: BSD-2-clause
  -}
 
-{-# LANGUAGE BangPatterns, PackageImports #-}
+{-# LANGUAGE BangPatterns, PackageImports, CPP #-}
 {-# LANGUAGE RankNTypes #-}
 
 module Utility.Hash.Crypton (
@@ -70,7 +70,11 @@ module Utility.Hash.Crypton (
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Lazy as L
 import Data.IORef
+#if MIN_VERSION_crypton(1,1,0)
+import qualified "ram" Data.ByteArray as BA
+#else
 import qualified "memory" Data.ByteArray as BA
+#endif
 import "crypton" Crypto.Hash
 
 import Utility.Hash.Types

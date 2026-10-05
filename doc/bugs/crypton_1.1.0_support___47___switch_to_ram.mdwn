@@ -21,3 +21,5 @@ ram: 0.22.1
 ### Please provide any additional information below.
 
 The relevant imports explicitly mention the memory module: `import "memory" ...` and `import qualified "memory" ...`. Without the explicit module mention, it would work as-is, as ram provides the same interface.
+
+> [[fixed|done]] --[[Joey]]
