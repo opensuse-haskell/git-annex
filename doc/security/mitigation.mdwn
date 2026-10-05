@@ -1,0 +1,25 @@
+If you are aware of a [[security]] hole in git-annex that may be actively
+exploited and for which there is not currently any available fix, here
+is what you can do to avoid being exploited:
+
+* Stop all git-annex processes. This includes long-running processes
+  like [[git-annex-p2phttp]] and [[git-annex-remotedaemon]], as
+  well as the [[git-annex-assistant]].
+* Disable ssh `authorized_keys` configurations that run [[git-annex-shell]]
+* Disable automated processes that run git-annex, such as cron jobs.
+* If you operate any git repositories that others can access,
+  disable any git hooks that run git-annex.  
+  If the security hole in git-annex might expose information in the git
+  repository, take down the git repository as well.
+* Avoid running git-annex until the security problem is fixed.  
+  Note that you can still access files stored in local git-annex
+  repositories, without needing to run git-annex.  
+  It is also possible to access files stored by git-annex on remotes
+  without running git-annex; see [[future_proofing]].
+* If the security hole involves the encryption of data that git-annex
+  stored on a remote, you could choose to [[drop|git-annex-drop]] 
+  that data from the remote to avoid it being exposed.  
+  But avoid running git-annex to do so if you know or suspect that git-annex
+  is compromised in other ways.  
+* Please report the security hole so that a fix for it can be developed in
+  git-annex.

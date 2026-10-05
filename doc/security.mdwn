@@ -4,4 +4,9 @@ Subscribe to the RSS feed to be kept up to date.
 If you have discovered a security hole and wish to report it privately, see
 [[contact]].
 
-[[!inline pages="./security/* and !./security/*/* and !*/Discussion" rootpage="security" show="0"]]
+If you are aware of a security hole in git-annex that may be actively
+exploited and for which there is not currently any available fix, please
+see [[security/mitigation]] for some things you can do to avoid being
+exploited.
+
+[[!inline pages="./security/* and !./security/mitigation and !./security/*/* and !*/Discussion" rootpage="security" show="0"]]
