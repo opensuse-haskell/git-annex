@@ -1,0 +1,25 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 2"""
+ date="2026-10-05T14:24:11Z"
+ content="""
+Right, the reason I think the mirror would need to proxy the drop to the
+original repository is that otherwise a client who dropped a file from the
+mirror would update the location log to say it's no longer in the original
+repository when it still is.
+
+But the mirror doesn't need to be able to write to the original repository.
+It would be ok for a drop from it to fail if it is unable to proxy the drop
+on to the original repository. It could choose to always make drops
+from it fail. Or it could choose to drop its local cache on a drop, and
+then fail the drop, leaving the content in the original repository. Any of
+these options would leave the git-annex branch in a consistent state.
+
+(I didn't cover what the mirror would do if a client tried to store an
+object on it, but similar reasoning applies.)
+
+> In my sketch of an approach, I saw the mirror repo as an ordinary node in the git-annex network. It would have its own UUID, and therefore would require (ordinary) coordinated merges of the git-annex branch.
+
+That's fine as long as you don't mind having the git-annex ref not be
+identical to the one in the original repository.
+"""]]
