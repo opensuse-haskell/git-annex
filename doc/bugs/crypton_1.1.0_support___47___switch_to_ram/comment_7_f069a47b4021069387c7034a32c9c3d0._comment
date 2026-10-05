@@ -1,0 +1,10 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 7"""
+ date="2026-10-05T14:04:17Z"
+ content="""
+Thanks for the patch. I've gone with a patch that avoids depending on
+crypton 1.1.0. I've not been able to fully test it because I don't have a
+build plan yet that includes crypton 1.1.0. So please let me know if my
+patch somehow doesn't work.
+"""]]

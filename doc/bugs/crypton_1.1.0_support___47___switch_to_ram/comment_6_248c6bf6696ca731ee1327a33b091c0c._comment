@@ -1,0 +1,10 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 6"""
+ date="2026-10-05T13:57:58Z"
+ content="""
+> I would expect that using botan would remove any use of crypton.
+
+crypton is still used for blake2 and skein hashes, since botan does not
+implement those.
+"""]]
