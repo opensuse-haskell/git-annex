@@ -1,0 +1,9 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 1"""
+ date="2026-10-05T14:16:17Z"
+ content="""
+lackingcopies only supports "groupname:number" since version 10.20260901.
+Which was released 10 days before you posted this. So I'll bet you need to
+upgrade.
+"""]]
