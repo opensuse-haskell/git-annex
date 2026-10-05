@@ -1,0 +1,27 @@
+[[!comment format=mdwn
+ username="mih"
+ avatar="http://cdn.libravatar.org/avatar/f881df265a423e4f24eff27c623148fd"
+ subject="comment 1"
+ date="2026-10-05T09:04:33Z"
+ content="""
+I had to think about in which ways this maps back onto the approach I had in mind. I think the following statement is what I keep stumbling upon:
+
+> A client dropping an object from the mirror would have it proxy the drop to the original repository, and only delete its cache if that drop succeeded.
+
+This implies a much more symmetric relationship of the source and the mirror than what I had in mind. My concept of a mirror was that
+
+- it is partial (it would mirror the refs, but not all keys -- which makes mirror somewhat a misnomer)
+- operation requires no permissions for the source other than read
+
+I like the transparent key retrieval through the mirror from the source. I like the decision making on whether to cache a key via preferred content.
+
+I do not immediately see the advantage or necessity to bind the fate of a mirrored-key to its counterpart at the source. I think this is a consequence of
+
+> Since the client sees the original git-annex branch, it only knows about the uuid in that branch for location tracking.
+
+which further implies
+
+> The mirror repository could have the same uuid as the original set in annex.uuid, so the client thinks it has the same uuid, but actually have a different uuid that is configured elsewhere. Make git-annex use that other uuid, and with annex.private set, it will never reach the git-annex branch.
+
+In my sketch of an approach, I saw the mirror repo as an ordinary node in the git-annex network. It would have its own UUID, and therefore would require (ordinary) coordinated merges of the git-annex branch. But this would enable fully independent decision making re key availability/dropping at the \"mirror\".
+"""]]
