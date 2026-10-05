@@ -1,0 +1,14 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 1"""
+ date="2026-10-05T14:20:14Z"
+ content="""
+This looks like this bug:
+[[bugs/symlink_already_exists_when_adding_non-ascii_names]].
+
+And ".Sent.ibex.index.data" is indeed 21 bytes long. Although I don't think
+it begins with a utf-8 character.
+
+Upgrading to git-annex 10.20250929 or newer should fix this for you. If
+not, please file a bug report.
+"""]]
