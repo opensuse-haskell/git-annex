@@ -1,0 +1,26 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 4"""
+ date="2026-10-06T14:49:50Z"
+ content="""
+`git-annex export` filters the exported tree to the preferred content of
+the remote.
+
+That is not quite what's being asked for here, which is a new feature
+to generate a filtered tree. But clearly the code to create such a tree is
+all present in git-annex already.
+
+In fact, an export to a special remote does write such a tree to a git ref. 
+So a dummy special remote that didn't write any files would be one way to
+implement this. (Not a good way.)
+
+I think the question is, what command would it make sense to put this
+feature in? And this seems like a good candiate: `git-annex adjust --wanted`
+That would adjust the tree to only contain files that are preferred content
+of the local repository.
+
+That seems broadly useful. Although similarly to --hide-missing, with
+some preferred content expressions (ones using `present`), the adjusted
+branch sometimes needs to be updated when content availability changes,
+eg after a `git-annex drop`.
+"""]]
