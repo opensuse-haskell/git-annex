@@ -1,0 +1,8 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 2"""
+ date="2026-10-06T14:01:28Z"
+ content="""
+The previous release had no standalone builds, but there will be standalone
+builds released soon for the current one.
+"""]]
