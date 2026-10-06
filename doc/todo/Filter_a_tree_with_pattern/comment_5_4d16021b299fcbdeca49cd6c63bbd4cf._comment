@@ -1,0 +1,265 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 5"""
+ date="2026-10-06T15:49:28Z"
+ content="""
+The patch below implements that. Unfortunately, it fails to build
+due to several import cycles. I spent a while trying to resolve those
+and could not, so I think it would need HS boot files to get this to build.
+
+	diff --git a/Annex/AdjustedBranch.hs b/Annex/AdjustedBranch.hs
+	index a9ff9849c0..ec885e13c1 100644
+	--- a/Annex/AdjustedBranch.hs
+	+++ b/Annex/AdjustedBranch.hs
+	@@ -1,6 +1,6 @@
+	 {- adjusted branch
+	  -
+	- - Copyright 2016-2024 Joey Hess <id@joeyh.name>
+	+ - Copyright 2016-2026 Joey Hess <id@joeyh.name>
+	  -
+	  - Licensed under the GNU AGPL version 3 or higher.
+	  -}
+	@@ -60,6 +60,7 @@ import Annex.CatFile
+	 import Annex.Link
+	 import Annex.Content.Presence
+	 import Annex.CurrentBranch
+	+import Annex.Wanted
+	 import Types.CleanupActions
+	 import qualified Database.Keys
+	 import Config
+	@@ -87,10 +88,16 @@ instance AdjustTreeItem Adjustment where
+	 			Nothing -> return Nothing
+	 			Just t' -> adjustTreeItem l t'
+	 	adjustTreeItem (LockUnlockPresentAdjustment l) t = adjustTreeItem l t
+	+	adjustTreeItem (WantedAdjustment p Nothing) t = adjustTreeItem p t
+	+	adjustTreeItem (WantedAdjustment p (Just l)) t =
+	+		adjustTreeItem p t >>= \case
+	+			Nothing -> return Nothing
+	+			Just t' -> adjustTreeItem l t'
+	 
+	 	adjustmentIsStable (LinkAdjustment l) = adjustmentIsStable l
+	 	adjustmentIsStable (PresenceAdjustment p _) = adjustmentIsStable p
+	 	adjustmentIsStable (LockUnlockPresentAdjustment l) = adjustmentIsStable l
+	+	adjustmentIsStable (WantedAdjustment p _) = adjustmentIsStable p
+	 
+	 instance AdjustTreeItem LinkAdjustment where
+	 	adjustTreeItem UnlockAdjustment =
+	@@ -127,6 +134,15 @@ instance AdjustTreeItem LockUnlockPresentAdjustment where
+	 	adjustmentIsStable UnlockPresentAdjustment = False
+	 	adjustmentIsStable LockPresentAdjustment = True
+	 
+	+instance AdjustTreeItem WantedAdjustment where
+	+	adjustTreeItem HideUnwantedAdjustment = 
+	+		ifWanted noAdjust hideAdjust
+	+	adjustTreeItem ShowUnwantedAdjustment =
+	+		noAdjust
+	+
+	+	adjustmentIsStable HideUnwantedAdjustment = False
+	+	adjustmentIsStable ShowUnwantedAdjustment = True
+	+
+	 ifSymlink
+	 	:: (TreeItem -> Annex a)
+	 	-> (TreeItem -> Annex a)
+	@@ -143,7 +159,21 @@ ifPresent
+	 	-> Annex (Maybe TreeItem)
+	 ifPresent ispresent notpresent ti@(TreeItem _ _ s) =
+	 	catKey s >>= \case
+	-		Just k -> ifM (inAnnex k) (ispresent ti, notpresent ti)
+	+		Just k -> ifM (inAnnex k) 
+	+			(ispresent ti, notpresent ti)
+	+		Nothing -> return (Just ti)
+	+
+	+ifWanted
+	+	:: (TreeItem -> Annex (Maybe TreeItem))
+	+	-> (TreeItem -> Annex (Maybe TreeItem))
+	+	-> TreeItem
+	+	-> Annex (Maybe TreeItem)
+	+ifWanted iswanted notwanted ti@(TreeItem topf _ s) =
+	+	catKey s >>= \case
+	+		Just k -> do
+	+			f <- inRepo $ fromTopFilePath topf
+	+			ifM (wantGet NoLiveUpdate True (Just k) f)
+	+				(iswanted ti, notwanted ti)
+	 		Nothing -> return (Just ti)
+	 
+	 noAdjust :: TreeItem -> Annex (Maybe TreeItem)
+	diff --git a/Annex/AdjustedBranch/Name.hs b/Annex/AdjustedBranch/Name.hs
+	index 5a85b6ef9a..41ed48936a 100644
+	--- a/Annex/AdjustedBranch/Name.hs
+	+++ b/Annex/AdjustedBranch/Name.hs
+	@@ -1,6 +1,6 @@
+	 {- adjusted branch names
+	  -
+	- - Copyright 2016-2020 Joey Hess <id@joeyh.name>
+	+ - Copyright 2016-2026 Joey Hess <id@joeyh.name>
+	  -
+	  - Licensed under the GNU AGPL version 3 or higher.
+	  -}
+	@@ -39,6 +39,10 @@ instance SerializeAdjustment Adjustment where
+	 		serializeAdjustment p <> "-" <> serializeAdjustment l
+	 	serializeAdjustment (LockUnlockPresentAdjustment l) =
+	 		serializeAdjustment l
+	+	serializeAdjustment (WantedAdjustment p Nothing) =
+	+		serializeAdjustment p
+	+	serializeAdjustment (WantedAdjustment p (Just l)) = 
+	+		serializeAdjustment p <> "-" <> serializeAdjustment l
+	 	deserializeAdjustment s = 
+	 		(LinkAdjustment <$> deserializeAdjustment s)
+	 			<|>
+	@@ -47,6 +51,10 @@ instance SerializeAdjustment Adjustment where
+	 		(PresenceAdjustment <$> deserializeAdjustment s <*> pure Nothing)
+	 			<|>
+	 		(LockUnlockPresentAdjustment <$> deserializeAdjustment s)
+	+			<|>
+	+		(WantedAdjustment <$> deserializeAdjustment s1 <*> pure (deserializeAdjustment s2))
+	+			<|>
+	+		(WantedAdjustment <$> deserializeAdjustment s <*> pure Nothing)
+	 	  where
+	 		(s1, s2) = separate' (== (fromIntegral (ord '-'))) s
+	 
+	@@ -75,6 +83,13 @@ instance SerializeAdjustment LockUnlockPresentAdjustment where
+	 	deserializeAdjustment "lockpresent" = Just LockPresentAdjustment
+	 	deserializeAdjustment _ = Nothing
+	 
+	+instance SerializeAdjustment WantedAdjustment where
+	+	serializeAdjustment HideUnwantedAdjustment = "hideunwanted"
+	+	serializeAdjustment ShowUnwantedAdjustment = "showunwanted"
+	+	deserializeAdjustment "hideunwanted" = Just HideUnwantedAdjustment
+	+	deserializeAdjustment "showunwanted" = Just ShowUnwantedAdjustment
+	+	deserializeAdjustment _ = Nothing
+	+
+	 newtype AdjBranch = AdjBranch { adjBranch :: Branch }
+	 
+	 originalToAdjusted :: OrigBranch -> Adjustment -> AdjBranch
+	diff --git a/CHANGELOG b/CHANGELOG
+	index ea4832f783..207c68d8fd 100644
+	--- a/CHANGELOG
+	+++ b/CHANGELOG
+	@@ -1,3 +1,10 @@
+	+git-annex (10.20261007) UNRELEASED; urgency=medium
+	+
+	+  * adjust --wanted: New option to make an adjusted branch containing only
+	+    wanted files.
+	+
+	+ -- Joey Hess <id@joeyh.name>  Tue, 06 Oct 2026 11:03:57 -0400
+	+
+	 git-annex (10.20261006) upstream; urgency=medium
+	 
+	   * Fix stack build.
+	diff --git a/Types/AdjustedBranch.hs b/Types/AdjustedBranch.hs
+	index 3c73d5e06c..422fe7da5c 100644
+	--- a/Types/AdjustedBranch.hs
+	+++ b/Types/AdjustedBranch.hs
+	@@ -1,6 +1,6 @@
+	 {- adjusted branch types
+	  -
+	- - Copyright 2016-2020 Joey Hess <id@joeyh.name>
+	+ - Copyright 2016-2026 Joey Hess <id@joeyh.name>
+	  -
+	  - Licensed under the GNU AGPL version 3 or higher.
+	  -}
+	@@ -11,6 +11,7 @@ data Adjustment
+	 	= LinkAdjustment LinkAdjustment
+	 	| PresenceAdjustment PresenceAdjustment (Maybe LinkAdjustment)
+	 	| LockUnlockPresentAdjustment LockUnlockPresentAdjustment
+	+	| WantedAdjustment WantedAdjustment (Maybe LinkAdjustment)
+	 	deriving (Show, Eq)
+	 
+	 data LinkAdjustment
+	@@ -30,6 +31,11 @@ data LockUnlockPresentAdjustment
+	 	| LockPresentAdjustment
+	 	deriving (Show, Eq)
+	 
+	+data WantedAdjustment
+	+	= HideUnwantedAdjustment
+	+	| ShowUnwantedAdjustment
+	+	deriving (Show, Eq)
+	+
+	 -- Adjustments have to be able to be reversed, so that commits made to the
+	 -- adjusted branch can be reversed to the commit that would have been made
+	 -- without the adjustment and applied to the original branch.
+	@@ -43,6 +49,8 @@ instance ReversableAdjustment Adjustment where
+	 		PresenceAdjustment (reverseAdjustment p) (fmap reverseAdjustment ml)
+	 	reverseAdjustment (LockUnlockPresentAdjustment l) =
+	 		LockUnlockPresentAdjustment (reverseAdjustment l)
+	+	reverseAdjustment (WantedAdjustment l ml) = 
+	+		WantedAdjustment (reverseAdjustment l) (fmap reverseAdjustment ml)
+	 
+	 instance ReversableAdjustment LinkAdjustment where
+	 	reverseAdjustment UnlockAdjustment = LockAdjustment
+	@@ -59,6 +67,11 @@ instance ReversableAdjustment LockUnlockPresentAdjustment where
+	 	reverseAdjustment UnlockPresentAdjustment = LockPresentAdjustment
+	 	reverseAdjustment LockPresentAdjustment = UnlockPresentAdjustment
+	 
+	+instance ReversableAdjustment WantedAdjustment where
+	+	reverseAdjustment HideUnwantedAdjustment = ShowUnwantedAdjustment
+	+	reverseAdjustment ShowUnwantedAdjustment = HideUnwantedAdjustment
+	+
+	 adjustmentHidesFiles :: Adjustment -> Bool
+	 adjustmentHidesFiles (PresenceAdjustment HideMissingAdjustment _) = True
+	+adjustmentHidesFiles (WantedAdjustment HideUnwantedAdjustment _) = True
+	 adjustmentHidesFiles _ = False
+	diff --git a/doc/git-annex-adjust.mdwn b/doc/git-annex-adjust.mdwn
+	index eccdf843cf..693a4285a2 100644
+	--- a/doc/git-annex-adjust.mdwn
+	+++ b/doc/git-annex-adjust.mdwn
+	@@ -4,7 +4,7 @@ git-annex adjust - enter an adjusted branch
+	 
+	 # SYNOPSIS
+	 
+	-git annex adjust `--unlock|--lock|--fix|--hide-missing [--unlock|--lock|--fix]|--unlock-present`
+	+git annex adjust `--unlock|--lock|--fix|--hide-missing|--unlock-present|--wanted`
+	 
+	 # DESCRIPTION
+	 
+	@@ -37,7 +37,7 @@ To avoid those problems, use `git annex merge otherbranch`.
+	 
+	 Re-running this command with the same options
+	 while inside the adjusted branch will update the adjusted branch
+	-as necessary (eg for `--hide-missing` and `--unlock-present`), 
+	+as necessary (eg for `--hide-missing`, `--unlock-present`, and `--wanted`), 
+	 and will also propagate commits back to the original branch.
+	 
+	 # OPTIONS
+	@@ -119,6 +119,21 @@ and will also propagate commits back to the original branch.
+	   set the `annex.adjustedbranchrefresh` config. Or use `git-annex sync
+	   --content`, which updates the branch after transferring content.
+	 
+	+* `--wanted`
+	+
+	+  Only include annexed files in the adjusted branch when they are preferred
+	+  content of the repository, as configured by `git-annex wanted`.
+	+
+	+  Note that when the preferred content expression uses `present`, files are
+	+  only wanted when their content is present. The adjusted branch is not
+	+  immediately changed when content availability changes. To update the
+	+  adjusted branch to reflect changes to content availability, run
+	+  `git-annex adjust --wanted` again. Or, to automate updates,
+	+  set the `annex.adjustedbranchrefresh` config.
+	+  
+	+  The `--wanted` option can be combined with 
+	+  `--unlock`, `--lock`, or `--fix`.
+	+
+	 * `--force`
+	 
+	   Allow overwriting an existing adjusted branch with a new version.
+	@@ -145,6 +160,8 @@ and will also propagate commits back to the original branch.
+	 
+	 [[git-annex-view]](1)
+	 
+	+[[git-annex-wanted]](1)
+	+
+	 # AUTHOR
+	 
+	 Joey Hess <id@joeyh.name>
+	diff --git a/doc/todo/Filter_a_tree_with_pattern.mdwn b/doc/todo/Filter_a_tree_with_pattern.mdwn
+	index c32996446a..de1c478d4c 100644
+	--- a/doc/todo/Filter_a_tree_with_pattern.mdwn
+	+++ b/doc/todo/Filter_a_tree_with_pattern.mdwn
+	@@ -53,3 +53,5 @@ $ git annex filterview root=Movies/
+	 $ ls
+	 movie.mkv movie.iso movie.mp4 movie.en_US.ass movie.de_DE.ass
+	 ```
+	+
+	+> `git-annex adjust --wanted` [[done]] --[[Joey]]
+"""]]
