@@ -1,0 +1,2 @@
+git-annex 10.20261006 released with [[!toggle text="these changes"]]
+[[!toggleable text="""  * Fix stack build."""]]
