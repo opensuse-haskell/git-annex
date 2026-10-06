@@ -1,0 +1,9 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 6"""
+ date="2026-10-06T15:58:02Z"
+ content="""
+I think the solution will involve depedency injection, so `ifWanted`
+can access `wantGet` from a structure passed into that module from the
+caller. Maybe by converting it to a wrapper monad around Annex.
+"""]]
