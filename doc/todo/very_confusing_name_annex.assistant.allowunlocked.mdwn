@@ -6,3 +6,6 @@ Since really it instructs assistant to consider `addunlocked`, then I would have
 Or the smallest change to make it semantically sensible would have been to remove `un` from it and make `annex.assistant.allowlocked` thus allowing for `locked` files in general, which would then in reality (after RTFM) mean using `addunlocked` config.
 
 Just wanted to check if you stick to current choice before I start making use of it!
+
+> At this point the disruption of changing the name seems to outweigh the downsides of
+> keeping it. So closing. [[done]] --[[Joey]]
