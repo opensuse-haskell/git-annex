@@ -1,0 +1,14 @@
+[[!comment format=mdwn
+ username="nobodyinperson"
+ avatar="http://cdn.libravatar.org/avatar/736a41cd4988ede057bae805d000f4f5"
+ subject="Standalone builds"
+ date="2026-10-06T05:39:28Z"
+ content="""
+Hi joey,
+
+thanks for this new release (btw here's a nix override to build it for anyone interested: https://gitlab.com/nobodyinperson/yannix/-/commit/1ad39dce178f3c2933a0bd9203e8315563980467)
+
+It seems uploads of your standalone builds to your repo https://downloads.kitenet.net/.git have stalled since the last two releases, could you look into that?
+
+Thanks! 💛
+"""]]
