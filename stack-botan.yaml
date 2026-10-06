@@ -26,3 +26,4 @@ extra-deps:
 - botan-bindings-0.3.0.0
 - blake3-0.3
 - magic-1.1
+- ram-0.22.0
