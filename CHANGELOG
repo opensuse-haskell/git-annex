@@ -1,8 +1,8 @@
-git-annex (10.20261006) UNRELEASED; urgency=medium
+git-annex (10.20261006) upstream; urgency=medium
 
   * Fix stack build.
 
- -- Joey Hess <id@joeyh.name>  Tue, 06 Oct 2026 09:49:09 -0400
+ -- Joey Hess <id@joeyh.name>  Tue, 06 Oct 2026 10:06:34 -0400
 
 git-annex (10.20261005) upstream; urgency=medium
 
