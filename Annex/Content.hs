@@ -94,6 +94,7 @@ import Annex.UUID
 import Annex.InodeSentinal
 import Annex.ReplaceFile
 import Annex.AdjustedBranch (adjustedBranchRefresh)
+import Annex.AdjustTreeItem
 import Annex.DirHashes
 import Messages.Progress
 import Types.Remote (RetrievalSecurityPolicy(..), VerifyConfigA(..), name, storeKey, uuid)
@@ -538,7 +539,7 @@ moveAnnex key src = ifM (checkSecureHashes' key)
   where
 	storeobject dest = ifM (liftIO $ doesPathExist dest)
 		( alreadyhave
-		, adjustedBranchRefresh $ modifyContentDir dest $ do
+		, adjustedBranchRefresh getAdjustTreeItem $ modifyContentDir dest $ do
 			liftIO $ moveFile src dest
 			-- Freeze the object file now that it is in place.
 			-- Waiting until now to freeze it allows for freeze
@@ -793,7 +794,7 @@ removeAnnex remotelist (ContentRemovalLock key) = withObjectLoc key $ \file -> d
 	-- it's unmodified.
 	resetpointer file = unlessM (liftIO $ isSymbolicLink <$> R.getSymbolicLinkStatus (fromOsPath file)) $
 		ifM (isUnmodified key file)
-			( adjustedBranchRefresh $ 
+			( adjustedBranchRefresh getAdjustTreeItem $ 
 				depopulatePointerFile QueueRestage key file
 			-- Modified file, so leave it alone.
 			-- If it was a hard link to the annex object,

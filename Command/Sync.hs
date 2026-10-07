@@ -68,6 +68,7 @@ import Logs.View
 import Annex.AutoMerge
 import Annex.AdjustedBranch
 import Annex.AdjustedBranch.Merge
+import Annex.AdjustTreeItem
 import Annex.View
 import Annex.Ssh
 import Annex.BloomFilter
@@ -551,17 +552,18 @@ updateBranches forpull forpush (Just branch, madj) = do
 		Nothing -> case madj of
 			Just adj -> do
 				when forpush $
-					propigateAdjustedCommits branch adj
+					propigateAdjustedCommits branch adj getAdjustTreeItem
 				when forpull $
 					updateadjustedbranch adj
 			Nothing -> noop
   where
 	-- The adjusted branch may need to be updated, if the adjustment
 	-- is not stable, and the usual configuration does not update it.
-	updateadjustedbranch adj = unless (adjustmentIsStable adj) $
-		annexAdjustedBranchRefresh <$> Annex.getGitConfig >>= \case
-			0 -> adjustedBranchRefreshFull adj branch
-			_ -> return ()
+	updateadjustedbranch adj = 
+		unless (adjustmentIsStable getAdjustTreeItem adj) $
+			annexAdjustedBranchRefresh <$> Annex.getGitConfig >>= \case
+				0 -> adjustedBranchRefreshFull adj getAdjustTreeItem branch
+				_ -> return ()
 	
 	updateview view madj' = updateView view madj' >>= \case
 		Nothing -> noop
@@ -1100,7 +1102,7 @@ seekExportContent' o rs (mcurrbranch, madj)
 		-- branch, it will be up-to-date.
 		case (mcurrbranch, madj) of
 			(Just currbranch, Just adj) ->
-				propigateAdjustedCommits currbranch adj
+				propigateAdjustedCommits currbranch adj getAdjustTreeItem
 			_ -> noop
 		or <$> forM rs go
   where

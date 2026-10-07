@@ -559,9 +559,9 @@ Executable git-annex
     Annex
     Annex.Action
     Annex.AdjustedBranch
-    Annex.AdjustedBranch.AdjustTreeItem
     Annex.AdjustedBranch.Merge
     Annex.AdjustedBranch.Name
+    Annex.AdjustTreeItem
     Annex.AutoMerge
     Annex.Balanced
     Annex.BloomFilter
@@ -1024,6 +1024,7 @@ Executable git-annex
     Types
     Types.ActionItem
     Types.AdjustedBranch
+    Types.AdjustTreeItem
     Types.Availability
     Types.Backend
     Types.Benchmark

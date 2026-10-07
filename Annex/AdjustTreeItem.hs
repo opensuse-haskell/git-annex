@@ -1,4 +1,7 @@
-{- adjusted branch
+{- TreeItem adjustment implementation
+ -
+ - This is separate from Annex.AdjustedBranch to allow it to import modules
+ - that depend on Annex.AdjustedBranch.
  -
  - Copyright 2016-2026 Joey Hess <id@joeyh.name>
  -
@@ -7,10 +10,14 @@
 
 {-# LANGUAGE BangPatterns, OverloadedStrings #-}
 
-module Annex.AdjustedBranch.AdjustTreeItem where
+module Annex.AdjustTreeItem (
+	AdjustTreeItem,
+	getAdjustTreeItem
+) where
 
 import Annex.Common
 import Types.AdjustedBranch
+import Types.AdjustTreeItem
 import Git
 import Git.Types
 import Git.Tree (TreeItem(..))
@@ -24,50 +31,56 @@ import qualified Utility.RawFilePath as R
 
 import System.PosixCompat.Files (fileMode)
 
-class AdjustTreeItem t where
+getAdjustTreeItem :: AdjustTreeItem
+getAdjustTreeItem = AdjustTreeItem
+	{ adjustTreeItem = adjustTreeItemC
+	, adjustmentIsStable = adjustmentIsStableC
+	}
+
+class AdjustTreeItemClass t where
 	-- How to perform various adjustments to a TreeItem.
-	adjustTreeItem :: t -> TreeItem -> Annex (Maybe TreeItem)
+	adjustTreeItemC :: t -> TreeItem -> Annex (Maybe TreeItem)
 	-- Will adjusting a given tree always yield the same adjusted tree?
-	adjustmentIsStable :: t -> Bool
+	adjustmentIsStableC :: t -> Bool
 
-instance AdjustTreeItem Adjustment where
-	adjustTreeItem (LinkAdjustment l) t = adjustTreeItem l t
-	adjustTreeItem (PresenceAdjustment p Nothing) t = adjustTreeItem p t
-	adjustTreeItem (PresenceAdjustment p (Just l)) t =
-		adjustTreeItem p t >>= \case
+instance AdjustTreeItemClass Adjustment where
+	adjustTreeItemC (LinkAdjustment l) t = adjustTreeItemC l t
+	adjustTreeItemC (PresenceAdjustment p Nothing) t = adjustTreeItemC p t
+	adjustTreeItemC (PresenceAdjustment p (Just l)) t =
+		adjustTreeItemC p t >>= \case
 			Nothing -> return Nothing
-			Just t' -> adjustTreeItem l t'
-	adjustTreeItem (LockUnlockPresentAdjustment l) t = adjustTreeItem l t
+			Just t' -> adjustTreeItemC l t'
+	adjustTreeItemC (LockUnlockPresentAdjustment l) t = adjustTreeItemC l t
 
-	adjustmentIsStable (LinkAdjustment l) = adjustmentIsStable l
-	adjustmentIsStable (PresenceAdjustment p _) = adjustmentIsStable p
-	adjustmentIsStable (LockUnlockPresentAdjustment l) = adjustmentIsStable l
+	adjustmentIsStableC (LinkAdjustment l) = adjustmentIsStableC l
+	adjustmentIsStableC (PresenceAdjustment p _) = adjustmentIsStableC p
+	adjustmentIsStableC (LockUnlockPresentAdjustment l) = adjustmentIsStableC l
 
-instance AdjustTreeItem LinkAdjustment where
-	adjustTreeItem UnlockAdjustment =
+instance AdjustTreeItemClass LinkAdjustment where
+	adjustTreeItemC UnlockAdjustment =
 		ifSymlink adjustToPointer noAdjust
-	adjustTreeItem LockAdjustment =
+	adjustTreeItemC LockAdjustment =
 		ifSymlink noAdjust adjustToSymlink
-	adjustTreeItem FixAdjustment =
+	adjustTreeItemC FixAdjustment =
 		ifSymlink adjustToSymlink noAdjust
-	adjustTreeItem UnFixAdjustment =
+	adjustTreeItemC UnFixAdjustment =
 		ifSymlink (adjustToSymlink' gitAnnexLinkCanonical) noAdjust
 	
-	adjustmentIsStable _ = True
+	adjustmentIsStableC _ = True
 
-instance AdjustTreeItem PresenceAdjustment where
-	adjustTreeItem HideMissingAdjustment = 
+instance AdjustTreeItemClass PresenceAdjustment where
+	adjustTreeItemC HideMissingAdjustment = 
 		ifPresent noAdjust hideAdjust
-	adjustTreeItem ShowMissingAdjustment =
+	adjustTreeItemC ShowMissingAdjustment =
 		noAdjust
 
-	adjustmentIsStable HideMissingAdjustment = False
-	adjustmentIsStable ShowMissingAdjustment = True
+	adjustmentIsStableC HideMissingAdjustment = False
+	adjustmentIsStableC ShowMissingAdjustment = True
 
-instance AdjustTreeItem LockUnlockPresentAdjustment where
-	adjustTreeItem UnlockPresentAdjustment = 
+instance AdjustTreeItemClass LockUnlockPresentAdjustment where
+	adjustTreeItemC UnlockPresentAdjustment = 
 		ifPresent adjustToPointer adjustToSymlink
-	adjustTreeItem LockPresentAdjustment =
+	adjustTreeItemC LockPresentAdjustment =
 		-- Turn all pointers back to symlinks, whether the content
 		-- is present or not. This is done because the content
 		-- availability may have changed and the branch not been
@@ -75,8 +88,8 @@ instance AdjustTreeItem LockUnlockPresentAdjustment where
 		-- content is not present.
 		ifSymlink noAdjust adjustToSymlink
 
-	adjustmentIsStable UnlockPresentAdjustment = False
-	adjustmentIsStable LockPresentAdjustment = True
+	adjustmentIsStableC UnlockPresentAdjustment = False
+	adjustmentIsStableC LockPresentAdjustment = True
 
 ifSymlink
 	:: (TreeItem -> Annex a)

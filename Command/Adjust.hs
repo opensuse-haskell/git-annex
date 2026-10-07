@@ -9,6 +9,7 @@ module Command.Adjust where
 
 import Command
 import Annex.AdjustedBranch
+import Annex.AdjustTreeItem
 
 cmd :: Command
 cmd = notBareRepo $ noDaemonRunning $
@@ -71,4 +72,4 @@ seek = commandAction . start
 start :: Adjustment -> CommandStart
 start adj = 
 	starting "adjust" (ActionItemOther Nothing) (SeekInput []) $
-		next $ enterAdjustedBranch adj
+		next $ enterAdjustedBranch adj getAdjustTreeItem

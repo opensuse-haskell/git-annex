@@ -49,6 +49,7 @@ import Config.Files
 import Config.Smudge
 import qualified Upgrade.V5.Direct as Direct
 import qualified Annex.AdjustedBranch as AdjustedBranch
+import Annex.AdjustTreeItem
 import Remote.List.Util (remotesChanged)
 import Annex.Environment
 import Annex.Hook
@@ -169,7 +170,7 @@ initialize' startupannex mversion _initallowed = do
 		AdjustedBranch.InAdjustedClone -> return ()
 		AdjustedBranch.NotInAdjustedClone ->
 			ifM (crippledFileSystem <&&> (not <$> isBareRepo))
-				( AdjustedBranch.adjustToCrippledFileSystem
+				( AdjustedBranch.adjustToCrippledFileSystem getAdjustTreeItem
 				-- Handle case where this repo was cloned from a
 				-- direct mode repo
 				, unlessM isBareRepo

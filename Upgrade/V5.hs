@@ -31,6 +31,7 @@ import Git.Config
 import Git.Ref
 import Utility.InodeCache
 import Annex.AdjustedBranch
+import Annex.AdjustTreeItem
 import qualified Utility.FileIO as F
 
 upgrade :: Bool -> Annex UpgradeResult
@@ -71,7 +72,7 @@ convertDirect = do
 	{- Create adjusted branch where all files are unlocked.
 	 - This should have the same content for each file as
 	 - have been staged in upgradeDirectWorkTree. -}
-	AdjBranch b <- adjustBranch (LinkAdjustment UnlockAdjustment) cur
+	AdjBranch b <- adjustBranch (LinkAdjustment UnlockAdjustment) getAdjustTreeItem cur
 	{- Since the work tree was already set up by
 	 - upgradeDirectWorkTree, and contains unlocked file
 	 - contents too, don't use git checkout to check out the

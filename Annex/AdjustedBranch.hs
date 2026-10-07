@@ -1,6 +1,6 @@
 {- adjusted branch
  -
- - Copyright 2016-2024 Joey Hess <id@joeyh.name>
+ - Copyright 2016-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -41,7 +41,7 @@ module Annex.AdjustedBranch (
 
 import Annex.Common
 import Types.AdjustedBranch
-import Annex.AdjustedBranch.AdjustTreeItem
+import Types.AdjustTreeItem
 import Annex.AdjustedBranch.Name
 import qualified Annex
 import Git
@@ -93,11 +93,11 @@ fromAdjustedBranch b = maybe b snd (adjustedToOriginal b)
  - Can fail, if no branch is checked out, or if the adjusted branch already
  - exists, or if staged changes prevent a checkout.
  -}
-enterAdjustedBranch :: Adjustment -> Annex Bool
-enterAdjustedBranch adj = inRepo Git.Branch.current >>= \case
+enterAdjustedBranch :: Adjustment -> AdjustTreeItem -> Annex Bool
+enterAdjustedBranch adj ati = inRepo Git.Branch.current >>= \case
 	Just currbranch -> case getAdjustment currbranch of
 		Just curradj | curradj == adj ->
-			updateAdjustedBranch adj (AdjBranch currbranch)
+			updateAdjustedBranch adj ati (AdjBranch currbranch)
 				(fromAdjustedBranch currbranch)
 		_ -> go currbranch
 	Nothing -> do
@@ -125,7 +125,7 @@ enterAdjustedBranch adj = inRepo Git.Branch.current >>= \case
 			, do
 				starttime <- liftIO getPOSIXTime
 				b <- preventCommits $ const $ 
-					adjustBranch adj origbranch
+					adjustBranch adj ati origbranch
 				ok <- checkoutAdjustedBranch b False
 				when ok $
 					recordAdjustedBranchUpdateFinished starttime
@@ -149,19 +149,19 @@ checkoutAdjustedBranch (AdjBranch b) quietcheckout = do
  - and rebuilding the adjusted branch, and then checking it out.
  - But, it can be implemented more efficiently than that.
  -}
-updateAdjustedBranch :: Adjustment -> AdjBranch -> OrigBranch -> Annex Bool
-updateAdjustedBranch adj (AdjBranch currbranch) origbranch
-	| not (adjustmentIsStable adj) = do
+updateAdjustedBranch :: Adjustment -> AdjustTreeItem -> AdjBranch -> OrigBranch -> Annex Bool
+updateAdjustedBranch adj ati (AdjBranch currbranch) origbranch
+	| not (adjustmentIsStable ati adj) = do
 		(b, origheadfile, newheadfile) <- preventCommits $ \commitlck -> do
 			-- Avoid losing any commits that the adjusted branch
 			-- has that have not yet been propagated back to the
 			-- origbranch.
-			_ <- propigateAdjustedCommits' True origbranch adj commitlck
+			_ <- propigateAdjustedCommits' True origbranch adj ati commitlck
 			
 			origheadfile <- inRepo $ F.readFile' . Git.Ref.headFile
 			origheadsha <- inRepo (Git.Ref.sha currbranch)
 			
-			b <- adjustBranch adj origbranch
+			b <- adjustBranch adj ati origbranch
 
 			-- Git normally won't do anything when asked to check
 			-- out the currently checked out branch, even when its
@@ -192,7 +192,7 @@ updateAdjustedBranch adj (AdjBranch currbranch) origbranch
 		return ok
 	| otherwise = preventCommits $ \commitlck -> do
 		-- Done for consistency.
-		_ <- propigateAdjustedCommits' True origbranch adj commitlck
+		_ <- propigateAdjustedCommits' True origbranch adj ati commitlck
 		-- No need to actually update the branch because the
 		-- adjustment is stable.
 		return True
@@ -201,15 +201,15 @@ updateAdjustedBranch adj (AdjBranch currbranch) origbranch
  - When the adjusted branch needs to be refreshed to reflect
  - those changes, it's handled here.
  -}
-adjustedBranchRefresh :: Annex a -> Annex a
-adjustedBranchRefresh a = do
+adjustedBranchRefresh :: AdjustTreeItem -> Annex a -> Annex a
+adjustedBranchRefresh ati a = do
 	r <- a
 	go
 	return r
   where
 	go = getCurrentBranch >>= \case
 		(Just origbranch, Just adj) ->
-			unless (adjustmentIsStable adj) $ do
+			unless (adjustmentIsStable ati adj) $ do
 				recordAdjustedBranchUpdateNeeded
 				n <- annexAdjustedBranchRefresh <$> Annex.getGitConfig
 				unless (n == 0) $ ifM (checkcounter n)
@@ -217,9 +217,9 @@ adjustedBranchRefresh a = do
 					-- adjust the AssociatedFile, and only call this once
 					-- at shutdown to handle cases where not all
 					-- AssociatedFiles are known.
-					( adjustedBranchRefreshFull' adj origbranch
+					( adjustedBranchRefreshFull' adj ati origbranch
 					, Annex.addCleanupAction AdjustedBranchUpdate $
-						adjustedBranchRefreshFull' adj origbranch
+						adjustedBranchRefreshFull' adj ati origbranch
 					)
 		_ -> return ()
 	
@@ -235,25 +235,25 @@ adjustedBranchRefresh a = do
 
 {- Slow, but more dependable version of adjustedBranchRefresh that
  - does not rely on all AssociatedFiles being known. -}
-adjustedBranchRefreshFull :: Adjustment -> OrigBranch -> Annex ()
-adjustedBranchRefreshFull adj origbranch =
+adjustedBranchRefreshFull :: Adjustment -> AdjustTreeItem -> OrigBranch -> Annex ()
+adjustedBranchRefreshFull adj ati origbranch =
 	whenM isAdjustedBranchUpdateNeeded $ do
-		adjustedBranchRefreshFull' adj origbranch
+		adjustedBranchRefreshFull' adj ati origbranch
 
-adjustedBranchRefreshFull' :: Adjustment -> OrigBranch -> Annex ()
-adjustedBranchRefreshFull' adj origbranch = do
+adjustedBranchRefreshFull' :: Adjustment -> AdjustTreeItem -> OrigBranch -> Annex ()
+adjustedBranchRefreshFull' adj ati origbranch = do
 	-- Restage pointer files so modifications to them due to get/drop
 	-- do not prevent checking out the updated adjusted branch.
 	restagePointerFiles =<< Annex.gitRepo
 	starttime <- liftIO getPOSIXTime
 	let adjbranch = originalToAdjusted origbranch adj
-	ifM (updateAdjustedBranch adj adjbranch origbranch)
+	ifM (updateAdjustedBranch adj ati adjbranch origbranch)
 		( recordAdjustedBranchUpdateFinished starttime
 		, warning "Updating adjusted branch failed."
 		)
 
-adjustToCrippledFileSystem :: Annex ()
-adjustToCrippledFileSystem = do
+adjustToCrippledFileSystem :: AdjustTreeItem -> Annex ()
+adjustToCrippledFileSystem ati = do
 	warning "Entering an adjusted branch where files are unlocked as this filesystem does not support locked files."
 	whenM (isNothing <$> inRepo Git.Branch.current) $
 		commitForAdjustedBranch []
@@ -265,7 +265,7 @@ adjustToCrippledFileSystem = do
 				ifM (inRepo (Git.Ref.exists $ adjBranch adjbranch))
 					( unlessM (checkoutAdjustedBranch adjbranch False) $
 						failedenter
-					, unlessM (enterAdjustedBranch adj) $
+					, unlessM (enterAdjustedBranch adj ati) $
 						failedenter
 					)
 		Nothing -> failedenter
@@ -296,25 +296,25 @@ setBasisBranch (BasisBranch basis) new =
 setAdjustedBranch :: String -> AdjBranch -> Ref -> Annex ()
 setAdjustedBranch msg (AdjBranch b) r = inRepo $ Git.Branch.update msg b r
 
-adjustBranch :: Adjustment -> OrigBranch -> Annex AdjBranch
-adjustBranch adj origbranch = do
+adjustBranch :: Adjustment -> AdjustTreeItem -> OrigBranch -> Annex AdjBranch
+adjustBranch adj ati origbranch = do
 	-- Start basis off with the current value of the origbranch.
 	setBasisBranch basis origbranch
-	sha <- adjustCommit adj basis
+	sha <- adjustCommit adj ati basis
 	setAdjustedBranch "entering adjusted branch" adjbranch sha
 	return adjbranch
   where
 	adjbranch = originalToAdjusted origbranch adj
 	basis = basisBranch adjbranch
 
-adjustCommit :: Adjustment -> BasisBranch -> Annex Sha
-adjustCommit adj basis = do
-	treesha <- adjustTree adj basis
+adjustCommit :: Adjustment -> AdjustTreeItem -> BasisBranch -> Annex Sha
+adjustCommit adj ati basis = do
+	treesha <- adjustTree adj ati basis
 	commitAdjustedTree treesha basis
 
-adjustTree :: Adjustment -> BasisBranch -> Annex Sha
-adjustTree adj (BasisBranch basis) = do
-	let toadj = adjustTreeItem adj
+adjustTree :: Adjustment -> AdjustTreeItem -> BasisBranch -> Annex Sha
+adjustTree adj ati (BasisBranch basis) = do
+	let toadj = adjustTreeItem ati adj
 	treesha <- Git.Tree.adjustTree
 		toadj 
 		[] 
@@ -396,10 +396,10 @@ findAdjustingCommit (AdjBranch b) = go =<< catCommit b
  - After propagating the commits back to the basis branch,
  - rebase the adjusted branch on top of the updated basis branch.
  -}
-propigateAdjustedCommits :: OrigBranch -> Adjustment -> Annex ()
-propigateAdjustedCommits origbranch adj = 
+propigateAdjustedCommits :: OrigBranch -> Adjustment -> AdjustTreeItem -> Annex ()
+propigateAdjustedCommits origbranch adj ati = 
 	preventCommits $ \commitsprevented ->
-		join $ snd <$> propigateAdjustedCommits' True origbranch adj commitsprevented
+		join $ snd <$> propigateAdjustedCommits' True origbranch adj ati commitsprevented
 		
 {- Returns sha of updated basis branch, and action which will rebase
  - the adjusted branch on top of the updated basis branch. -}
@@ -407,9 +407,10 @@ propigateAdjustedCommits'
 	:: Bool
 	-> OrigBranch
 	-> Adjustment
+	-> AdjustTreeItem
 	-> CommitsPrevented
 	-> Annex (Maybe Sha, Annex ())
-propigateAdjustedCommits' warnwhendiverged origbranch adj _commitsprevented =
+propigateAdjustedCommits' warnwhendiverged origbranch adj ati _commitsprevented =
 	inRepo (Git.Ref.sha basis) >>= \case
 		Just origsha -> catCommit currbranch >>= \case
 			Just currcommit -> do
@@ -444,7 +445,7 @@ propigateAdjustedCommits' warnwhendiverged origbranch adj _commitsprevented =
 			| hasAdjustedBranchCommitMessage c ->
 				go origsha parent True l
 			| pastadjcommit -> do
-				commit <- reverseAdjustedCommit parent adj (sha, c) origbranch
+				commit <- reverseAdjustedCommit parent adj ati (sha, c) origbranch
 				go origsha commit pastadjcommit l
 		_ -> go origsha parent pastadjcommit l
 	rebase currcommit newparent = do
@@ -465,12 +466,12 @@ rebaseOnTopMsg = "rebasing adjusted branch on top of updated original branch"
  - The commit message, and the author and committer metadata are
  - copied over from the basiscommit. However, any gpg signature
  - will be lost, and any other headers are not copied either. -}
-reverseAdjustedCommit :: Sha -> Adjustment -> (Sha, Commit) -> OrigBranch -> Annex Sha
-reverseAdjustedCommit commitparent adj (csha, basiscommit) origbranch
+reverseAdjustedCommit :: Sha -> Adjustment -> AdjustTreeItem -> (Sha, Commit) -> OrigBranch -> Annex Sha
+reverseAdjustedCommit commitparent adj ati (csha, basiscommit) origbranch
 	| length (commitParent basiscommit) > 1 = giveup mergeerror
 	| otherwise = do
 		cmode <- annexCommitMode <$> Annex.getGitConfig
-		treesha <- reverseAdjustedTree commitparent adj csha
+		treesha <- reverseAdjustedTree commitparent adj ati csha
 		revadjcommit <- inRepo $ commitWithMetaData
 			(commitAuthorMetaData basiscommit)
 			(commitCommitterMetaData basiscommit) $
@@ -490,13 +491,13 @@ reverseAdjustedCommit commitparent adj (csha, basiscommit) origbranch
  -
  - commitDiff does not support merge commits, so the csha must not be a
  - merge commit. -}
-reverseAdjustedTree :: Sha -> Adjustment -> Sha -> Annex Sha
-reverseAdjustedTree basis adj csha = do
+reverseAdjustedTree :: Sha -> Adjustment -> AdjustTreeItem -> Sha -> Annex Sha
+reverseAdjustedTree basis adj ati csha = do
 	(diff, cleanup) <- inRepo (Git.DiffTree.commitDiff csha)
 	let (adds, others) = partition (\dti -> Git.DiffTree.srcsha dti `elem` nullShas) diff
 	let (removes, changes) = partition (\dti -> Git.DiffTree.dstsha dti `elem` nullShas) others
 	adds' <- catMaybes <$>
-		mapM (adjustTreeItem reverseadj) (map diffTreeToTreeItem adds)
+		mapM (adjustTreeItem ati reverseadj) (map diffTreeToTreeItem adds)
 	treesha <- Git.Tree.adjustTree
 		(propchanges changes)
 		adds'
@@ -511,7 +512,7 @@ reverseAdjustedTree basis adj csha = do
 	propchanges changes ti@(TreeItem f _ _) =
 		case M.lookup (norm f) m of
 			Nothing -> return (Just ti) -- not changed
-			Just change -> adjustTreeItem reverseadj change
+			Just change -> adjustTreeItem ati reverseadj change
 	  where
 		m = M.fromList $ map (\i@(TreeItem f' _ _) -> (norm f', i)) $
 			map diffTreeToTreeItem changes

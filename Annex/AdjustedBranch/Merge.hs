@@ -14,6 +14,7 @@ module Annex.AdjustedBranch.Merge (
 
 import Annex.Common
 import Annex.AdjustedBranch
+import Annex.AdjustTreeItem
 import qualified Annex
 import Git
 import Git.Types
@@ -49,7 +50,7 @@ mergeToAdjustedBranch tomerge (origbranch, adj) mergeconfig canresolvemerge comm
 
 	go commitsprevented = do
 		(updatedorig, _) <- propigateAdjustedCommits'
-			False origbranch adj commitsprevented
+			False origbranch adj getAdjustTreeItem commitsprevented
 		changestomerge updatedorig
 
 	{- Since the adjusted branch changes files, merging tomerge
@@ -131,7 +132,7 @@ mergeToAdjustedBranch tomerge (origbranch, adj) mergeconfig canresolvemerge comm
 	postmerge (Just mergecommit) = do
 		setBasisBranch basis mergecommit
 		inRepo $ Git.Branch.update' origbranch mergecommit
-		adjtree <- adjustTree adj (BasisBranch mergecommit)
+		adjtree <- adjustTree adj getAdjustTreeItem (BasisBranch mergecommit)
 		adjmergecommit <- commitAdjustedTree adjtree (BasisBranch mergecommit)
 		-- Make currbranch be the parent, so that merging
 		-- this commit will be a fast-forward.
@@ -155,7 +156,7 @@ mergeToAdjustedBranch tomerge (origbranch, adj) mergeconfig canresolvemerge comm
 					[adjmergecommit]
 					(commitTree currentcommit)
 				inRepo $ Git.Branch.update "updating adjusted branch" currbranch c
-				propigateAdjustedCommits origbranch adj
+				propigateAdjustedCommits origbranch adj getAdjustTreeItem
 			else inRepo $ Git.Branch.update "updating adjusted branch" currbranch adjmergecommit
 		return True
 	reparent _ _ Nothing = return False
