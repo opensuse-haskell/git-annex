@@ -1,0 +1,11 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 3"""
+ date="2026-10-07T20:20:33Z"
+ content="""
+Your log shows that you did not have refs/remotes/hub-con/git-annex at the point where
+`git-annex sync` would have merged it:
+
+	[2026-10-07 13:09:57.61588097] (Utility.Process) process [2221134] call: git ["--git-dir=.git","--work-tree=.","--literal-pathspecs","-c","annex.debug=true","show-ref","--verify","-q","refs/remotes/hub-con/git-annex"]
+	[2026-10-07 13:09:57.615954038] (Utility.Process) process [2221131] done ExitFailure 1
+"""]]

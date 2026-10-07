@@ -1,0 +1,17 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 4"""
+ date="2026-10-07T20:24:44Z"
+ content="""
+	continuing transition [\"forget git history\",\"forget dead remotes\"]
+
+If your local git-annex branch contains a `git-annex forget` transition,
+git-annex necessarily cannot merge unrelated remote git-annex branches into it,
+because they may contain exactly the historical information that was requested
+to be forgotten. Instead, the new information is extracted from the remote
+git-annex branch and put into the local git-annex branch.
+
+Once the local git-annex branch is pushed to the remote as synced/git-annex,
+and git-annex is run on the server, it will replace the unrelated git-annex
+branch.
+"""]]
