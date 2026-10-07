@@ -1,0 +1,25 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 1"""
+ date="2026-10-07T18:12:17Z"
+ content="""
+What's weird about your situation and I don't understand is you do not have
+a remotes/hub-con/git-annex, which would be the usual name of the remote
+tracking branch that git-annex would normally automatically merge. 
+
+You do have a local branch named hub-con/git-annex. I don't understand
+where that came from. Maybe that ought to be merged and isn't being merged,
+but you're clearly doing something unusual to have that rather than the
+regular remote tracking branch.
+
+Anyway, to dispell some of the other confusion in this bug report:
+
+`git-annex push` does not treat a failure to push the git-annex branch as
+an error since it has already sent the same information to the remote
+in a successful force-push of the synced/git-annex branch. So that is all a
+red herring.
+
+And when you ran "git annex merge hub-con", that is the wrong command to 
+merge the git-annex branch from the remote. That command
+merges a branch named "hub-con" into the current branch.
+"""]]
