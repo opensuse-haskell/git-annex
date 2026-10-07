@@ -1,6 +1,6 @@
 [[!comment format=mdwn
  username="joey"
- subject="""comment 5"""
+ subject="""comment 6"""
  date="2026-10-07T20:36:53Z"
  content="""
 Maybe I was mistaken about whether you have refs/remotes/hub-con/git-annex.
@@ -9,6 +9,8 @@ would be unexpected when there's a `git-annex forget` transition involved.
 
 But what I wonder now is if the server ever replaced its git-annex
 branch with the synced/git-annex branch that got pushed to it.
+(Update: Based on comment #5 it has not.)
+
 That needs git-annex to run on the server, and it may be that nothing
 causes forgejo+aneksajo to run git-annex in this situation, and so it
 leaves its git-annex branch at the initial `git-annex init` value.
