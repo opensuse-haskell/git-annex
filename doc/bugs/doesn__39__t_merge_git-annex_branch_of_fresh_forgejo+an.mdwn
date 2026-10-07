@@ -1,0 +1,104 @@
+### Please describe the problem in your own words.
+
+Really not sure what is going on since no logs tell me the story here (may be just absent ExitSuccess, which seems ignored?).
+
+I have a fresh (first to me) instance of forgejo+aneksajo (Version: 14.0.2-git-annex-dl1) would need IP to permit access ATM if needed to "sense"), where I created a blank repo, initiated git-annex branch, and I added it as a `hub-con` remote. It got its annex UUID and all good. 
+
+```shell
+❯ git config list | grep hub-con
+branch.master.remote=hub-con
+remote.hub-con.url=https://hub.centerforopenneuroscience.org/con/liab-falkor-hub.git
+remote.hub-con.fetch=+refs/heads/*:refs/remotes/hub-con/*
+remote.hub-con.annexurl=annex+https://hub.centerforopenneuroscience.org:443/git-annex-p2phttp
+remote.hub-con.annex-uuid=e9147e49-a1d5-49b1-bd50-74010d401463
+```
+
+But nomater what I do, it does not merge that remote's git-annex branch, and moreover `annex sync` has
+
+```
+push hub-con 
+[2026-10-07 13:09:57.620037708] (Utility.Process) process [2221140] call: git ["--git-dir=.git","--work-tree=.","--literal-pathspecs","-c","annex.debug=true","push","--quiet","hub-con","master"]
+[2026-10-07 13:09:57.833136715] (Utility.Process) process [2221140] done ExitSuccess
+[2026-10-07 13:09:57.833990038] (Utility.Process) process [2221150] call: git ["--git-dir=.git","--work-tree=.","--literal-pathspecs","-c","annex.debug=true","push","--quiet","hub-con","+git-annex:synced/git-annex"]
+[2026-10-07 13:09:58.061232012] (Utility.Process) process [2221150] done ExitSuccess
+[2026-10-07 13:09:58.062176762] (Utility.Process) process [2221164] read: git ["--git-dir=.git","--work-tree=.","--literal-pathspecs","-c","annex.debug=true","push","--quiet","hub-con","git-annex"]
+push hub-con ok
+```
+
+in its output which kinda (now not sure since I do not think there is no `ExitSuccess` for the 2221164) suggests no issue and that all is pushed ok there. But branch remains detached and not pushable if I retry the command above:
+
+```
+❯ git "--git-dir=.git" "--work-tree=." "--literal-pathspecs" "-c" "annex.debug=true" "push" "--quiet" "hub-con" "git-annex"
+To https://hub.centerforopenneuroscience.org/con/liab-falkor-hub.git
+ ! [rejected]        git-annex -> git-annex (non-fast-forward)
+error: failed to push some refs to 'https://hub.centerforopenneuroscience.org/con/liab-falkor-hub.git'
+hint: Updates were rejected because a pushed branch tip is behind its remote
+hint: counterpart. If you want to integrate the remote changes, use 'git pull'
+hint: before pushing again.
+hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+```
+
+and I have that branch entirely not merged and without common ancestor 
+
+```
+❯ git log -p hub-con/git-annex
+commit 6add3255db98a1eb71a4612bf043c1a015c9dd60 (hub-con/git-annex)
+Author: Gitea <gitea@fake.local>
+Date:   Wed Oct 7 16:48:28 2026 +0000
+
+    update
+
+diff --git a/uuid.log b/uuid.log
+new file mode 100644
+index 0000000..d1994b3
+--- /dev/null
++++ b/uuid.log
+@@ -0,0 +1 @@
++e9147e49-a1d5-49b1-bd50-74010d401463 git@b16fdd44ad3a:/var/lib/gitea/git/repositories/con/liab-falkor-hub.git timestamp=1791391708s
+
+commit 0f0200d0775e88913bee136d0eafb3ac1eb4496c
+Author: Gitea <gitea@fake.local>
+Date:   Wed Oct 7 16:48:28 2026 +0000
+
+    branch created
+```
+
+
+
+
+### What steps will reproduce the problem?
+
+
+### What version of git-annex are you using? On what operating system?
+
+I believe PyPI build of mih ATM:
+
+```
+❯ git-annex version | head -n 3
+git-annex version: 10.20260901-g29d2c4f5723a6bc5dc380b5fd75b4e60aad6e4e1
+build flags: Assistant Webapp Inotify TorrentParser MagicMime Benchmark Feeds Testsuite S3 WebDAV Servant OsPath Blake3 XXH3
+dependency versions: aws-0.25.2 bloomfilter-2.0.1.3 crypton-1.0.6 DAV-1.3.4 feed-1.3.2.1 ghc-9.10.3 http-client-0.7.19 torrent-10000.1.3 uuid-1.3.16.1 yesod-1.6.2.3
+❯ which git-annex
+/home/yoh/.local/bin/git-annex
+```
+
+trying `sync` for con/git-annex build of 
+
+```
+❯ /usr/bin/git-annex version
+git-annex version: 10.20261006+git5-gea6caba7a3-1~ndall+1
+```
+
+also the same "result".
+
+### Please provide any additional information below.
+
+may be more relevant info in 
+
+https://www.oneukrainian.com/tmp/20261007-git-annex-merge-details.txt
+
+[[!meta author=yoh]]
+[[!tag projects/repronim]]
+
+
+
