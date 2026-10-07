@@ -53,3 +53,5 @@ $ git annex filterview root=Movies/
 $ ls
 movie.mkv movie.iso movie.mp4 movie.en_US.ass movie.de_DE.ass
 ```
+
+> `git-annex adjust --hide-unwanted` [[done]] --[[Joey]]

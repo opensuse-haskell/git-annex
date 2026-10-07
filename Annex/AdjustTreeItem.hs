@@ -1,8 +1,5 @@
 {- TreeItem adjustment implementation
  -
- - This is separate from Annex.AdjustedBranch to allow it to import modules
- - that depend on Annex.AdjustedBranch.
- -
  - Copyright 2016-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
@@ -25,6 +22,7 @@ import Git.FilePath
 import Annex.CatFile
 import Annex.Link
 import Annex.Content.Presence
+import {-# SOURCE #-} Annex.Wanted
 import qualified Database.Keys
 import Utility.FileMode
 import qualified Utility.RawFilePath as R
@@ -51,10 +49,16 @@ instance AdjustTreeItemClass Adjustment where
 			Nothing -> return Nothing
 			Just t' -> adjustTreeItemC l t'
 	adjustTreeItemC (LockUnlockPresentAdjustment l) t = adjustTreeItemC l t
+	adjustTreeItemC (WantedAdjustment p Nothing) t = adjustTreeItemC p t
+	adjustTreeItemC (WantedAdjustment p (Just l)) t =
+		adjustTreeItemC p t >>= \case
+			Nothing -> return Nothing
+			Just t' -> adjustTreeItemC l t'
 
 	adjustmentIsStableC (LinkAdjustment l) = adjustmentIsStableC l
 	adjustmentIsStableC (PresenceAdjustment p _) = adjustmentIsStableC p
 	adjustmentIsStableC (LockUnlockPresentAdjustment l) = adjustmentIsStableC l
+	adjustmentIsStableC (WantedAdjustment p _) = adjustmentIsStableC p
 
 instance AdjustTreeItemClass LinkAdjustment where
 	adjustTreeItemC UnlockAdjustment =
@@ -76,6 +80,15 @@ instance AdjustTreeItemClass PresenceAdjustment where
 
 	adjustmentIsStableC HideMissingAdjustment = False
 	adjustmentIsStableC ShowMissingAdjustment = True
+
+instance AdjustTreeItemClass WantedAdjustment where
+	adjustTreeItemC HideUnwantedAdjustment = 
+		ifWanted noAdjust hideAdjust
+	adjustTreeItemC ShowUnwantedAdjustment =
+		noAdjust
+
+	adjustmentIsStableC HideUnwantedAdjustment = False
+	adjustmentIsStableC ShowUnwantedAdjustment = True
 
 instance AdjustTreeItemClass LockUnlockPresentAdjustment where
 	adjustTreeItemC UnlockPresentAdjustment = 
@@ -107,7 +120,26 @@ ifPresent
 	-> Annex (Maybe TreeItem)
 ifPresent ispresent notpresent ti@(TreeItem _ _ s) =
 	catKey s >>= \case
-		Just k -> ifM (inAnnex k) (ispresent ti, notpresent ti)
+		Just k -> ifM (inAnnex k)
+			( ispresent ti
+			, notpresent ti
+			)
+		Nothing -> return (Just ti)
+
+ifWanted
+	:: (TreeItem -> Annex (Maybe TreeItem))
+	-> (TreeItem -> Annex (Maybe TreeItem))
+	-> TreeItem
+	-> Annex (Maybe TreeItem)
+ifWanted iswanted notwanted ti@(TreeItem topf _ s) =
+	catKey s >>= \case
+		Just k -> do
+			af <- AssociatedFile . Just
+				<$> fromRepo (fromTopFilePath topf)
+			ifM (wantGet NoLiveUpdate True (Just k) af)
+				( iswanted ti
+				, notwanted ti
+				)
 		Nothing -> return (Just ti)
 
 noAdjust :: TreeItem -> Annex (Maybe TreeItem)

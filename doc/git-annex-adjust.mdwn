@@ -4,7 +4,7 @@ git-annex adjust - enter an adjusted branch
 
 # SYNOPSIS
 
-git annex adjust `--unlock|--lock|--fix|--hide-missing [--unlock|--lock|--fix]|--unlock-present`
+git annex adjust `--unlock|--lock|--fix|--hide-missing|--unlock-present|--hide-unwanted`
 
 # DESCRIPTION
 
@@ -37,7 +37,7 @@ To avoid those problems, use `git annex merge otherbranch`.
 
 Re-running this command with the same options
 while inside the adjusted branch will update the adjusted branch
-as necessary (eg for `--hide-missing` and `--unlock-present`), 
+as necessary (eg for `--hide-missing`, `--unlock-present`, and `--hide-unwanted`), 
 and will also propagate commits back to the original branch.
 
 # OPTIONS
@@ -119,6 +119,21 @@ and will also propagate commits back to the original branch.
   set the `annex.adjustedbranchrefresh` config. Or use `git-annex sync
   --content`, which updates the branch after transferring content.
 
+* `--hide-unwanted`
+
+  Only include annexed files in the adjusted branch when they are preferred
+  content of the repository, as configured by `git-annex wanted`.
+
+  Note that when the preferred content expression uses `present`, files are
+  only wanted when their content is present. The adjusted branch is not
+  immediately changed when content availability changes. To update the
+  adjusted branch to reflect changes to content availability, run
+  `git-annex adjust --hide-unwanted` again. Or, to automate updates,
+  set the `annex.adjustedbranchrefresh` config.
+  
+  The `--hide-unwanted` option can be combined with 
+  `--unlock`, `--lock`, or `--fix`.
+
 * `--force`
 
   Allow overwriting an existing adjusted branch with a new version.
@@ -144,6 +159,8 @@ and will also propagate commits back to the original branch.
 [[git-annex-sync]](1)
 
 [[git-annex-view]](1)
+
+[[git-annex-wanted]](1)
 
 # AUTHOR
 

@@ -1,6 +1,6 @@
 {- adjusted branch names
  -
- - Copyright 2016-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2016-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -39,6 +39,10 @@ instance SerializeAdjustment Adjustment where
 		serializeAdjustment p <> "-" <> serializeAdjustment l
 	serializeAdjustment (LockUnlockPresentAdjustment l) =
 		serializeAdjustment l
+	serializeAdjustment (WantedAdjustment p Nothing) =
+		serializeAdjustment p
+	serializeAdjustment (WantedAdjustment p (Just l)) = 
+		serializeAdjustment p <> "-" <> serializeAdjustment l
 	deserializeAdjustment s = 
 		(LinkAdjustment <$> deserializeAdjustment s)
 			<|>
@@ -47,6 +51,10 @@ instance SerializeAdjustment Adjustment where
 		(PresenceAdjustment <$> deserializeAdjustment s <*> pure Nothing)
 			<|>
 		(LockUnlockPresentAdjustment <$> deserializeAdjustment s)
+			<|>
+		(WantedAdjustment <$> deserializeAdjustment s1 <*> pure (deserializeAdjustment s2))
+			<|>
+		(WantedAdjustment <$> deserializeAdjustment s <*> pure Nothing)
 	  where
 		(s1, s2) = separate' (== (fromIntegral (ord '-'))) s
 
@@ -73,6 +81,13 @@ instance SerializeAdjustment LockUnlockPresentAdjustment where
 	serializeAdjustment LockPresentAdjustment = "lockpresent"
 	deserializeAdjustment "unlockpresent" = Just UnlockPresentAdjustment
 	deserializeAdjustment "lockpresent" = Just LockPresentAdjustment
+	deserializeAdjustment _ = Nothing
+
+instance SerializeAdjustment WantedAdjustment where
+	serializeAdjustment HideUnwantedAdjustment = "hideunwanted"
+	serializeAdjustment ShowUnwantedAdjustment = "showunwanted"
+	deserializeAdjustment "hideunwanted" = Just HideUnwantedAdjustment
+	deserializeAdjustment "showunwanted" = Just ShowUnwantedAdjustment
 	deserializeAdjustment _ = Nothing
 
 newtype AdjBranch = AdjBranch { adjBranch :: Branch }

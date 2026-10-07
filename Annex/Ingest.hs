@@ -351,6 +351,8 @@ addUnlocked matcher mi contentpresent =
 	go (LinkAdjustment UnFixAdjustment) = False
 	go (PresenceAdjustment _ (Just la)) = go (LinkAdjustment la)
 	go (PresenceAdjustment _ Nothing) = False
+	go (WantedAdjustment _ (Just la)) = go (LinkAdjustment la)
+	go (WantedAdjustment _ Nothing) = False
 	go (LockUnlockPresentAdjustment UnlockPresentAdjustment) = contentpresent
 	go (LockUnlockPresentAdjustment LockPresentAdjustment) = False
 

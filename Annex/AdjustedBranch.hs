@@ -12,6 +12,7 @@ module Annex.AdjustedBranch (
 	LinkAdjustment(..),
 	PresenceAdjustment(..),
 	LockUnlockPresentAdjustment(..),
+	WantedAdjustment(..),
 	adjustmentHidesFiles,
 	adjustmentIsStable,
 	OrigBranch,
