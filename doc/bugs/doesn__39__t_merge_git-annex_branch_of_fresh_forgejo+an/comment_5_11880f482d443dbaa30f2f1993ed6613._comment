@@ -1,0 +1,24 @@
+[[!comment format=mdwn
+ username="yarikoptic"
+ avatar="http://cdn.libravatar.org/avatar/f11e9c84cb18d26a1748c33b48c924b4"
+ subject="comment 5"
+ date="2026-10-07T20:44:58Z"
+ content="""
+> Your log shows that you did not have refs/remotes/hub-con/git-annex at the point where git-annex sync would have merged it:
+
+may be because it was not yet created by `forgejo+aneksjo` or I have not fetched yet... oh, well
+
+> If your local git-annex branch contains a git-annex forget transition, git-annex necessarily cannot merge unrelated remote git-annex branches into it, because they may contain exactly the historical information that was requested to be forgotten. Instead, the new information is extracted from the remote git-annex branch and put into the local git-annex branch.
+
+oh, what how that magical addition has happened!  I still have transition information
+
+```shell
+❯ git ls-tree git-annex | grep transitions
+100644 blob 891a754697d1602294fe8619878aeb9bb22b1586	transitions.log
+❯ git show git-annex:transitions.log
+ForgetGitHistory 1789701492s
+ForgetDeadRemotes 1789701492s
+```
+
+but when should it get gone -- any step I could do to fascilitate besides just going and killing that file?  Or it to remain there forever to be sure not pick up from \"old history\"? (here new forgejo though was newer AFAIK)
+"""]]
