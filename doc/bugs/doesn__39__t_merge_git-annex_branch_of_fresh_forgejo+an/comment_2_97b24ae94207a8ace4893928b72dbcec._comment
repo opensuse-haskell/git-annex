@@ -1,0 +1,83 @@
+[[!comment format=mdwn
+ username="yarikoptic"
+ avatar="http://cdn.libravatar.org/avatar/f11e9c84cb18d26a1748c33b48c924b4"
+ subject="comment 2"
+ date="2026-10-07T19:27:15Z"
+ content="""
+> you do not have a remotes/hub-con/git-annex
+> You do have a local branch named hub-con/git-annex
+
+hm, did I cut paste something incorrectly somewhere? I do not think it is the case:
+
+```shell
+❯ git br -a
+  git-annex
+* master
+  remotes/con@falkor/HEAD -> con@falkor/master
+  remotes/con@falkor/git-annex
+  remotes/con@falkor/master
+  remotes/con@falkor/synced/git-annex
+  remotes/con@falkor/synced/master
+  remotes/falkor/HEAD -> falkor/master
+  remotes/falkor/git-annex
+  remotes/falkor/master
+  remotes/falkor/synced/git-annex
+  remotes/falkor/synced/master
+  remotes/hub-con/HEAD -> hub-con/master
+  remotes/hub-con/git-annex
+  remotes/hub-con/master
+  remotes/hub-con/synced/git-annex
+  remotes/hub-con/synced/master
+  remotes/typhon/HEAD -> typhon/master
+  remotes/typhon/git-annex
+  remotes/typhon/master
+  remotes/typhon/synced/git-annex
+  remotes/typhon/synced/master
+
+❯ ls -l .git/refs/heads .git/refs/remotes/hub-con
+.git/refs/heads:
+total 8
+-rw-rw-r-- 1 yoh yoh 41 Oct  7 12:49 git-annex
+-rw-rw-r-- 1 yoh yoh 41 Oct  7 12:49 master
+
+.git/refs/remotes/hub-con:
+total 12
+-rw-rw-r-- 1 yoh yoh 33 Oct  7 12:49 HEAD
+-rw-rw-r-- 1 yoh yoh 41 Oct  7 12:48 git-annex
+-rw-rw-r-- 1 yoh yoh 41 Oct  7 12:50 master
+drwxrwsr-x 1 yoh yoh 30 Oct  7 15:11 synced/
+```
+
+
+> since it has already sent the same information to the remote in a successful force-push of the synced/git-annex branch. So that is all a red herring.
+
+indeed! it seems that somehow, in that most recent merge it did add that UUID, and that was done in a commit TODAY catching up on a \"transition\" (done as AFAIK finished days ago! and IIRC on a different host but I could be mistaken and may be it was done on this) when this repo was produced by splitting off the tree of a larger \"original repo\". 
+
+```shell
+❯ git show hub-con/git-annex:uuid.log | grep e9147e49-a1d5-49b1-bd50-74010d401463
+e9147e49-a1d5-49b1-bd50-74010d401463 git@b16fdd44ad3a:/var/lib/gitea/git/repositories/con/liab-falkor-hub.git timestamp=1791391708s
+❯ git show git-annex^1:uuid.log | grep e9147e49-a1d5-49b1-bd50-74010d401463
+e9147e49-a1d5-49b1-bd50-74010d401463 git@b16fdd44ad3a:/var/lib/gitea/git/repositories/con/liab-falkor-hub.git timestamp=1791391708s
+❯ git show git-annex^1
+commit 09524451b82e929afe3eaacedc906033311382c0
+Author: Yaroslav Halchenko <debian@onerussian.com>
+Date:   Wed Oct 7 12:48:56 2026 -0400
+
+    continuing transition [\"forget git history\",\"forget dead remotes\"]
+
+diff --git a/uuid.log b/uuid.log
+index f8582b9..5c4adc9 100644
+--- a/uuid.log
++++ b/uuid.log
+@@ -5,4 +5,5 @@
+ 60ab5caa-8d02-4a25-ae23-80e6cfcf8955 split-falkor-hub timestamp=1789701480s
+ 885697c4-a371-484f-8332-ebdce2f5cce6 yoh@falkor:~/hardware/washoe/2026-revamp timestamp=1773954781s
+ adc21e14-c327-4051-bc7c-a95b706ea64d yoh@bilena:~/hardware/washoe/2026-revamp timestamp=1773928564s
++e9147e49-a1d5-49b1-bd50-74010d401463 git@b16fdd44ad3a:/var/lib/gitea/git/repositories/con/liab-falkor-hub.git timestamp=1791391708s
+ f0af65a3-fef7-4127-9fb6-910e266ebc09 yoh@typhon:~/hardware/washoe/2026-revamp/deployments/falkor-hub timestamp=1788183516s
+```
+
+so indeed info is there!  but how that continuing transition came up again?
+
+since info is there -- may be I could just force push git-annex branch (if would be allowed) or manually merge directly and push, correct?
+"""]]
