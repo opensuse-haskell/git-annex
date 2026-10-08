@@ -101,3 +101,5 @@ https://www.oneukrainian.com/tmp/20261007-git-annex-merge-details.txt
 [[!tag projects/repronim]]
 
 [[!meta title="sync should force push to remote git-annex branch when a transition has caused it to be in gitAnnexIgnoredRefs"]]
+
+> [[fixed|done]] --[[Joey]]

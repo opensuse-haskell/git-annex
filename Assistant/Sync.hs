@@ -1,6 +1,6 @@
 {- git-annex assistant repo syncing
  -
- - Copyright 2012 Joey Hess <id@joeyh.name>
+ - Copyright 2012-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -39,6 +39,7 @@ import Assistant.RepoProblem
 import Assistant.Commits
 import Types.Transfer
 import Database.Export
+import Utility.Tuple
 
 import Data.Time.Clock
 import qualified Data.Map as M
@@ -162,20 +163,23 @@ pushToRemotes' now remotes = do
 
 	fallback branch g u rs = do
 		debug ["fallback pushing to", show rs]
-		(succeeded, failed) <- parallelPush g rs (taggedPush u Nothing branch)
+		(succeeded, failed) <- parallelPush g rs
+			(\r -> return $ taggedPush u Nothing branch r)
 		updatemap succeeded failed
 		return failed
-		
+	
 	push ms branch remote = Command.Sync.pushBranch remote (Just branch) ms
 
-parallelPush :: Git.Repo -> [Remote] -> (Remote -> Git.Repo -> IO Bool)-> Assistant ([Remote], [Remote])
+parallelPush :: Git.Repo -> [Remote] -> (Remote -> Annex (Git.Repo -> IO Bool)) -> Assistant ([Remote], [Remote])
 parallelPush g rs a = do
-	rgs <- liftAnnex $ mapM topush rs
-	(succeededrgs, failedrgs) <- liftIO $ inParallel (uncurry a) rgs
-	return (map fst succeededrgs, map fst failedrgs)
+	ars <- liftAnnex $ mapM topush rs
+	(succeeded, failed) <- liftIO $
+		inParallel (\(_, a', r) -> a' r) ars
+	return (map fst3 succeeded, map fst3 failed)
   where
-	topush r = (,)
+	topush r = (,,)
 		<$> pure r
+		<*> a r
 		<*> (Remote.getRepo r >>= \repo ->
 			sshOptionsTo repo (Remote.gitconfig r) g)
 

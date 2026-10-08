@@ -8,6 +8,7 @@
 
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Command.Sync (
 	cmd,
@@ -712,8 +713,8 @@ pushRemote o remote (Just branch, _) = do
 			repo <- Remote.getRepo remote
 			showOutput
 			ms <- Annex.getState Annex.output
-			ok <- inRepoWithSshOptionsTo repo gc $
-				pushBranch remote mainbranch ms
+			pb <- pushBranch remote mainbranch ms
+			ok <- inRepoWithSshOptionsTo repo gc pb
 			if ok
 				then postpushupdate repo
 				else do
@@ -755,8 +756,8 @@ pushRemote o remote (Just branch, _) = do
 				<&&>
 			needUpdateInsteadEmulation			
 
-{- Pushes a regular branch like master to a remote. Also pushes the git-annex
- - branch.
+{- Returns an IO action that pushes a regular branch like master to a remote,
+ - and pushes the git-annex branch.
  -
  - If the remote is a bare git repository, it's best to push the regular
  - branch directly to it, so that cloning/pulling will get it.
@@ -790,13 +791,23 @@ pushRemote o remote (Just branch, _) = do
  - new data is usually sent in this push (due to synced/git-annex already
  - having been pushed), it's ok to hide git's output to avoid displaying
  - a push error.
+ - 
+ - When the remote's git-annex branch has been incorporated in a
+ - transition, push of the git-annex branch is forced, with a lease, 
+ - to avoid the push failing due to a non fast-forward.
  -}
-pushBranch :: Remote -> Maybe Git.Branch -> MessageState -> Git.Repo -> IO Bool
-pushBranch remote mbranch ms g = do
-	directpushed <- directpush
-	annexpush `after` syncpush directpushed
+pushBranch
+	:: Remote
+	-> Maybe Git.Branch
+	-> MessageState
+	-> Annex (Git.Repo -> IO Bool)
+pushBranch remote mbranch ms = do
+	annexpush <- getannexpush
+	return $ \g -> do
+		directpushed <- directpush g
+		annexpush g `after` syncpush directpushed g
   where
-	directpush = case mbranch of
+	directpush g = case mbranch of
 		Just branch -> do
 			let p = flip Git.Command.gitCreateProcess g $
 				pushparams True
@@ -808,7 +819,7 @@ pushBranch remote mbranch ms g = do
 			return (True, exitcode == ExitSuccess)
 		Nothing -> return (False, False)
 	
-	syncpush (directpushed, directbranchupdated) =  do
+	syncpush (directpushed, directbranchupdated) g = do
 		let p = flip Git.Command.gitCreateProcess g $
 			pushparams (not directpushed) $ catMaybes
 				[ if not directbranchupdated
@@ -824,8 +835,22 @@ pushBranch remote mbranch ms g = do
 			relaystderr (stderrHandle h) (processHandle h)
 			checkSuccessProcess (processHandle h)
 	
-	annexpush = void $ tryIO $ flip Git.Command.runQuiet g $ pushparams False
-		[ Git.fromRef $ Git.Ref.base $ Annex.Branch.name ]
+	getannexpush = do
+		let rb = remoteBranch remote Annex.Branch.name
+		leaseopt <- Annex.Branch.checkTransitionedRef rb >>= return . \case
+			Just sha -> Just $ concat
+				[ "--force-with-lease="
+				, Git.fromRef Annex.Branch.name
+				, ":"
+				, Git.fromRef sha
+				]
+			Nothing -> Nothing
+		return $ \g ->
+			void $ tryIO $ flip Git.Command.runQuiet g $
+				pushparams False $ catMaybes 
+					[ Just $ Git.fromRef $ Git.Ref.base $ Annex.Branch.name
+					, leaseopt
+					]
 	
 	-- In the default configuration of receive.denyCurrentBranch,
 	-- git's stderr message mentions that config setting
@@ -855,7 +880,7 @@ pushBranch remote mbranch ms g = do
 			relaystderr herr pid
 		Nothing -> return ()
 
-	pushparams forceprogress branches = catMaybes
+	pushparams forceprogress ps = catMaybes
 		[ Just $ Param "push"
 		, if commandProgressDisabled' ms
 			then Just $ Param "--quiet"
@@ -863,7 +888,7 @@ pushBranch remote mbranch ms g = do
 				then Just $ Param "--progress"
 				else Nothing
 		, Just $ Param $ Remote.name remote
-		] ++ map Param branches
+		] ++ map Param ps
 	
 	syncrefspec b = concat 
 		[ Git.fromRef $ Git.Ref.base b

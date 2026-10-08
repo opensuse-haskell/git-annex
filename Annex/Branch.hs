@@ -38,6 +38,7 @@ module Annex.Branch (
 	files,
 	rememberTreeish,
 	performTransitions,
+	checkTransitionedRef,
 	withIndex,
 	precache,
 	UnmergedBranches(..),
@@ -806,6 +807,18 @@ handleTransitions jl localts refs = do
 			performTransitionsLocked jl allts (localts /= allts) transitionedrefs
 			ignoreRefs untransitionedrefs
 			return True
+
+{- Checks if the passed ref is to a sha that has been merged into the
+ - git-annex branch already, but was not able to be listed as a parent due
+ - to a transition. If so, returns the sha. -}
+checkTransitionedRef :: Git.Ref -> Annex (Maybe Git.Sha)
+checkTransitionedRef r = do
+	ir <- getIgnoredRefs
+	if S.null ir
+		then return Nothing
+		else inRepo (Git.Ref.sha r) >>= \case
+			Just sha | S.member sha ir -> return (Just sha)
+			_ -> return Nothing
 
 {- Performs the specified transitions on the contents of the index file,
  - commits it to the branch, or creates a new branch.

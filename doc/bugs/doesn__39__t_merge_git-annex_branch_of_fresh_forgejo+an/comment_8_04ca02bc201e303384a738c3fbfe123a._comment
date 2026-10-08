@@ -1,0 +1,16 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 8"""
+ date="2026-10-08T17:27:37Z"
+ content="""
+If the server does have git-annex installed, the git post-receive hook
+usually runs git-annex, which handles updating the git-annex branch from
+synced/git-annex as a side effect of what it's really itended to do.
+
+I guess that is not happening in the forgejo repository for whatever
+reason.
+
+Anyway, I reproduced this behavior with a ssh remote that has git-annex
+installed, but no git hooks. And made git-annex sync do the force push with
+lease.
+"""]]
