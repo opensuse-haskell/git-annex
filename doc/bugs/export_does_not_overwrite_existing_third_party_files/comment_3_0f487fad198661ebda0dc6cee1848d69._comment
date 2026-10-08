@@ -1,0 +1,14 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 3"""
+ date="2026-10-08T15:54:08Z"
+ content="""
+Thank you for confirming the LLM use and for not doing it again.
+
+And yeah, putting time into filing a good bug report can pay off. But if
+you have limited time and file a not so good bug report, that's fine. I
+can often read between the lines, and just seeing what you did and what
+git-annex output is often enough. And if it isn't, someone else can come
+along and improve the bug report. So I would encourage you to do what you
+can and not feel you have to reach for AI to fill in the rest.
+"""]]
