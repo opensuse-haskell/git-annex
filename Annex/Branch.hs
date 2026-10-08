@@ -859,7 +859,7 @@ performTransitionsLocked jl ts neednewlocalbranch transitionedrefs = do
 	message
 		| neednewlocalbranch && null transitionedrefs = "new branch for transition " ++ tdesc
 		| otherwise = "continuing transition " ++ tdesc
-	tdesc = show $ map describeTransition tlist
+	tdesc = intercalate ", " (map describeTransition tlist)
 	tlist = knownTransitionList ts
 
 	{- The changes to make to the branch are calculated and applied to
