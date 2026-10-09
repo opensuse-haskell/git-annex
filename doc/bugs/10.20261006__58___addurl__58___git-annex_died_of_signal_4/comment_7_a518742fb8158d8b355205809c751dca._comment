@@ -1,0 +1,23 @@
+[[!comment format=mdwn
+ username="ewen"
+ avatar="http://cdn.libravatar.org/avatar/605b2981cb52b4af268455dee7a4f64e"
+ subject="Thanks!"
+ date="2026-10-09T21:32:27Z"
+ content="""
+Thanks for the link to the macOS standalone build workflow -- as you say it looks like `stack-botan.yaml` with `magicmime` enabled, and using Homebrew to supply some of the dependencies.  That's a useful reference for the future.
+
+Based on what I found yesterday I'm fairly sure both of:
+
+- Intel CPU (of a relevant vintage)
+- built with *exactly* Crypton 2.0.0 (ie, using `stack.yaml`, allowing Crypton 2.x.x *and* a restriction preventing Crypton 2.0.1 / Crypton 2.1.0)
+
+are required to trigger the build that crashes.
+
+Since Crypton 2.0.1 came out fairly soon after Crypton 2.0.0 and has the fix for the Intel CPU feature detection, I suspect that's an uncommon build configuration.  Likely only affecting Homebrew macOS Intel (\"Tier 3\") and Homebrew Linux Intel (\"Tier 2\" from memory), due to their (apparently mistaken) choice to block Crypton 2.0.1 in the dependency resolver.
+
+So I think this issue could be closed now, and just serve as future reference for other possible crash isues.
+
+I also agree with you it's quite hard to avoid dependencies-of-dependencies (especially recursively or where fairly key dependencies use the library/versions one would prefer to avoid).  Hopefully Crypon 2.x.x settles down a bit more now the clear \"major version\" breaking changes are done, because it looks hard to completely avoid in a network-related project.
+
+Ewen
+"""]]
