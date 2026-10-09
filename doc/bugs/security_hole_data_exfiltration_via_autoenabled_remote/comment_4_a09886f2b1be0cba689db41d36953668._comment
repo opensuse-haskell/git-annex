@@ -1,0 +1,11 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 4"""
+ date="2026-10-09T18:16:22Z"
+ content="""
+The attacker could also document that the user ought to `git-annex
+enableremote` the remote, and so avoid any autoenable specific security
+guardrails.
+
+That suggests that enableremote needs the same kind of security guardrails.
+"""]]
