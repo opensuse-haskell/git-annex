@@ -1,0 +1,27 @@
+[[!comment format=mdwn
+ username="ewen"
+ avatar="http://cdn.libravatar.org/avatar/605b2981cb52b4af268455dee7a4f64e"
+ subject="git-annex depends on ram now (10.20261006)"
+ date="2026-10-09T05:03:11Z"
+ content="""
+Ah, on closer inspection of the changes it looks like git-annex itself now depends on `ram` (from `stack.yaml`):
+
+```
+[...]
+resolver: lts-24.52
+extra-deps:
+- aws-0.25.2
+- file-io-0.2.0
+- blake3-0.3
+- magic-1.1
+- ram-0.22.0
+```
+
+which is presumably at least part of the reason why HomeBrew went with the alternative approach of depending on an unmerged PR of `yesod-static`.
+
+Unfortunately the Homebrew git-annex Formula PR (for 10.20261005) -- [https://github.com/Homebrew/homebrew-core/pull/315642/files](https://github.com/Homebrew/homebrew-core/pull/315642/files) -- doesn't give any commentary on why the changes were made, and the working source branch is naturally deleted.
+
+But building `git-annex` 10.20261005 / 10.20261006 with the old `ram < 0` build constraint from the Homebrew Formula seems unlikely to work.
+
+Ewen
+"""]]
