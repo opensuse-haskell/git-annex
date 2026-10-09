@@ -1,0 +1,16 @@
+[[!comment format=mdwn
+ username="ewen"
+ avatar="http://cdn.libravatar.org/avatar/605b2981cb52b4af268455dee7a4f64e"
+ subject="yesod-static context changes"
+ date="2026-10-09T02:39:04Z"
+ content="""
+From the `yesod-static` issue (linked above):
+
+> I think the problem is that crypton-1.1.4 now uses ram instead of memory, which is fundamentally incompatible with the current version of yesod-static.
+
+it seems like all of those `yesod-static` / `ram` / `crypton` changes are related, but that the problems people encountered were build issues rather than a runtime issue.  (And the [unmerged yesod-static PR #1916](https://github.com/yesodweb/yesod/pull/1916/files), seems to selectively use `ram` or `memory` depending on the `crypton` version; notably it is unmerged for 4+ months.)
+
+But it does at least seem notable that Homebrew have changed how they're addressing those build conflicts.
+
+Ewen
+"""]]
