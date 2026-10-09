@@ -1,0 +1,14 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 1"""
+ date="2026-10-09T14:32:29Z"
+ content="""
+termux now includes a git-annex package, and that avoids the proot hack
+that the git-annex.linux standalone build uses to run on android.
+
+So, I think that would be the solution to this problem. 
+
+Since using the termux package is now the recommended way to install
+git-annex on android, and whatever the problem with proot is unlikely to
+get resolved, I'm going to close this.
+"""]]

@@ -44,3 +44,5 @@ Android 9. LineageOS.
 So, I've been trying to uss it for years. Kind of like how I tried using Emacs and went bankrupt twice before things clicked. I was so hung up on the symlinks. Then I finally understood some things, thanks Gemini, and now I'm using annex.addunlocked and annex.thin and I feel really nerdy and cool. I would love to get this working on my tablet too.
 
 Thanks!
+
+> [[done]]; use termux git-annex package --[[Joey]]
