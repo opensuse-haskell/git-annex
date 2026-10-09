@@ -14,8 +14,9 @@ Or for using rsync over SSH
 
 These parameters can be passed to `git annex initremote` to configure rsync:
 
-* `rsyncurl` - Required. This is the url or `hostname:/directory` to 
-  pass to rsync to tell it where to store content.
+* `rsyncurl` - Required. This is the passed to rsync to tell it
+  where to store content. It can be an url or `hostname:/directory`;
+  see the rsync documentation for details about how it handles destinations.
 
 * `encryption` - One of "none", "hybrid", "shared", or "pubkey".
   See [[encryption]].
