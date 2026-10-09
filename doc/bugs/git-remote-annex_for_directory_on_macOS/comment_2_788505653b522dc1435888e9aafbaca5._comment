@@ -1,0 +1,29 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 2"""
+ date="2026-10-09T14:44:21Z"
+ content="""
+What won't work for such a directory special remote is cloning it from the
+url that git-annex outputs when pushing to it. Eg:
+
+	joey@darkstar:~/tmp/bb/repo>git push local1 master
+	Full remote url: annex::23158cb0-7aa5-43ea-9ca3-c8254e9aa1f0?encryption=none&type=directory
+	Everything up-to-date
+	joey@darkstar:~/tmp/bb/repo>..
+	cd -- ..
+	joey@darkstar:~/tmp/bb>git clone 'annex::23158cb0-7aa5-43ea-9ca3-c8254e9aa1f0?encryption=none&type=directory'
+	Cloning into '23158cb0-7aa5-43ea-9ca3-c8254e9aa1f0?encryption=none&type=directory'...
+	git-remote-annex: Specify directory=
+	
+	fatal: remote helper 'annex' aborted session
+	- exit 128
+	joey@darkstar:~/tmp/bb>git clone 'annex::23158cb0-7aa5-43ea-9ca3-c8254e9aa1f0?encryption=none&type=directory&directory=specialdirectoryremote'
+	Cloning into '23158cb0-7aa5-43ea-9ca3-c8254e9aa1f0?encryption=none&type=directory&directory=specialdirectoryremote'...
+
+Working around that is possible, but you have to add the directory parameter to the url:
+
+	joey@darkstar:~/tmp/bb>git clone 'annex::23158cb0-7aa5-43ea-9ca3-c8254e9aa1f0?encryption=none&type=directory&directory=specialdirectoryremote'
+	Cloning into '23158cb0-7aa5-43ea-9ca3-c8254e9aa1f0?encryption=none&type=directory&directory=specialdirectoryremote'...
+
+This poor fit is why I say that a bare git repository is better.
+"""]]
