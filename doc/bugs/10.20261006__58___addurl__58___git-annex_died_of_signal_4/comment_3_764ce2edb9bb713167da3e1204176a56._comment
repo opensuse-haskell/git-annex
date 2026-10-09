@@ -1,0 +1,22 @@
+[[!comment format=mdwn
+ username="ewen"
+ avatar="http://cdn.libravatar.org/avatar/605b2981cb52b4af268455dee7a4f64e"
+ subject="Homebrew Formula adopts yesod-static PR 1916 AFAICT"
+ date="2026-10-09T02:56:45Z"
+ content="""
+Looking closer, as best I can tell Homebrew have effectively proactively adopted the PR with their recent Formula change (above), since the URL:
+
+https://github.com/yesodweb/yesod/archive/23f8d636842023c7cde36109ea24258df0d5ecd6.tar.gz
+
+seems to correspond to this commit:
+
+[https://github.com/leftaroundabout/yesod/commit/23f8d636842023c7cde36109ea24258df0d5ecd6](https://github.com/leftaroundabout/yesod/commit/23f8d636842023c7cde36109ea24258df0d5ecd6)
+
+at the tip of the source branch of the PR ([unmerged yesod PR #1916](https://github.com/yesodweb/yesod/pull/1916)).  Even though the download is via the upstream gitrepo.
+
+For the record, I'd report this to Homebrew but they (a) officially don't support macOS Intel any longer (\"Tier 3\" as of last month), and (b) officially don't support local builds).
+
+It is however seeming like I should possibly try building 10.20261006 *without* this pinning to a PR version of `yesod-static`, as the more I look at that change in the Homebrew Formula, the more surprising it seems.
+
+Ewen
+"""]]
