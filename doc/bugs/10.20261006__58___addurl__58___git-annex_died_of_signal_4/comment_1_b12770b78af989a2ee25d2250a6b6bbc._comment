@@ -1,0 +1,35 @@
+[[!comment format=mdwn
+ username="ewen"
+ avatar="http://cdn.libravatar.org/avatar/605b2981cb52b4af268455dee7a4f64e"
+ subject="Homebrew git-annex Formula"
+ date="2026-10-09T02:29:19Z"
+ content="""
+For ease of reference this is the Homebrew Formula for building git-annex:
+
+[https://github.com/Homebrew/homebrew-core/blob/main/Formula/g/git-annex.rb](https://github.com/Homebrew/homebrew-core/blob/main/Formula/g/git-annex.rb)
+
+and the only commit I see since 10.20060901 with non-trivial changes (eg, more than just source URL/sha256, bottle sha256) is:
+
+[https://github.com/Homebrew/homebrew-core/commit/b39e1cef1d46210c79163e52fbb2335864c88d37](https://github.com/Homebrew/homebrew-core/commit/b39e1cef1d46210c79163e52fbb2335864c88d37)
+
+which looks like it's trying to add two constraints on:
+
+* `yesod-static` (specifically 1.6.1.4)
+* `crypton` (specifically `<2.0.1`)
+
+and remove one other constraint.
+
+* `ram` (`<0`)
+
+Those changes reference:
+
+*  [https://github.com/yesodweb/yesod/pull/1916](https://github.com/yesodweb/yesod/pull/1916)
+*  [https://github.com/yesodweb/yesod/issues/1917](https://github.com/yesodweb/yesod/issues/1917)
+*  [https://github.com/psibi/crypton-conduit/issues/5](https://github.com/psibi/crypton-conduit/issues/5)
+
+(with the `ram` constraint apparently being removed in favour of a different constraint).
+
+Are those changes around `yesod-static` or `crypton` likely to be a cause of issues with URL downloads?
+
+Ewen
+"""]]
