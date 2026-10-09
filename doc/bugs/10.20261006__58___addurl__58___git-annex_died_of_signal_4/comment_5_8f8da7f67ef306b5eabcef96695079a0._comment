@@ -1,0 +1,76 @@
+[[!comment format=mdwn
+ username="ewen"
+ avatar="http://cdn.libravatar.org/avatar/605b2981cb52b4af268455dee7a4f64e"
+ subject="crypton 2.0.0 known issue on Intel CPUs (fixed in crypton 2.0.1, but Homebrew Formula blocks 2.0.1)"
+ date="2026-10-09T06:14:12Z"
+ content="""
+Apologies for the many comments to get here, but I suspect I've found the cause at last, in the [Crypton 2.0.1 release notes](https://hackage.haskell.org/package/crypton-2.0.1/changelog):
+
+> fix(cpu): stop reading Intel's SDBG bit as AMD's XOP, which crashed SHA-512 and ChaCha20 on Broadwell and later.
+
+which links to this [bug report on Crypton 2.0.0](https://github.com/kazu-yamamoto/crypton/issues/202) with similar crashes, that starts with:
+
+> Following the 2.0.0 bump I get SIGILL on an elder machine (i7-6700K / Skylake).
+
+Where on macOS, signal 4 is `ILL`:
+
+```
+ewen@basadi:~$ kill -l 4
+ILL
+ewen@basadi:~$ 
+```
+
+so the symptoms match.
+
+And the affected macOS Intel system (Intel Mac Mini, from 2020) I suspect is roughly the same CPU generation to be affected.
+
+So in theory rather than:
+
+```
+ewen@basadi:~$ git annex version | grep crypton
+dependency versions: aws-0.25.3 bloomfilter-2.0.1.3 crypton-2.0.0 DAV-1.3.4 feed-1.3.2.1 ghc-9.14.1 http-client-0.7.19 torrent-10000.1.3 uuid-1.3.16.1 yesod-1.6.2.3
+ewen@basadi:~$ 
+```
+
+I actually need the build to be against `crypton-2.0.1` on macOS Intel.... but the Homebrew Formula explicitly blocks that for another reason:
+
+```
+      # https://github.com/psibi/crypton-conduit/issues/5
+      \"--constraint=crypton<2.0.1\",
+```
+
+where [https://github.com/psibi/crypton-conduit/issues/5](https://github.com/psibi/crypton-conduit/issues/5) was one of the issues I noted above as a new change in the Homebrew Formula, which suggests that `git-annex` won't build (on macOS) with `crypton` 2.0.1.
+
+However I think they're confused about [what changed in `crypton` 2.0.1](https://hackage.haskell.org/package/crypton-2.0.1/changelog) (which is basically a one line fix) and are [probably thinking of `crypton` 2.1.0](https://hackage.haskell.org/package/crypton-2.1.0/changelog) (which is a much larger change), and I've [said so in the crypton-conduit issue report](https://github.com/psibi/crypton-conduit/issues/5#issuecomment-6075337746), where they noted the conflict.
+
+After forcing Homebrew locally to build with:
+
+```
+cabal v2-install --allow-newer=base,template-haskell --constraint=crypton<2.1.0 --constraint=magic<2 --constraint=QuickCheck<2.17 --constraint=persistent-sqlite +systemlib +use-pkgconfig
+```
+
+which pulls in `crypton` 2.0.1:
+
+```
+ewen@basadi:~$ git annex version | egrep 'crypton|git-annex version'
+git-annex version: 10.20261006
+dependency versions: aws-0.25.3 bloomfilter-2.0.1.3 crypton-2.0.1 DAV-1.3.4 feed-1.3.2.1 ghc-9.14.1 http-client-0.7.19 torrent-10000.1.3 uuid-1.3.16.1 yesod-1.6.2.3
+ewen@basadi:~$ 
+```
+
+I find that `git annex addurl` works again:
+
+```
+ewen@basadi:/tmp/test-annex$ git annex addurl --pathdepth -1 'https://download.2600.com/mediadownload/www.2600.com/offthewall/mp3files/2026/off_the_wall__20261006-128.mp3'
+addurl https://download.2600.com/mediadownload/www.2600.com/offthewall/mp3files/2026/off_the_wall__20261006-128.mp3 
+(to off_the_wall__20261006-128.mp3) ok
+(recording state in git...)
+ewen@basadi:/tmp/test-annex$
+```
+
+and I assume that `git annex importfeed` will probably work again too.
+
+Ewen
+
+PS: The working Homebrew bottle install on macOS ARM also has `crypton-2.0.0` as the build dependency, but since it seems to be an Intel CPU specific bug in Crypton 2.0.0, that wouldn't matter on ARM.
+"""]]
