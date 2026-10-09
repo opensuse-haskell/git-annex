@@ -1,0 +1,40 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 3"""
+ date="2026-10-09T16:57:43Z"
+ content="""
+Previous comment go me thinking, this security hole may not need an
+autoenabled special remote at all.
+
+For example, if the attacker knows that I am storing annexed objects in a
+private S3 bucket, they can make a git-annex repository with a special
+remote for a S3 bucket that contains files they know I want. When I clone
+it, I can manually enable that special remote and use it. And then the
+attacker strikes, by updating the git-annex branch remote.log so that
+the special remote now points to my own private S3 bucket. Causing 
+`git-annex sync` to exfiltrate annex objects from it.
+
+This is really a separate security hole, but fixing it comprehensively
+across special remotes seems to be needed in order to fix the autoenable
+security hole.
+
+One fix is for enabling a special remote to copy all security relevant
+parts of the remote config to git config settings, and have the special
+remote read those git config settings on use.
+
+It should be possible to fix this without modifying all the special remotes
+to do that. git-annex could remember that a special remote was enabled with
+a particular special remote config, and supply that config to it, even
+after the git-annex branch was updated with a newer config.
+
+To handle legitimate config changes, git-annex could notify the user about
+a config change and have them verify it before using it.
+
+How to handle upgrades, where it's not yet recorded which config a special
+remote was enabled with? It could default to the first or the last
+remote.log config of the special remote. First would be undesirable when
+git-annex enableremote has been used in the past to change the config
+in some signficant way. Last risks exposing the user of an upgraded
+git-annex to this security hole, but only if an attacker has already
+updated the git-annex branch.
+"""]]

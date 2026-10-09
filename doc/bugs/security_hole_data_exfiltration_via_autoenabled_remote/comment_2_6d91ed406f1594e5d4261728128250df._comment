@@ -1,0 +1,37 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 2"""
+ date="2026-10-09T16:36:22Z"
+ content="""
+A way to fix this while keeping autoenable could be to make git-annex
+refuse to push annexed files to remotes by default after autoenabling a
+special remote. 
+
+The UI for this could look something like:
+
+	> git-annex sync
+	[...]
+	(autoenabling special remote "foo")
+	[...]
+	> git-annex copy --to origin
+	git-annex: Error, sending files to special remotes is disabled
+	because the recently autoenabled special remote "foo" has not been
+	verified to be safe. Please examine the configuration of this
+	special remote and make sure it is not accessing any resource that
+	you would not expect it to access. If all looks well,
+	run "git-annex verified-safe foo"
+
+That relies on the configuration of special remotes being something that
+a) the user can verify to be safe and b) won't change out from under them
+in a subsequent `git pull` of the git-annex branch. Unfortunately, that is
+not actually the case for all of them. Eg for a S3 bucket the bucket= field
+in the remote config can be changed by a later git pull. It doesn't use 
+git config like eg the directory special remote does. So this might also
+need fixes to lots of special remotes.
+
+The other problem with this fix is that it still lets the attacker
+learn if I do have a given key in a location that they hypothesized.
+`git-annex sync` will get it from the autoenabled special remote,
+and update location tracking to say it's in my clone of the repository.
+Then any `git push origin` will expose that information to the attacker.
+"""]]
