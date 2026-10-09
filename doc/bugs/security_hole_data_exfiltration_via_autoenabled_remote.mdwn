@@ -1,0 +1,40 @@
+An git-annex repository with an autoenable=yes special remote can be used
+to exfiltrate data from another git-annex repository.
+
+For example, suppose that ~/foo on my laptop is a git-annex repository
+that contains some annexed files whose content I only provide to some
+people. But I am not trying to hide that I have those files in that
+repository. So I push the git repository, without the annexed files,
+to a public server.
+
+All an attacker needs to do is make a git-annex repository that contains an
+autoenabled special remote of type git:
+
+    git-annex initremote foo type=git location=/home/joey/foo autoenable=true
+
+(They will first need to dummy up their own ~/foo repository, with the same
+uuid as mine; that uuid is discoverable in what I pushed.)
+
+In their repository, they can make some annexed files, with innocuous
+names, that use the keys of the annexed files I am keeping private.
+
+Then they only need to coax me into cloning their repository and running
+git-annex sync. The foo remote is autoenabled and sync will get my private
+files from foo. And, if the attacker-controlled origin has preferred
+content configured, will send them on to their repository.
+
+This security hole is not limited to autoenabled git remotes. It could be
+an autoenabled S3 bucket, if I habitually keep S3 environment variables
+set. Or it could be an autoenabled rsync special remote with an rsyncurl
+that points into my server via ssh.
+
+(It's almost possible to use this to exfiltrate arbitrary non-annexed files.
+The attacker could make a directory or rsync special remote with
+importtree=yes that autoenables. The only reason this doesn't work
+is that remote.name.annex-tracking-branch needs to be set in order
+to make `git-annex sync` use it. They could try to social engineer 
+me into running `git-annex import`, but that seems considerably harder.
+Still, while this seems too hard to be a viable attack, it seems likely
+that any fix to the main attack will also close off this one.) 
+
+--[[Joey]]
