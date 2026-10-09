@@ -13,25 +13,29 @@ The UI for this could look something like:
 	[...]
 	(autoenabling special remote "foo")
 	[...]
-	> git-annex copy --to origin
-	git-annex: Error, sending files to special remotes is disabled
-	because the recently autoenabled special remote "foo" has not been
-	verified to be safe. Please examine the configuration of this
-	special remote and make sure it is not accessing any resource that
-	you would not expect it to access. If all looks well,
-	run "git-annex verified-safe foo"
+	get somefile (from foo) ok
+	copy somefile (to origin)
+	git-annex: Error, sending files to all remotes is disabled because
+	the recently autoenabled special remote "foo" has not been verified
+	to be safe. Please run "git-annex verifyremote foo" to do that.
+	push origin ok
 
-That relies on the configuration of special remotes being something that
-a) the user can verify to be safe and b) won't change out from under them
-in a subsequent `git pull` of the git-annex branch. Unfortunately, that is
-not actually the case for all of them. Eg for a S3 bucket the bucket= field
-in the remote config can be changed by a later git pull. It doesn't use 
-git config like eg the directory special remote does. So this might also
-need fixes to lots of special remotes.
+	> git-annex verifyremote foo
+	This is an automatically enabled special remote, with
+	this configuration:
+		type=S3 bucket=foo
+	Is this remote repository one you expected to be using?
+	If so, run:  git-annex verifyremote foo --safe
+	If not, run: git-annex verifyremote foo --unsafe
 
-The other problem with this fix is that it still lets the attacker
+What should verifyremote --unsafe do? At that point files can
+have already been gotten from it. Deleting the whole local repository
+might be a good move. It would need to advise the user about what to do.
+
+This fix is incomplete in that it still lets the attacker
 learn if I do have a given key in a location that they hypothesized.
 `git-annex sync` will get it from the autoenabled special remote,
-and update location tracking to say it's in my clone of the repository.
-Then any `git push origin` will expose that information to the attacker.
+and update location tracking to say it's in my clone of the repository,
+and pushes the git-annex branch to origin, exposing that information
+to the attacker.
 """]]
