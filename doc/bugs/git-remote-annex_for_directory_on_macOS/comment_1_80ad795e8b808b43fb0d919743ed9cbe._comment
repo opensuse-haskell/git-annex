@@ -1,0 +1,20 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 1"""
+ date="2026-10-09T14:36:29Z"
+ content="""
+This is not macOS specific. The directory special remote requires a
+directory= parameter be given to initremote. That is to support things like
+a directory special remote that points to a USB drive that moves between
+several computers. The mount point of the drive can be different on each
+computer, and so each place the directory special remote is enabled it
+needs the directory= to be specified.
+
+I don't really see any point in using git-remote-annex with a directory
+special remote. You can just as well use a bare git repository. 
+
+But anyway, if you pass the directory= parameter to enableremote, it does work.
+
+BTW, it's not necessary to run enableremote after initremote. You can just
+run initremote --with-url.
+"""]]
