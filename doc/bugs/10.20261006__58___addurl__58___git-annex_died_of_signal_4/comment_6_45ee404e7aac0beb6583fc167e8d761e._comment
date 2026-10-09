@@ -1,0 +1,18 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 6"""
+ date="2026-10-09T14:04:05Z"
+ content="""
+It's deeply unfortunate that crypton has stated being developed by pointing
+an LLM at it and hoping that the (not well understood) results work. The
+consequences can be seen in the crypton changelog.
+
+git-annex is migrating away from crypton to the extent it can, but
+unfortunately it's used for https libraries and I have not found a
+way around that.
+
+PS, the build environment used for the MacOs standalone build 
+is [here](https://github.com/joeyh/gitannexbuilder/blob/github/.github/workflows/build-macos-intel.yaml)
+but is basically just the stack-botan.yaml. That pulls in crypton-1.0.6
+currently.
+"""]]
