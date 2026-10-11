@@ -1,0 +1,10 @@
+The arm64-ancient build uses debian bullseye, which has reached the end of
+security support.
+
+This build should either be switched to the current debian LTS, or stop
+being made. Since it targeted kernel 4.19 for android phones that still
+used that, it may either not be necessary any more, or the new debian LTS
+may not work with that kernel.
+
+It may be that, since termux now includes a git-annex package, it's not
+worth doing a build just for old android phones any longer. --[[Joey]]
