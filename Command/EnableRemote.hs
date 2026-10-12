@@ -16,7 +16,6 @@ import qualified Types.Remote as R
 import qualified Git
 import qualified Annex.SpecialRemote as SpecialRemote
 import qualified Remote
-import qualified Types.Remote as Remote
 import qualified Remote.Git
 import qualified Command.InitRemote
 import Logs.UUID
@@ -67,7 +66,7 @@ start o (name:rest) = go =<< filter matchingname <$> Annex.getGitRemotes
 			-- remote that has an url (eg gcrypt).
 			rs <- Remote.remoteList
 			case filter (\rmt -> Remote.name rmt == name) rs of
-				(rmt:_) | Remote.remotetype rmt == Remote.Git.remote ->
+				(rmt:_) | R.remotetype rmt == Remote.Git.remote ->
 					startNormalRemote name r
 				_  -> go []
 
@@ -83,12 +82,12 @@ startNormalRemote name r = starting "enableremote (normal)" ai si $ do
 	ai = ActionItemOther (Just (UnquotedString name))
 	si = SeekInput [name]
 
-startSpecialRemote :: EnableRemoteOptions -> RemoteName -> Remote.RemoteConfig -> [(UUID, Remote.RemoteConfig, Maybe (SpecialRemote.ConfigFrom UUID))] -> CommandStart
+startSpecialRemote :: EnableRemoteOptions -> RemoteName -> R.RemoteConfig -> [(UUID, R.RemoteConfig, Maybe (SpecialRemote.ConfigFrom UUID))] -> CommandStart
 startSpecialRemote o = startSpecialRemote' "enableremote" (performSpecialRemote o)
 
 type PerformSpecialRemote = RemoteType -> UUID -> RemoteName -> R.RemoteConfig -> R.RemoteConfig -> RemoteGitConfig -> Maybe (SpecialRemote.ConfigFrom UUID) -> CommandPerform
 
-startSpecialRemote' :: String -> PerformSpecialRemote -> RemoteName -> Remote.RemoteConfig -> [(UUID, Remote.RemoteConfig, Maybe (SpecialRemote.ConfigFrom UUID))] -> CommandStart
+startSpecialRemote' :: String -> PerformSpecialRemote -> RemoteName -> R.RemoteConfig -> [(UUID, R.RemoteConfig, Maybe (SpecialRemote.ConfigFrom UUID))] -> CommandStart
 startSpecialRemote' cname perform name config [] = do
 	m <- SpecialRemote.specialRemoteMap
 	confm <- Logs.Remote.remoteConfigMap
@@ -106,7 +105,7 @@ startSpecialRemote' cname perform name config ((u, c, mcu):[]) =
 				giveup "Cannot change type= of existing special remote. Instead, use: git-annex initremote --sameas"
 			_ -> noop
 		gc <- maybe (liftIO dummyRemoteGitConfig) 
-			(return . Remote.gitconfig)
+			(return . R.gitconfig)
 			=<< Remote.byUUID u
 		perform t u name c fullconfig gc mcu
   where
@@ -169,7 +168,7 @@ unknownNameError prefix = do
 
 -- Use dead remote only when there is no other remote
 -- with the same name
-deadLast :: RemoteName -> ([(UUID, Remote.RemoteConfig, Maybe (SpecialRemote.ConfigFrom UUID))] -> Annex a) -> Annex a
+deadLast :: RemoteName -> ([(UUID, R.RemoteConfig, Maybe (SpecialRemote.ConfigFrom UUID))] -> Annex a) -> Annex a
 deadLast name use =
 	SpecialRemote.findExisting' name >>= \case
 		([], l) -> use l
