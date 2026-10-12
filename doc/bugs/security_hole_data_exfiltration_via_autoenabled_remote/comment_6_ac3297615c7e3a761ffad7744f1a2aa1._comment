@@ -1,0 +1,20 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 6"""
+ date="2026-10-12T16:17:16Z"
+ content="""
+Exfiltration from an encrypted special remote needs the attacker to know
+the encryption cipher.
+
+If I have an encrypted special remote, and I opt to publish the git
+repository, the attacker *does* have enough information for this attack.
+
+They can reuse the cipher field of the config of my special remote in
+their special remote. With encryption=shared, that's not encrypted and it
+obviously works. With encryption=pubkey or encryption=hybrid, it is
+encrypted, but my gpg key will decrypt it and be able to access files on my
+encrypted special remote.
+
+If I don't publish my git repository, my encrypted special remotes are safe
+from this attack.
+"""]]

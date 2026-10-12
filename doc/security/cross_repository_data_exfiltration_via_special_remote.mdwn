@@ -30,8 +30,6 @@ own special remote (eg the victim's private S3 bucket). When the victim runs a
 command such as `git-annex sync --content`, their private files are retrieved
 from their special remote and sent to the attacker's git-annex repository.
 
-Encrypted git-annex repositories are not vulnerable to these attacks.
-
 ## git-annex security fixes
 
 To avoid these attacks, after autoenabling a special remote, git-annex
