@@ -944,6 +944,7 @@ Executable git-annex
     Logs.UUIDBased
     Logs.Unused
     Logs.Upgrade
+    Logs.VerifiedRemote
     Logs.View
     Logs.Web
     Messages

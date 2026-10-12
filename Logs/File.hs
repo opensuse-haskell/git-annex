@@ -1,6 +1,6 @@
 {- git-annex log files
  -
- - Copyright 2018-2023 Joey Hess <id@joeyh.name>
+ - Copyright 2018-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -9,10 +9,12 @@
 
 module Logs.File (
 	writeLogFile,
+	writeLogFile',
 	withLogHandle,
 	appendLogFile,
 	appendLogFile',
 	modifyLogFile,
+	readLogFile,
 	streamLogFile,
 	streamLogFileUnsafe,
 	checkLogFile,
@@ -36,10 +38,13 @@ import qualified Data.ByteString.Lazy.Char8 as L8
 -- making the new file have whatever permissions the git repository is
 -- configured to use. Creates the parent directory when necessary.
 writeLogFile :: OsPath -> String -> Annex ()
-writeLogFile f c = createDirWhenNeeded f $ viaTmp writelog f c
+writeLogFile f c = writeLogFile' f (\tmp -> writeFileString tmp c)
+
+writeLogFile' :: OsPath -> (OsPath -> IO ()) -> Annex ()
+writeLogFile' f writer = createDirWhenNeeded f $ viaTmp writelog f ()
   where
-	writelog tmp c' = do
-		liftIO $ writeFileString tmp c'
+	writelog tmp () = do
+		liftIO $ writer tmp
 		setAnnexFilePerm tmp
 
 -- | Runs the action with a handle connected to a temp file.
@@ -89,6 +94,10 @@ modifyLogFile f lck modf = withExclusiveLock lck $ do
 	writelog lf b = do
 		liftIO $ F.writeFile lf b
 		setAnnexFilePerm lf
+
+-- | Reads a log file if it exists.
+readLogFile :: OsPath -> OsPath -> Annex (Maybe L.ByteString)
+readLogFile f lck = withSharedLock lck $ liftIO $ tryWhenExists $ F.readFile f
 
 -- | Checks the content of a log file to see if any line matches.
 checkLogFile :: OsPath -> OsPath -> (L.ByteString -> Bool) -> Annex Bool

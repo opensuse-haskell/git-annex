@@ -25,6 +25,7 @@ import Types.Remote
 import Logs
 import Logs.UUIDBased
 import Logs.Remote.Pure
+import qualified Logs.VerifiedRemote
 import Annex.SpecialRemote.Config
 
 import qualified Data.Map as M
@@ -39,17 +40,22 @@ configSet u cfg = do
 			. parseRemoteConfigLog
 	Annex.changeState $ \s -> s { Annex.remoteconfigmap = Nothing }
 
-{- Map of remotes by uuid containing key/value config maps.
+{- Map of remotes by uuid with their RemoteConfigs.
+ -
+ - When the verified remote log has a RemoteConfig, it is used, otherwise
+ - the value from the git-annex branch is used. This ensures that, once a
+ - user has verified a RemoteConfig, it does not change unexpectedly.
+ -
  - Cached for speed. -}
 remoteConfigMap :: Annex (M.Map UUID RemoteConfig)
-remoteConfigMap = maybe remoteConfigMapLoad return
-	=<< Annex.getState Annex.remoteconfigmap
-
-remoteConfigMapLoad :: Annex (M.Map UUID RemoteConfig)
-remoteConfigMapLoad = do
-	m <- readRemoteLog
-	Annex.changeState $ \s -> s { Annex.remoteconfigmap = Just m }
-	return m
+remoteConfigMap = maybe load return =<< Annex.getState Annex.remoteconfigmap
+  where
+	load = do
+		logged <- readRemoteLog
+		verified <- Logs.VerifiedRemote.readRemoteLog
+		let m = M.union verified logged
+		Annex.changeState $ \s -> s { Annex.remoteconfigmap = Just m }
+		return m
 
 readRemoteLog :: Annex (M.Map UUID RemoteConfig)
 readRemoteLog = calcRemoteConfigMap 
