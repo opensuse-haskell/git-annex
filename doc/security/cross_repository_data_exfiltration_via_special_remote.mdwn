@@ -1,0 +1,47 @@
+git-annex was vulnerable to a private data exfiltration attack. Joey Hess
+discovered this attack.
+
+These security holes were fixed in git-annex (FIXME: version)
+
+## attack descriptions
+
+To perform these attacks, the attacker needs to have control over one of
+the remotes of the victim's git-annex repository. For example, they may
+provide a git-annex repository that the victim clones.
+
+The attacker also needs to have information about another git-annex 
+repository owned by the victim. This could be a published git repository,
+with annexed file contents that the victim is keeping private.
+
+In the simplest form of the attack, the attacker provides a git-annex
+repository that the victim clones. When git-annex is initialized in the
+victim's clone, it autoenables a special remote that the attacker has
+configured to access the victim's other, private git-annex repository.
+When the victim runs a command such as `git-annex sync --content`,
+their private files are retrieved from the special remote and sent to the
+attacker's git-annex repository.
+
+In another form of the attack, autoenable of special remotes is not needed.
+Instead, the attacker provides a special remote (eg a S3 bucket) along with
+their git-annex repository. The attacker waits for the victim to clone the
+repository and manually enable and use their special remote. Then they update
+the configuration of the special remote, retargeting it to access the victim's
+own special remote (eg the victim's private S3 bucket). When the victim runs a
+command such as `git-annex sync --content`, their private files are retrieved
+from their special remote and sent to the attacker's git-annex repository.
+
+Encrypted git-annex repositories are not vulnerable to these attacks.
+
+## git-annex security fixes
+
+To avoid these attacks, after autoenabling a special remote, git-annex
+will refuse to send annexed files to remotes, and will also block git
+pushes, until the user verifies that the configuration of the autoenabled
+special remote is safe.
+
+Also, `git-annex enableremote` will display the configuration of the
+special remote so that the user can verify if it is safe.
+
+Additionally, changes to the configuration of special remotes that
+are received via the git-annex branch will not take effect until the user
+has verified they are safe.
