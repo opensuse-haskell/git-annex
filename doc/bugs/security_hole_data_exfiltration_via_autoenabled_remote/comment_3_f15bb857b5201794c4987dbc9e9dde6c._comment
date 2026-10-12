@@ -21,7 +21,8 @@ security hole.
 One fix is for enabling a special remote to copy all security relevant
 parts of the remote config to git config settings, and have the special
 remote read those git config settings on use. Some special remotes
-already do that, but most don't, and there's no disciplined way to do it.
+already do that (eg rsync), but most don't, and there's no disciplined
+way to do it.
 
 It should be possible to fix this without modifying all the special remotes
 to do that. git-annex could remember that a special remote was enabled with

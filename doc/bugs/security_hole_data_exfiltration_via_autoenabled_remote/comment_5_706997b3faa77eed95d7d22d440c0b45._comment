@@ -1,0 +1,32 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 5"""
+ date="2026-10-12T13:50:13Z"
+ content="""
+The fixes proposed above are incomplete in that an attacker can still learn
+if I have a given key in given location.
+
+`git-annex sync` will get it from the autoenabled special remote,
+and update location tracking to say it's in my clone of the repository,
+and pushes the git-annex branch to origin, exposing that information
+to the attacker.
+
+To prevent this, two options:
+
+1. Have a pre-push hook that prevents all pushes when there is an
+   autoenabled special remote that has not been verified.
+2. Avoid committing the journal to the git-annex branch before an
+   autoenabled special remote is verified.
+
+The pre-push hook would need to be installed before autoenabling a special
+remote. (If there's an existing pre-push hook that the user has installed
+that doesn't call git-annex, the autoenabling would need to fail. This
+would be an uncommon special case, since usually autoenabling happens at
+first git-annex init, when the repository is young. Also use of pre-push
+hooks is probably rare.)
+
+Avoiding commiting the journal to the git-annex branch would be easier to
+implement, but leaves the user with no indication why the git-annex branch
+is not getting sent to remotes as usual. The pre-push hook can display a
+useful message.
+"""]]

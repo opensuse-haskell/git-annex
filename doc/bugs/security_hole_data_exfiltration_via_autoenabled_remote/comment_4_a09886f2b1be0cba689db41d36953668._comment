@@ -8,4 +8,14 @@ enableremote` the remote, and so avoid any autoenable specific security
 guardrails.
 
 That suggests that enableremote needs the same kind of security guardrails.
+That could be the same workflow with `git-annex verifyremote` needed after
+enableremote. Or if could be built in to it, and rely on the user reading
+to review it for safety:
+
+	> git-annex enableremote foo
+	enableremote foo
+		Enabling a special remote with this configuration:
+	                type=S3 bucket=foo
+		If this is not the remote repository you expected
+		to be using, run: git-annex verifyremote foo --unsafe
 """]]

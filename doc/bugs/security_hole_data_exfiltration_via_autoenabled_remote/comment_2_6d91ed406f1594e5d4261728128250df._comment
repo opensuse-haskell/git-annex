@@ -31,11 +31,4 @@ The UI for this could look something like:
 What should verifyremote --unsafe do? At that point files can
 have already been gotten from it. Deleting the whole local repository
 might be a good move. It would need to advise the user about what to do.
-
-This fix is incomplete in that it still lets the attacker
-learn if I do have a given key in a location that they hypothesized.
-`git-annex sync` will get it from the autoenabled special remote,
-and update location tracking to say it's in my clone of the repository,
-and pushes the git-annex branch to origin, exposing that information
-to the attacker.
 """]]
