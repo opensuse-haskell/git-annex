@@ -47,3 +47,31 @@ Still, while this seems too hard to be a viable attack, it seems likely
 that any fix to the main attack will also close off this one.) 
 
 --[[Joey]]
+
+## fix checklist
+
+* implement verified remote log, and make RemoteConfig values from it be
+  preferred over git-annex branch remote.log (done)
+* initremote populate verified remote log (done)
+* implement git-annex verifyremote
+* when using a remote and remote.log has a changed RemoteConfig,
+  warn user that the configuration has changed and suggest running
+  git-annex verifyremote. How to avoid warning too often or not often
+  enough?
+* when autoenabling a special remote, warn user that they should
+  run git-annex verifyremote.
+* enableremote should display remote configuration and tell user to
+  check it and run git-annex verifyremote.
+* When any enabled special remote does not have an entry in the verified
+  remote log, disable annex objects transfers to any remotes, to avoid
+  annex objects leaking out of it to other remotes.  
+  What to do about already running processes that could send annex objects?
+* And disable all git pushes (using git pre-push hook), to avoid
+  presence information leaking out of it.
+* handle upgrades from past git-annex versions, by recording something
+  in the verified remote log for enabled special remotes.  
+  Is the current RemoteConfig safe enough to record?
+* `git-annex verifyremote --unsafe` will claim that no annexed
+  files or git pushes have been sent since the remote was enabled,
+  which is not true if it was initialized by an older version of
+  git-annex
