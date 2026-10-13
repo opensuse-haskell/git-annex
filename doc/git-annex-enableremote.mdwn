@@ -82,6 +82,8 @@ has found didn't work before and gave up on using, setting
 
 [[git-annex-initremote]](1)
 
+[[git-annex-verifyremote]](1)
+
 [[git-annex-configremote]](1)
 
 [[git-annex-renameremote]](1)

@@ -155,10 +155,6 @@ sameasInherits = S.fromList
 	-- encryption configuration is necessarily the same for two
 	-- remotes that access the same data store
 	[ encryptionField
-	, macField
-	, cipherField
-	, cipherkeysField
-	, pubkeysField
 	-- legacy chunking was either enabled or not, so has to be the same
 	-- across configs for remotes that access the same data
 	, chunksizeField
@@ -167,6 +163,16 @@ sameasInherits = S.fromList
 	-- for the sameas remote, since it's reading whatever chunks were
 	-- stored
 	, chunkField
+	] <> hiddenEncryptionFields
+
+{- Fields that are used for encrypted special remotes, and are not user
+ - visible. -}
+hiddenEncryptionFields :: S.Set RemoteConfigField
+hiddenEncryptionFields = S.fromList
+	[ macField
+	, cipherField
+	, cipherkeysField
+	, pubkeysField
 	]
 
 {- Each RemoteConfig that has a sameas-uuid inherits some fields

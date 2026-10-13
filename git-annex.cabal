@@ -809,6 +809,7 @@ Executable git-annex
     Command.VCycle
     Command.VFilter
     Command.VPop
+    Command.VerifyRemote
     Command.Version
     Command.Vicfg
     Command.View

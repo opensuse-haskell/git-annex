@@ -277,6 +277,12 @@ content from the key-value store.
   
   See [[git-annex-enableremote]](1) for details.
 
+* `verifyremote name`
+
+  Verify if a special remote is safe to use.
+  
+  See [[git-annex-verifyremote]](1) for details.
+
 * `configremote name [param=value ...]`
 
   Changes configuration of an existing special remote.
