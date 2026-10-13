@@ -16,7 +16,7 @@ other remotes.
 To prevent such data leakage, after a special remote is enabled,
 either by `git-annex enableremote` or automatically,
 git-annex will prevent sending annexed files, or git pushes to any
-remote, until this command verifies that it's safe.
+remote, until this command is used to verify that it's safe.
 
 This command can also be used when the configuration of a special remote
 has changed. The old configuration will continue to be used until 

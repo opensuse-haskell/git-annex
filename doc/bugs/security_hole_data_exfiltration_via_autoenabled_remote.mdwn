@@ -54,14 +54,12 @@ that any fix to the main attack will also close off this one.)
   preferred over git-annex branch remote.log (done)
 * initremote populate verified remote log (done)
 * implement git-annex verifyremote (done)
-* when using a remote and remote.log has a changed RemoteConfig,
-  warn user that the configuration has changed and suggest running
-  git-annex verifyremote. How to avoid warning too often or not often
-  enough?
-* when autoenabling a special remote, warn user that they should
-  run git-annex verifyremote.
-* enableremote should display remote configuration and tell user to
-  check it and run git-annex verifyremote.
+* enableremote of a new remote should display remote configuration and
+  tell user to check it and run git-annex verifyremote (done)
+* enableremote of an existing remote should modify the (verified)
+  remote configuration as specified by the user, and save it as
+  the new verified configuration, and to the git-annex branch
+  (done)
 * When any enabled special remote does not have an entry in the verified
   remote log, disable annex objects transfers to any remotes, to avoid
   annex objects leaking out of it to other remotes.  
@@ -75,3 +73,10 @@ that any fix to the main attack will also close off this one.)
   files or git pushes have been sent since the remote was enabled,
   which is not true if it was initialized by an older version of
   git-annex
+* when using a remote and remote.log has a changed RemoteConfig,
+  warn user that the configuration has changed and suggest running
+  git-annex verifyremote. How to avoid warning too often or not often
+  enough? Or, maybe this is not needed, and the user can decide
+  on their own when they want to verify the new configuration?
+* Maybe make verifyremote store the config that was shown to the user,
+  avoiding the need to copy and paste the config hash.

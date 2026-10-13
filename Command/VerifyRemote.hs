@@ -95,11 +95,10 @@ startVerify r si = do
 		return True
 	stop
 
-remoteVerificationMessage :: RemoteName -> UUID -> Annex (Maybe String)
-remoteVerificationMessage remotename u = 
-	remoteVerificationMessage' remotename
-		<$> getUnverifiedRemoteConfig u
-		<*> getVerifiedRemoteConfig u
+remoteVerificationMessage :: RemoteName -> UUID -> RemoteConfig -> Annex (Maybe String)
+remoteVerificationMessage remotename u remoteconfig = 
+	remoteVerificationMessage' remotename remoteconfig
+		<$> getVerifiedRemoteConfig u
 
 remoteVerificationMessage' :: RemoteName -> RemoteConfig -> RemoteConfig -> Maybe String
 remoteVerificationMessage' remotename remoteconfig verifiedremoteconfig

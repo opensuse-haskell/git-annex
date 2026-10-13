@@ -12,6 +12,7 @@ module Command.EnableRemote where
 import Command
 import qualified Annex
 import qualified Logs.Remote
+import qualified Logs.VerifiedRemote
 import qualified Types.Remote as R
 import qualified Git
 import qualified Annex.SpecialRemote as SpecialRemote
@@ -24,6 +25,7 @@ import Config
 import Config.DynamicConfig
 import Types.GitConfig
 import Types.ProposedAccepted
+import Command.VerifyRemote (remoteVerificationMessage)
 
 import qualified Data.Map as M
 
@@ -116,14 +118,18 @@ startSpecialRemote' _ _ _ _ _ =
 
 performSpecialRemote :: EnableRemoteOptions -> PerformSpecialRemote
 performSpecialRemote o t u name oldc c gc mcu = do
-	-- Avoid enabling a special remote if there is another remote
-	-- with the same name.
 	rs <- Remote.remoteList
-	case filter (\rmt -> Remote.name rmt == name) rs of
-		(rmt:_) | Remote.uuid rmt /= u ->
-			giveup $ "Not overwriting currently configured git remote named \"" ++ name ++ "\""
-		_ -> noop
+	prevrmt <- case filter (\rmt -> Remote.name rmt == name) rs of
+		(rmt:_) -> return (Just rmt)
+		_ -> return Nothing
+	unless (maybe u Remote.uuid prevrmt == u) $
+		giveup $ "Not overwriting currently configured git remote named \"" ++ name ++ "\""
 	(c', u') <- R.setup t (R.Enable oldc) (Just u) name Nothing c gc
+	if prevrmt == Nothing
+		then remoteVerificationMessage name u c' >>= \case
+			Just msg -> showLongNote (UnquotedString msg)
+			Nothing -> noop
+		else Logs.VerifiedRemote.configSet u' c 
 	next $ cleanupSpecialRemote o t u' c' mcu
 
 cleanupSpecialRemote :: EnableRemoteOptions -> RemoteType -> UUID -> R.RemoteConfig -> Maybe (SpecialRemote.ConfigFrom UUID) -> CommandCleanup
