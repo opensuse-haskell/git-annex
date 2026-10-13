@@ -158,11 +158,14 @@ performVerifySafe cid r = do
 
 performVerifyUnsafe :: Remote -> CommandPerform
 performVerifyUnsafe r = do
-	warnVerifyUnsafe r
+	m <- Logs.VerifiedRemote.readRemoteLog
+	let hasverifiedconfig = M.member (Remote.uuid r) m
+	warning $ UnquotedString $ unlines $ 
+		warningVerifyUnsafe (Remote.name r) hasverifiedconfig
 	next $ return False
 
-warnVerifyUnsafe :: Remote -> Annex ()
-warnVerifyUnsafe r = warning $ UnquotedString $ unlines
+warningVerifyUnsafe :: RemoteName -> Bool -> [String]
+warningVerifyUnsafe name True =
 	[ "So the remote " ++ name ++ " is in a location you did"
 	, "not expect to be using. You appear to be under attack."
 	, ""
@@ -189,8 +192,13 @@ warnVerifyUnsafe r = warning $ UnquotedString $ unlines
 	, "with this attack, you can unblock by running:"
 	, "\tgit remote remove " ++ name
 	]
-  where
-	name = Remote.name r
+warningVerifyUnsafe name False =
+	[ "Unfortunately, information may have leaked about the content"
+	, "of " ++ name ++ " since it was enabled by a previous version"
+	, "of git-annex that did not verify the location of special remotes"
+	, "before using them. You should assume that other remotes have"
+	, "been sent the content of annexed files in " ++ name ++ "."
+	]
 
 getUnverifiedRemoteConfig :: UUID -> Annex RemoteConfig
 getUnverifiedRemoteConfig u = do

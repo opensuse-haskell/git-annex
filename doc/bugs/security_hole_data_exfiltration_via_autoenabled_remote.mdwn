@@ -66,13 +66,6 @@ that any fix to the main attack will also close off this one.)
   What to do about already running processes that could send annex objects?
 * And disable all git pushes (using git pre-push hook), to avoid
   presence information leaking out of it.
-* handle upgrades from past git-annex versions, by recording something
-  in the verified remote log for enabled special remotes.  
-  Is the current RemoteConfig safe enough to record?
-* `git-annex verifyremote --unsafe` will claim that no annexed
-  files or git pushes have been sent since the remote was enabled,
-  which is not true if it was initialized by an older version of
-  git-annex
 * when using a remote and remote.log has a changed RemoteConfig,
   warn user that the configuration has changed and suggest running
   git-annex verifyremote. How to avoid warning too often or not often
@@ -80,3 +73,9 @@ that any fix to the main attack will also close off this one.)
   on their own when they want to verify the new configuration?
 * Maybe make verifyremote store the config that was shown to the user,
   avoiding the need to copy and paste the config hash.
+  But, bear in mind that the current design is safe even if git-annex
+  branch changes to the remote configuration arrive, and another process
+  runs enableremote, before the user runs `verifyremote --safe`.
+  The hash guarantees that what gets verified is what the user saw.
+  What should be possible is to have a simple counter, rather than a hash,
+  with a log of verification prompts that the counter indexes into.
