@@ -66,8 +66,10 @@ that any fix to the main attack will also close off this one.)
   annex objects leaking out of it to other remotes. (done)
 * What to do about already running processes that could send annex objects
   that get received from the special remote on to other remotes?
+  Perhaps this would best be avoided by not allowing enabling special
+  remotes when there are other git-annex processes running.
 * Disable all git pushes (using git pre-push hook), to avoid
-  presence information leaking out of it.
+  presence information leaking out.
 * when using a remote and remote.log has a changed RemoteConfig,
   warn user that the configuration has changed and suggest running
   git-annex verifyremote. How to avoid warning too often or not often
@@ -81,7 +83,3 @@ that any fix to the main attack will also close off this one.)
   The hash guarantees that what gets verified is what the user saw.
   What should be possible is to have a simple counter, rather than a hash,
   with a log of verification prompts that the counter indexes into.
-* verifyremote --unsafe message is incorrect if it is run *after* a remote
-  was already verified with --safe. It is also incorrect if it is run
-  after upgrading from an old version of git-annex which automatically
-  makes the config verified.

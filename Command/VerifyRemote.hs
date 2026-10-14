@@ -169,9 +169,9 @@ performVerifyUnsafe r = do
 	next $ return False
 
 warningVerifyUnsafe :: RemoteName -> Bool -> [String]
-warningVerifyUnsafe name True =
+warningVerifyUnsafe name False =
 	[ "So the remote " ++ name ++ " is in a location you did"
-	, "not expect to be using. You appear to be under attack."
+	, "not expect to be using. You may be under attack."
 	, ""
 	, "No annexed files have been sent to that remote or any other"
 	, "remote since it was enabled, and git pushes have also been"
@@ -196,12 +196,14 @@ warningVerifyUnsafe name True =
 	, "with this attack, you can unblock by running:"
 	, "\tgit remote remove " ++ name
 	]
-warningVerifyUnsafe name False =
+warningVerifyUnsafe name True =
 	[ "Unfortunately, information may have leaked about the content"
-	, "of " ++ name ++ " since it was enabled by a previous version"
-	, "of git-annex that did not verify the location of special remotes"
-	, "before using them. You should assume that other remotes have"
-	, "been sent the content of annexed files in " ++ name ++ "."
+	, "of " ++ name ++ "."
+	, ""
+	, "Either it has already been verified as safe, or it was was"
+	, "enabled by a previous version of git-annex that did not verify"
+	, "the location of special remotes. So nothing prevented content"
+	, "from it being sent to other remotes."
 	]
 
 getUnverifiedRemoteConfig :: UUID -> Annex RemoteConfig
