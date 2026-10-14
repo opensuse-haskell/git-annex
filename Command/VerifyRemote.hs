@@ -112,27 +112,31 @@ remoteVerificationMessage' remotename remoteconfig verifiedremoteconfig
 		[ "This is the configuration of the remote:"
 		, "\t" ++ displayRemoteConfig visibleremoteconfig
 		, ""
-		, "Is this a location that you expected to be using?"
-		, "If so, run:  git-annex verifyremote "
-			 ++ remotename ++ " --safe "
-			 ++ fromRemoteConfigId cid
-		, "If not, run: git-annex verifyremote "
-			 ++ remotename ++ " --unsafe"
+		, askexpected
+		, "If so, run:  " ++ verifysafecommand
+		, "If not, run: " ++ verifyunsafecommand
 		]
 	
 	updatemessage = unlines
 		[ "There is an updated configuration of the remote:"
 		, "\t" ++ displayRemoteConfig visibleremoteconfig
 		, ""
-		, "Is this a location that you expected to be using?"
-		, "If so, run:  git-annex verifyremote "
-			 ++ remotename ++ " --safe "
-			 ++ fromRemoteConfigId cid
+		, askexpected
+		, "If so, run:  " ++ verifysafecommand
 		, "If not, you do not need to do anything; the previously"
 		, "verified configuration of the remote will continue to"
 		, "be used."
 		]
 	
+	askexpected = "Is this a location that you expected to be using?"
+
+	verifysafecommand = "git-annex verifyremote "
+		 ++ remotename ++ " --safe "
+		 ++ fromRemoteConfigId cid
+
+	verifyunsafecommand = "git-annex verifyremote "
+		++ remotename ++ " --unsafe"
+
 	cid = genRemoteConfigId remoteconfig
 	
 	visibleremoteconfig = visiblefields remoteconfig
