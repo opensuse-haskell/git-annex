@@ -42,7 +42,7 @@ configSet' ucfgs = do
 		<$> readLogFile logf lck
 	writeLogFile' logf $ \tmp -> F.writeFile tmp $
 		toLazyByteString $ buildRemoteConfigLog $
-			foldl' (\v (u, cfg) -> changeLog c u (removeSameasInherited cfg) v) old ucfgs
+			foldl' (\v (u, cfg) -> changeLog c u cfg v) old ucfgs
 	Annex.changeState $ \s -> s { Annex.verifiedremoteconfigmap = Nothing }
 
 {- Map of remotes by uuid with their RemoteConfigs. Cached for speed.
@@ -77,7 +77,7 @@ readRemoteLog = do
  - explains this to the user.
  -}
 checkNeedReadOnly
-	:: [(UUID, Maybe RemoteName)]
+	:: [(UUID, RemoteGitConfig, Maybe RemoteName)]
 	-> (M.Map UUID RemoteConfig)
 	-- ^ Logs.Remote.remoteConfigMap
 	-> Annex (Maybe String)
@@ -99,11 +99,17 @@ checkNeedReadOnly rs configmap = remoteConfigMap >>= \case
 	-- In a newly initialized repository, there are not yet
 	-- any enabled remotes, and this creates an empty log file.
 	Nothing -> do
-		configSet' $
-			mapMaybe (\(u, _) -> (u, ) <$> M.lookup u configmap) rs
+		configSet' $ mapMaybe (copyfromconfigmap configmap) rs
 		return Nothing
   where
-	notinmap m (u, remotename)
-		| M.notMember u configmap = Nothing
-		| M.member u m = Nothing
+	notinmap m (u, gc, remotename)
+		| M.notMember u' configmap = Nothing
+		| M.member u' m = Nothing
 		| otherwise = remotename
+	  where
+		u' = getcu u gc
+
+	copyfromconfigmap m (u, gc, _) =
+		(getcu u gc, ) <$> M.lookup u m
+	
+	getcu u gc = fromMaybe u (remoteAnnexConfigUUID gc)

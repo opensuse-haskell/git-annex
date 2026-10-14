@@ -7,6 +7,7 @@
 
 module Logs.Remote.Pure (
 	calcRemoteConfigMap,
+	calcRemoteConfigMapInherited,
 	parseRemoteConfigLog,
 	buildRemoteConfigLog,
         keyValToConfig,
@@ -31,9 +32,11 @@ import qualified Data.Attoparsec.ByteString as A
 import Data.ByteString.Builder
 
 calcRemoteConfigMap :: L.ByteString -> M.Map UUID RemoteConfig
-calcRemoteConfigMap = (\m -> M.map (addSameasInherited m) m)
-	. simpleMap
-	. parseRemoteConfigLog
+calcRemoteConfigMap = simpleMap . parseRemoteConfigLog
+
+calcRemoteConfigMapInherited :: L.ByteString -> M.Map UUID RemoteConfig
+calcRemoteConfigMapInherited = (\m -> M.map (addSameasInherited m) m)
+	. calcRemoteConfigMap
 
 parseRemoteConfigLog :: L.ByteString -> Log RemoteConfig
 parseRemoteConfigLog = parseLogOld remoteConfigParser

@@ -84,7 +84,7 @@ remoteList' autoinit = do
 	m <- Logs.Remote.remoteConfigMap
 	l <- concat <$> mapM enumerate' remoteTypes
 
-	let usnames = map (\(u, g, _) -> (u, Git.remoteName g)) l
+	let usnames = map (\(u, g, gc, _) -> (u, gc, Git.remoteName g)) l
 	adjustremote <- maybe adjustReadOnly forceReadOnly
 		<$> Logs.VerifiedRemote.checkNeedReadOnly usnames m
 	
@@ -99,10 +99,11 @@ remoteList' autoinit = do
 		gs <- enumerate t autoinit
 		forM gs $ \g -> do
 			u <- getRepoUUID g
-			return (u, g, t)
+			gc <- Annex.getRemoteGitConfig g
+			return (u, g, gc, t)
 
-	generate' adjustremote m (u, g, t) = 
-		remoteGen adjustremote m t g u
+	generate' adjustremote m (u, g, gc, t) = 
+		remoteGen adjustremote m t g gc u
 
 {- Generates a Remote. -}
 remoteGen
@@ -110,6 +111,7 @@ remoteGen
 	-> M.Map UUID RemoteConfig
 	-> RemoteType
 	-> Git.Repo
+	-> RemoteGitConfig
 	-> UUID
 	-> Annex (Maybe Remote)
 remoteGen = remoteGen' id
@@ -120,10 +122,10 @@ remoteGen'
 	-> M.Map UUID RemoteConfig
 	-> RemoteType
 	-> Git.Repo
+	-> RemoteGitConfig
 	-> UUID
 	-> Annex (Maybe Remote)
-remoteGen' adjustconfig adjustremote m t g u = do
-	gc <- Annex.getRemoteGitConfig g
+remoteGen' adjustconfig adjustremote m t g gc u = do
 	let cu = fromMaybe u $ remoteAnnexConfigUUID gc
 	let rs = RemoteStateHandle cu
 	let c = adjustconfig (fromMaybe M.empty $ M.lookup cu m)
@@ -135,8 +137,9 @@ remoteGen' adjustconfig adjustremote m t g u = do
 updateRemote :: Remote -> Annex (Maybe Remote)
 updateRemote remote = do
 	m <- Logs.Remote.remoteConfigMap
-	remote' <- updaterepo =<< getRepo remote
-	remoteGen adjustReadOnly m (remotetype remote) remote' (uuid remote)
+	g <- updaterepo =<< getRepo remote
+	gc <- Annex.getRemoteGitConfig g
+	remoteGen adjustReadOnly m (remotetype remote) g gc (uuid remote)
   where
 	updaterepo r
 		| Git.repoIsLocal r || Git.repoIsLocalUnknown r =

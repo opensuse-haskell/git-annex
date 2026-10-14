@@ -59,5 +59,5 @@ remoteConfigMap = maybe load return =<< Annex.getState Annex.remoteconfigmap
 		return m
 
 readRemoteLog :: Annex (M.Map UUID RemoteConfig)
-readRemoteLog = calcRemoteConfigMap 
+readRemoteLog = calcRemoteConfigMapInherited
 	<$> Annex.Branch.get remoteLog

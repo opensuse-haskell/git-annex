@@ -13,6 +13,7 @@ import Command
 import qualified Logs.Remote
 import qualified Logs.VerifiedRemote
 import qualified Remote
+import qualified Types.Remote as Remote
 import Types.RemoteConfig
 import Types.ProposedAccepted
 import Annex.SpecialRemote.Config
@@ -80,8 +81,8 @@ start o = do
 startVerify :: Remote -> SeekInput -> CommandStart
 startVerify r si = do
 	showCustom "verifyremote" si $ do
-		remoteconfig <- getUnverifiedRemoteConfig (Remote.uuid r)
-		verifiedremoteconfig <- getVerifiedRemoteConfig (Remote.uuid r)
+		remoteconfig <- getUnverifiedRemoteConfig (logUUID r)
+		verifiedremoteconfig <- getVerifiedRemoteConfig (logUUID r)
 		msg <- case remoteVerificationMessage' (Remote.name r) remoteconfig verifiedremoteconfig of
 			Just msg -> return msg
 			Nothing -> if verifiedremoteconfig == remoteconfig
@@ -89,7 +90,7 @@ startVerify r si = do
 				else do
 					-- Store new config as verified so that any
 					-- changes to the omitfields take effect.
-					Logs.VerifiedRemote.configSet (Remote.uuid r) remoteconfig
+					Logs.VerifiedRemote.configSet (logUUID r) remoteconfig
 					return "No verification is necessary; updated the remote's configuration."			
 		showRaw (encodeBS msg)
 		return True
@@ -151,10 +152,10 @@ remoteVerificationMessage' remotename remoteconfig verifiedremoteconfig
 
 performVerifySafe :: RemoteConfigId -> Remote -> CommandPerform
 performVerifySafe cid r = do
-	remoteconfig <- getUnverifiedRemoteConfig (Remote.uuid r)
+	remoteconfig <- getUnverifiedRemoteConfig (logUUID r)
 	if genRemoteConfigId remoteconfig == cid
 		then do
-			Logs.VerifiedRemote.configSet (Remote.uuid r) remoteconfig
+			Logs.VerifiedRemote.configSet (logUUID r) remoteconfig
 			next $ return True
 		else do
 			warning "invalid ID"
@@ -163,7 +164,7 @@ performVerifySafe cid r = do
 performVerifyUnsafe :: Remote -> CommandPerform
 performVerifyUnsafe r = do
 	m <- fromMaybe mempty <$> Logs.VerifiedRemote.readRemoteLog
-	let hasverifiedconfig = M.member (Remote.uuid r) m
+	let hasverifiedconfig = M.member (logUUID r) m
 	warning $ UnquotedString $ unlines $ 
 		warningVerifyUnsafe (Remote.name r) hasverifiedconfig
 	next $ return False
@@ -215,6 +216,10 @@ getVerifiedRemoteConfig :: UUID -> Annex RemoteConfig
 getVerifiedRemoteConfig u = do
 	m <- fromMaybe mempty <$> Logs.VerifiedRemote.readRemoteLog
 	return $ fromMaybe mempty (M.lookup u m)
+
+logUUID :: Remote -> UUID
+logUUID r = fromMaybe (Remote.uuid r) $
+	remoteAnnexConfigUUID (Remote.gitconfig r)
 
 {- The RemoteConfig is hashed to generate the RemoteConfigId. This
  - ensures that the config does not change between the verification

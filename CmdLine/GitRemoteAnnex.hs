@@ -686,7 +686,8 @@ importTreeWorkAround rmt
 		m <- Logs.Remote.remoteConfigMap
 		r <- Remote.getRepo rmt
 		u <- getRepoUUID r
-		remoteGen' adjustconfig adjustReadOnly m (Remote.remotetype rmt) r u >>= \case
+		gc <- Annex.getRemoteGitConfig r
+		remoteGen' adjustconfig adjustReadOnly m (Remote.remotetype rmt) r gc u >>= \case
 			Just rmt' -> return rmt'
 			Nothing -> giveup "Failed to use importtree=yes remote."
   where
