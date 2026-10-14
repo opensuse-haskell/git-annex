@@ -9,9 +9,13 @@
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE TupleSections #-}
+
 module Logs.VerifiedRemote (
+	remoteConfigMap,
 	readRemoteLog,
 	configSet,
+	checkNeedReadOnly,
 ) where
 
 import Annex.Common
@@ -27,7 +31,10 @@ import qualified Data.Map as M
 import Data.ByteString.Builder
 
 configSet :: UUID -> RemoteConfig -> Annex ()
-configSet u cfg = do
+configSet u c = configSet' [(u, c)]
+
+configSet' :: [(UUID, RemoteConfig)] -> Annex ()
+configSet' ucfgs = do
 	c <- currentVectorClock
 	logf <- fromRepo gitAnnexVerifiedRemoteLog
 	lck <- fromRepo gitAnnexVerifiedRemoteLock
@@ -35,10 +42,68 @@ configSet u cfg = do
 		<$> readLogFile logf lck
 	writeLogFile' logf $ \tmp -> F.writeFile tmp $
 		toLazyByteString $ buildRemoteConfigLog $
-			changeLog c u (removeSameasInherited cfg) old
+			foldl' (\v (u, cfg) -> changeLog c u (removeSameasInherited cfg) v) old ucfgs
+	Annex.changeState $ \s -> s { Annex.verifiedremoteconfigmap = Nothing }
 
-readRemoteLog :: Annex (M.Map UUID RemoteConfig)
+{- Map of remotes by uuid with their RemoteConfigs. Cached for speed.
+ -
+ - Nothing when the verified remote config log file does not exist yet.
+ -}
+remoteConfigMap :: Annex (Maybe (M.Map UUID RemoteConfig))
+remoteConfigMap =
+	maybe load return =<< Annex.getState Annex.verifiedremoteconfigmap
+  where
+	load = do
+		m <- readRemoteLog
+		Annex.changeState $ \s ->
+			s { Annex.verifiedremoteconfigmap = Just m }
+		return m
+
+readRemoteLog :: Annex (Maybe (M.Map UUID RemoteConfig))
 readRemoteLog = do
 	logf <- fromRepo gitAnnexVerifiedRemoteLog
 	lck <- fromRepo gitAnnexVerifiedRemoteLock
-	maybe mempty calcRemoteConfigMap <$> readLogFile logf lck
+	fmap calcRemoteConfigMap <$> readLogFile logf lck
+
+{- Given a list of UUIDs of all currently enabled remotes, check if any of
+ - them are not in the verified remote log, in which case all remotes need
+ - to be made read-only.
+ -
+ - This is to prevent exfiltration of data from an unverified remote
+ - that accesses a resource that the user did not expect, to an
+ - attacker controlled remote.
+ - 
+ - When remotes need to be made read-only, a message is returned which
+ - explains this to the user.
+ -}
+checkNeedReadOnly
+	:: [(UUID, Maybe RemoteName)]
+	-> (M.Map UUID RemoteConfig)
+	-- ^ Logs.Remote.remoteConfigMap
+	-> Annex (Maybe String)
+checkNeedReadOnly rs configmap = remoteConfigMap >>= \case
+	Just m -> return $ case mapMaybe (notinmap m) rs of
+		[] -> Nothing
+		(remotename:_) -> Just $ unwords
+			[ "Write prevented due to an unverified special"
+			, "remote. Run this command to verify it:"
+			, "git-annex verifyremote " ++ remotename
+			]
+	-- The log file does not exist yet. This is either a newly
+	-- initialized repository, or git-annex has been upgraded from a
+	-- version that did not use this log.
+	--
+	-- Handle upgrade by populating the log with the
+	-- current configs of all the currently enabled remotes.
+	--
+	-- In a newly initialized repository, there are not yet
+	-- any enabled remotes, and this creates an empty log file.
+	Nothing -> do
+		configSet' $
+			mapMaybe (\(u, _) -> (u, ) <$> M.lookup u configmap) rs
+		return Nothing
+  where
+	notinmap m (u, remotename)
+		| M.notMember u configmap = Nothing
+		| M.member u m = Nothing
+		| otherwise = remotename

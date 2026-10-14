@@ -60,12 +60,13 @@ that any fix to the main attack will also close off this one.)
   remote configuration as specified by the user, and save it as
   the new verified configuration, and to the git-annex branch
   (done)
-* handle upgrades
+* handle upgrades (done)
 * When any enabled special remote does not have an entry in the verified
-  remote log, disable annex objects transfers to any remotes, to avoid
-  annex objects leaking out of it to other remotes.  
-  What to do about already running processes that could send annex objects?
-* And disable all git pushes (using git pre-push hook), to avoid
+  remote log, disable annex objects transfers to all remotes, to avoid
+  annex objects leaking out of it to other remotes. (done)
+* What to do about already running processes that could send annex objects
+  that get received from the special remote on to other remotes?
+* Disable all git pushes (using git pre-push hook), to avoid
   presence information leaking out of it.
 * when using a remote and remote.log has a changed RemoteConfig,
   warn user that the configuration has changed and suggest running
@@ -80,3 +81,7 @@ that any fix to the main attack will also close off this one.)
   The hash guarantees that what gets verified is what the user saw.
   What should be possible is to have a simple counter, rather than a hash,
   with a log of verification prompts that the counter indexes into.
+* verifyremote --unsafe message is incorrect if it is run *after* a remote
+  was already verified with --safe. It is also incorrect if it is run
+  after upgrading from an old version of git-annex which automatically
+  makes the config verified.

@@ -162,7 +162,7 @@ performVerifySafe cid r = do
 
 performVerifyUnsafe :: Remote -> CommandPerform
 performVerifyUnsafe r = do
-	m <- Logs.VerifiedRemote.readRemoteLog
+	m <- fromMaybe mempty <$> Logs.VerifiedRemote.readRemoteLog
 	let hasverifiedconfig = M.member (Remote.uuid r) m
 	warning $ UnquotedString $ unlines $ 
 		warningVerifyUnsafe (Remote.name r) hasverifiedconfig
@@ -211,7 +211,7 @@ getUnverifiedRemoteConfig u = do
 
 getVerifiedRemoteConfig :: UUID -> Annex RemoteConfig
 getVerifiedRemoteConfig u = do
-	m <- Logs.VerifiedRemote.readRemoteLog
+	m <- fromMaybe mempty <$> Logs.VerifiedRemote.readRemoteLog
 	return $ fromMaybe mempty (M.lookup u m)
 
 {- The RemoteConfig is hashed to generate the RemoteConfigId. This

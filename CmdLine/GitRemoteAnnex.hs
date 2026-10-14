@@ -52,6 +52,7 @@ import Annex.Tmp
 import Annex.SpecialRemote.Config
 import Remote.List
 import Remote.List.Util
+import Remote.Helper.ReadOnly
 import Utility.Tmp
 import Utility.Tmp.Dir
 import Utility.Env
@@ -684,7 +685,8 @@ importTreeWorkAround rmt
 	| otherwise = do
 		m <- Logs.Remote.remoteConfigMap
 		r <- Remote.getRepo rmt
-		remoteGen' adjustconfig m (Remote.remotetype rmt) r >>= \case
+		u <- getRepoUUID r
+		remoteGen' adjustconfig adjustReadOnly m (Remote.remotetype rmt) r u >>= \case
 			Just rmt' -> return rmt'
 			Nothing -> giveup "Failed to use importtree=yes remote."
   where

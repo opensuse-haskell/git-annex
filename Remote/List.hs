@@ -1,6 +1,6 @@
 {- git-annex remote list
  -
- - Copyright 2011-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -11,7 +11,8 @@ import qualified Data.Map as M
 
 import Annex.Common
 import qualified Annex
-import Logs.Remote
+import qualified Logs.Remote
+import qualified Logs.VerifiedRemote
 import Types.Remote
 import Types.RemoteState
 import Annex.UUID
@@ -80,44 +81,62 @@ remoteList = do
 
 remoteList' :: Bool -> Annex [Remote]
 remoteList' autoinit = do
-	m <- remoteConfigMap
-	rs <- concat <$> mapM (process m) remoteTypes
+	m <- Logs.Remote.remoteConfigMap
+	l <- concat <$> mapM enumerate' remoteTypes
+
+	let usnames = map (\(u, g, _) -> (u, Git.remoteName g)) l
+	adjustremote <- maybe adjustReadOnly forceReadOnly
+		<$> Logs.VerifiedRemote.checkNeedReadOnly usnames m
+	
+	rs <- catMaybes <$> mapM (generate' adjustremote m) l
 	Annex.changeState $ \s -> s
 		{ Annex.remotes = rs
 		, Annex.remotetypes = remoteTypes
 		}
 	return rs
   where
-	process m t = enumerate t autoinit 
-		>>= mapM (remoteGen m t) 
-		>>= return . catMaybes
+	enumerate' t = do
+		gs <- enumerate t autoinit
+		forM gs $ \g -> do
+			u <- getRepoUUID g
+			return (u, g, t)
+
+	generate' adjustremote m (u, g, t) = 
+		remoteGen adjustremote m t g u
 
 {- Generates a Remote. -}
-remoteGen :: M.Map UUID RemoteConfig -> RemoteType -> Git.Repo -> Annex (Maybe Remote)
+remoteGen
+	:: (Remote -> Remote)
+	-> M.Map UUID RemoteConfig
+	-> RemoteType
+	-> Git.Repo
+	-> UUID
+	-> Annex (Maybe Remote)
 remoteGen = remoteGen' id
 
 remoteGen'
 	:: (RemoteConfig -> RemoteConfig)
+	-> (Remote -> Remote)
 	-> M.Map UUID RemoteConfig
 	-> RemoteType
 	-> Git.Repo
+	-> UUID
 	-> Annex (Maybe Remote)
-remoteGen' adjustconfig m t g = do
-	u <- getRepoUUID g
+remoteGen' adjustconfig adjustremote m t g u = do
 	gc <- Annex.getRemoteGitConfig g
 	let cu = fromMaybe u $ remoteAnnexConfigUUID gc
 	let rs = RemoteStateHandle cu
 	let c = adjustconfig (fromMaybe M.empty $ M.lookup cu m)
 	generate t g u c gc rs >>= \case
 		Nothing -> return Nothing
-		Just r -> Just <$> adjustExportImport (adjustReadOnly (addHooks r)) rs
+		Just r -> Just <$> adjustExportImport (adjustremote (addHooks r)) rs
 
 {- Updates a local git Remote, re-reading its git config. -}
 updateRemote :: Remote -> Annex (Maybe Remote)
 updateRemote remote = do
-	m <- remoteConfigMap
+	m <- Logs.Remote.remoteConfigMap
 	remote' <- updaterepo =<< getRepo remote
-	remoteGen m (remotetype remote) remote'
+	remoteGen adjustReadOnly m (remotetype remote) remote' (uuid remote)
   where
 	updaterepo r
 		| Git.repoIsLocal r || Git.repoIsLocalUnknown r =

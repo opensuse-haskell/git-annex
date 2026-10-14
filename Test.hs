@@ -376,6 +376,7 @@ repoTests note numparts = map mk $ sep
 	, testCase "addurl" test_addurl
 	, testCase "repair" test_repair
 	, testCase "enableremote encryption changes" test_enableremote_encryption_changes
+	, testCase "autoenable requires verifyremote" test_autoenable_verifyremote
 	]
   where
 	mk l = inOrderTestGroup groupname (initTests : map adddep l)
@@ -2218,3 +2219,18 @@ test_enableremote_encryption_changes = intmpclonerepo $ do
 			(Just environ)
 			"enableremote enabling already enabled onlyencryptcreds"
 #endif
+
+test_autoenable_verifyremote :: Assertion
+test_autoenable_verifyremote = 
+	withtmpclonerepo $ \r1 ->
+		withtmpclonerepo $ \r2 -> do
+			withtmpclonerepo $ \r3 -> do
+				pair r1 r2
+				intopdir r1 $ do
+					disconnectOrigin
+					git_annex "initremote" ["baz", "type=git", "autoenable=true", "location=../"++r3] "initremote"
+					git_annex "sync" ["--no-content"] "sync"
+				intopdir r2 $ do
+					git_annex "init" [] "init"
+					git_annex_shouldfail "move" ["--from=origin"]
+						"write is prevented by unverified autoenabled remote"
