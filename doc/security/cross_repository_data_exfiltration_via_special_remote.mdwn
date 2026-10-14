@@ -1,7 +1,8 @@
+(FIXME: CVE number assignment)
 git-annex was vulnerable to a private data exfiltration attack. Joey Hess
 discovered this attack.
 
-These security holes were fixed in git-annex (FIXME: version)
+This security hole was fixed in git-annex (FIXME: version)
 
 ## attack descriptions
 
@@ -32,11 +33,16 @@ from their special remote and sent to the attacker's git-annex repository.
 
 ## git-annex security fixes
 
-To avoid these attacks, after a special remote is enabled, git-annex
-will refuse to send annexed files to remotes, and will also block git
-pushes, until the user verifies that the configuration of the 
-special remote is safe.
+To avoid these attacks, after a new special remote is enabled, git-annex
+will refuse to send annexed files to all remotes, and will also block git
+pushes, until the user verifies that the configuration of the special
+remote is safe.
 
 Additionally, changes to the configuration of already enabled 
 special remotes, that are received via the git-annex branch,
 will not take effect until the user has verified they are safe.
+
+After upgrading git-annex, existing special remotes will continue to work
+as before. If a special remote could have been configured by a third party,
+you should verify its configuration using the `git-annex verifyremote`
+command.

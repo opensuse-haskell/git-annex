@@ -31,12 +31,4 @@ after the git-annex branch was updated with a newer config.
 
 To handle legitimate config changes, git-annex could notify the user about
 a config change and have them verify it before using it.
-
-How to handle upgrades, where it's not yet recorded which config a special
-remote was enabled with? It could default to the first or the last
-remote.log config of the special remote. First would be undesirable when
-git-annex enableremote has been used in the past to change the config
-in some signficant way. Last risks exposing the user of an upgraded
-git-annex to this security hole, but only if an attacker has already
-updated the git-annex branch.
 """]]

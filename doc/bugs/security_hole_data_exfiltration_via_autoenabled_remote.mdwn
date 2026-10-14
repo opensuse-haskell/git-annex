@@ -60,6 +60,7 @@ that any fix to the main attack will also close off this one.)
   remote configuration as specified by the user, and save it as
   the new verified configuration, and to the git-annex branch
   (done)
+* handle upgrades
 * When any enabled special remote does not have an entry in the verified
   remote log, disable annex objects transfers to any remotes, to avoid
   annex objects leaking out of it to other remotes.  
