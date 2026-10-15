@@ -125,20 +125,23 @@ performSpecialRemote o t u name oldc c gc mcu = do
 	unless (maybe u Remote.uuid prevrmt == u) $
 		giveup $ "Not overwriting currently configured git remote named \"" ++ name ++ "\""
 	(c', u') <- R.setup t (R.Enable oldc) (Just u) name Nothing c gc
-	if prevrmt == Nothing
-		then remoteVerificationMessage name u c' >>= \case
-			Just msg -> showLongNote (UnquotedString msg)
-			Nothing -> noop
-		else Logs.VerifiedRemote.configSet u' c 
-	next $ cleanupSpecialRemote o t u' c' mcu
+	next $ cleanupSpecialRemote o t u' c' mcu prevrmt name
 
-cleanupSpecialRemote :: EnableRemoteOptions -> RemoteType -> UUID -> R.RemoteConfig -> Maybe (SpecialRemote.ConfigFrom UUID) -> CommandCleanup
-cleanupSpecialRemote o t u c mcu = do
-	case mcu of
-		Nothing -> Logs.Remote.configSet u c
+cleanupSpecialRemote :: EnableRemoteOptions -> RemoteType -> UUID -> R.RemoteConfig -> Maybe (SpecialRemote.ConfigFrom UUID) -> Maybe Remote -> RemoteName -> CommandCleanup
+cleanupSpecialRemote o t u c mcu prevrmt name = do
+	cu <- case mcu of
+		Nothing -> do
+			Logs.Remote.configSet u c
+			return u
 		Just (SpecialRemote.ConfigFrom cu) -> do
 			setRemoteConfigUUID c cu
 			Logs.Remote.configSet cu c
+			return cu
+	when (isJust prevrmt) $
+		Logs.VerifiedRemote.configUpdate cu c
+	remoteVerificationMessage name cu c >>= \case
+		Just msg -> showLongNote (UnquotedString msg)
+		Nothing -> noop
 	Remote.byUUID u >>= \case
 		Nothing -> noop
 		Just r -> do

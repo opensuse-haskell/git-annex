@@ -83,5 +83,3 @@ that any fix to the main attack will also close off this one.)
   The hash guarantees that what gets verified is what the user saw.
   What should be possible is to have a simple counter, rather than a hash,
   with a log of verification prompts that the counter indexes into.
-* Running git-annex enableremote twice in a row verifies it the second
-  time. Shouldn't!

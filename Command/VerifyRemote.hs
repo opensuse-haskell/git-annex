@@ -233,6 +233,7 @@ genRemoteConfigId = RemoteConfigId
 	. concatMap go
 	. sort
 	. M.toList
+	. Logs.VerifiedRemote.omitUnverifiableFields
   where
 	go (f, v) = [fromProposedAccepted f, fromProposedAccepted v]
 

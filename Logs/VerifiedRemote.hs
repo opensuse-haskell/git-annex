@@ -14,6 +14,7 @@ module Logs.VerifiedRemote (
 	remoteConfigMap,
 	readRemoteLog,
 	configSet,
+	configUpdate,
 	checkNeedReadOnly,
 	omitUnverifiableFields,
 	addUnverifiableFields,
@@ -25,6 +26,7 @@ import Types.Remote
 import Logs.File
 import Logs.UUIDBased
 import Logs.Remote.Pure
+import Logs.MapLog
 import Annex.SpecialRemote.Config
 import qualified Utility.FileIO as F
 
@@ -32,10 +34,21 @@ import qualified Data.Map as M
 import Data.ByteString.Builder
 
 configSet :: UUID -> RemoteConfig -> Annex ()
-configSet u c = configSet' [(u, c)]
+configSet u c = configSetMulti [(u, c)]
 
-configSet' :: [(UUID, RemoteConfig)] -> Annex ()
-configSet' ucfgs = do
+{- Only sets the RemoteConfig if the log already contains a RemoteConfig
+ - for this UUID. -}
+configUpdate :: UUID -> RemoteConfig -> Annex ()
+configUpdate u c = configSetMulti' (M.member u . fromMapLog) [(u, c)]
+
+configSetMulti :: [(UUID, RemoteConfig)] -> Annex ()
+configSetMulti = configSetMulti' (const True)
+
+configSetMulti'
+	:: (Log RemoteConfig -> Bool)
+	-> [(UUID, RemoteConfig)]
+	-> Annex ()
+configSetMulti' shouldset ucfgs = do
 	c <- currentVectorClock
 	logf <- fromRepo gitAnnexVerifiedRemoteLog
 	lck <- fromRepo gitAnnexVerifiedRemoteLock
@@ -47,8 +60,10 @@ configSet' ucfgs = do
 	Annex.changeState $ \s ->
 		s { Annex.verifiedremoteconfigmap = Nothing }
   where
-	accumchange c v (u, cfg) = 
-		changeLog c u (omitUnverifiableFields cfg) v
+	accumchange c old (u, cfg)
+		| shouldset old =
+			changeLog c u (omitUnverifiableFields cfg) old
+		| otherwise = old
 
 {- Hidden encryption fields cannot be verified by the user, and in any
  - case do not configure the location that the remote accesses, and so
@@ -126,7 +141,7 @@ checkNeedReadOnly rs configmap = remoteConfigMap >>= \case
 	-- In a newly initialized repository, there are not yet
 	-- any enabled remotes, and this creates an empty log file.
 	Nothing -> do
-		configSet' $ mapMaybe (copyfromconfigmap configmap) rs
+		configSetMulti $ mapMaybe (copyfromconfigmap configmap) rs
 		return Nothing
   where
 	notinmap m (u, gc, remotename)
