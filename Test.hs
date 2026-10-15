@@ -2234,3 +2234,6 @@ test_autoenable_verifyremote =
 					git_annex "init" [] "init"
 					git_annex_shouldfail "move" ["--from=origin"]
 						"write is prevented by unverified autoenabled remote"
+					git_annex "enableremote" ["baz", "location=../"++r3] "enableremote"
+					git_annex_shouldfail "move" ["--from=origin"]
+						"write is prevented by unverified autoenabled remote after it was manually enabled too"
