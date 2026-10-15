@@ -159,6 +159,7 @@ sameasInherits = S.fromList
 	, cipherField
 	, cipherkeysField
 	, pubkeysField
+	, onlyEncryptCredsField
 	-- legacy chunking was either enabled or not, so has to be the same
 	-- across configs for remotes that access the same data
 	, chunksizeField
