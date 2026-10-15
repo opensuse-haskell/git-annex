@@ -2228,12 +2228,18 @@ test_autoenable_verifyremote =
 				pair r1 r2
 				intopdir r1 $ do
 					disconnectOrigin
+					git_annex "pre-push" [""] "pre-push succeeds normally"
 					git_annex "initremote" ["baz", "type=git", "autoenable=true", "location=../"++r3] "initremote"
+					git_annex "pre-push" [""] "pre-push succeeds after initremote"
 					git_annex "sync" ["--no-content"] "sync"
 				intopdir r2 $ do
 					git_annex "init" [] "init"
 					git_annex_shouldfail "move" ["--from=origin"]
-						"write is prevented by unverified autoenabled remote"
+						"annex write is prevented by unverified autoenabled remote"
+					git_annex_shouldfail "pre-push" [""]
+						"pre-push blocks with unverified autoenabled remote"
+					git_shouldfail "push" ["r1"]
+						"git push is prevented by unverified autoenabled remote"
 					git_annex "enableremote" ["baz", "location=../"++r3] "enableremote"
 					git_annex_shouldfail "move" ["--from=origin"]
-						"write is prevented by unverified autoenabled remote after it was manually enabled too"
+						"annex write is prevented by unverified autoenabled remote after it was manually enabled too"
