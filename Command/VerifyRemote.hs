@@ -240,6 +240,10 @@ genRemoteConfigId = RemoteConfigId
 	go (f, v) = [fromProposedAccepted f, fromProposedAccepted v]
 
 displayRemoteConfig :: RemoteConfig -> String
-displayRemoteConfig = intercalate " " 
-	. map (\(f, v) -> fromProposedAccepted f ++ "=" ++ fromProposedAccepted v)
-	. M.toList
+displayRemoteConfig = intercalate " " . map display . sortBy order . M.toList
+  where
+	display (f, v) =
+		fromProposedAccepted f ++ "=" ++ fromProposedAccepted v
+	order (f1, v1) (f2, v2) = 
+		conventionalConfigOrder f1 f2 <> compare v1 v2
+

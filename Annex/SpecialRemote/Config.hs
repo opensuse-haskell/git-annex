@@ -116,6 +116,23 @@ annexObjectsField = Accepted "annexobjects"
 annexObjects :: ParsedRemoteConfig -> Bool
 annexObjects = fromMaybe False . getRemoteConfigValue annexObjectsField
 
+{- This is the order used in examples. Putting the typeField first
+ - in particular makes it easier to understand a RemoteConfig. -}
+conventionalConfigOrder :: RemoteConfigField -> RemoteConfigField -> Ordering
+conventionalConfigOrder a b = compare (n a) (n b)
+  where
+	n :: RemoteConfigField -> (Int, RemoteConfigField)
+	n f
+		| f == typeField       = (1, f)
+		| f == exportTreeField = (3, f)
+		| f == importTreeField = (4, f)
+		--                        5
+		| f == autoEnableField = (6, f)
+		| f == chunkField      = (7, f)
+		| f == chunksizeField  = (8, f)
+		| f == encryptionField = (9, f)
+		| otherwise            = (5, f)
+
 {- Parsers for fields that are common to all special remotes. -}
 commonFieldParsers :: [RemoteConfigFieldParser]
 commonFieldParsers =
