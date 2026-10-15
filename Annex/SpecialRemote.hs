@@ -14,6 +14,7 @@ module Annex.SpecialRemote (
 
 import Annex.Common
 import Annex.SpecialRemote.Config
+import Annex.Hook
 import Types.Remote (RemoteConfig, SetupStage(..), setup)
 import Types.GitConfig
 import Types.ProposedAccepted
@@ -94,10 +95,14 @@ autoEnable = do
 		| otherwise = do
 			rs <- remoteList' False
 			case filter (\rmt -> Remote.name rmt == name) rs of
-				(rmt:_) | Remote.uuid rmt /= u -> warning $ 
-					UnquotedString $ "Cannot auto enable special remote " 
-						++ name ++ " because there is another remote with the same name."
-				_ -> cont
+				(rmt:_) | Remote.uuid rmt /= u -> cannotenable name 
+						"there is another remote with the same name."
+				_ -> enablePrePushHook >>= \case
+					Nothing -> cont
+					Just msg -> warning $ UnquotedString msg
+	cannotenable name msg = warning $
+		UnquotedString $ "Cannot auto enable special remote "
+			++ name ++ " because " ++ msg
 
 autoEnableable :: Annex (M.Map UUID RemoteConfig)
 autoEnableable = do

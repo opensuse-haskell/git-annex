@@ -95,6 +95,8 @@ remoteVerificationMessage remotename u remoteconfig =
 		<$> Logs.VerifiedRemote.storeVerifyingRemoteLog remoteconfig
 		<*> getVerifiedRemoteConfig u
 
+-- Nothing when there are no changes to the RemoteConfig 
+-- that need verification.
 remoteVerificationMessage' :: RemoteName -> RemoteConfig -> VerifyingRemoteConfigId -> RemoteConfig -> Maybe String
 remoteVerificationMessage' remotename remoteconfig cid verifiedremoteconfig
 	| visiblefields verifiedremoteconfig == visibleremoteconfig = Nothing

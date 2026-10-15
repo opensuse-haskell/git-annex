@@ -761,6 +761,7 @@ Executable git-annex
     Command.P2PStdIO
     Command.PostReceive
     Command.PreCommit
+    Command.PrePush
     Command.Pull
     Command.Push
     Command.Put

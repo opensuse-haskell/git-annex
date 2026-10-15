@@ -1,6 +1,6 @@
 {- git-annex command
  -
- - Copyright 2013-2024 Joey Hess <id@joeyh.name>
+ - Copyright 2013-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -21,6 +21,7 @@ import qualified Remote.Git
 import qualified Command.InitRemote
 import Logs.UUID
 import Annex.UUID
+import Annex.Hook
 import Config
 import Config.DynamicConfig
 import Types.GitConfig
@@ -124,6 +125,9 @@ performSpecialRemote o t u name oldc c gc mcu = do
 		_ -> return Nothing
 	unless (maybe u Remote.uuid prevrmt == u) $
 		giveup $ "Not overwriting currently configured git remote named \"" ++ name ++ "\""
+	enablePrePushHook >>= \case
+		Nothing -> noop
+		Just msg -> giveup $ "Cannot enable this special remote because " ++ msg
 	(c', u') <- R.setup t (R.Enable oldc) (Just u) name Nothing c gc
 	next $ cleanupSpecialRemote o t u' c' mcu prevrmt name
 

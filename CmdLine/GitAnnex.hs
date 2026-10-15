@@ -70,6 +70,7 @@ import qualified Command.AddUnused
 import qualified Command.Unlock
 import qualified Command.Lock
 import qualified Command.PreCommit
+import qualified Command.PrePush
 import qualified Command.PostReceive
 import qualified Command.FilterBranch
 import qualified Command.Find
@@ -186,6 +187,7 @@ cmds testoptparser testrunner mkbenchmarkgenerator = map addGitAnnexCommonOption
 	, Command.Uninit.cmd
 	, Command.Reinit.cmd
 	, Command.PreCommit.cmd
+	, Command.PrePush.cmd
 	, Command.PostReceive.cmd
 	, Command.NumCopies.cmd
 	, Command.MinCopies.cmd

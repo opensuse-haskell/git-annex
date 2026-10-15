@@ -129,12 +129,14 @@ checkNeedReadOnly
 	:: [(UUID, RemoteGitConfig, Maybe RemoteName)]
 	-> (M.Map UUID RemoteConfig)
 	-- ^ Logs.Remote.remoteConfigMap
+	-> String
 	-> Annex (Maybe String)
-checkNeedReadOnly rs configmap = remoteConfigMap >>= \case
+checkNeedReadOnly rs configmap action = remoteConfigMap >>= \case
 	Just m -> return $ case mapMaybe (notinmap m) rs of
 		[] -> Nothing
 		(remotename:_) -> Just $ unwords
-			[ "Write prevented due to an unverified special"
+			[ action
+			, "prevented due to an unverified special"
 			, "remote. Run this command to verify it:"
 			, "git-annex verifyremote " ++ remotename
 			]

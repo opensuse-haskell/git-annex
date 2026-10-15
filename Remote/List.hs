@@ -86,7 +86,7 @@ remoteList' autoinit = do
 
 	let usnames = map (\(u, g, gc, _) -> (u, gc, Git.remoteName g)) l
 	adjustremote <- maybe adjustReadOnly forceReadOnly
-		<$> Logs.VerifiedRemote.checkNeedReadOnly usnames m
+		<$> Logs.VerifiedRemote.checkNeedReadOnly usnames m "Write"
 	
 	rs <- catMaybes <$> mapM (generate' adjustremote m) l
 	Annex.changeState $ \s -> s

@@ -681,6 +681,13 @@ content from the key-value store.
   
   See [[git-annex-post-receive]](1) for details.
 
+* `pre-push`
+
+  This is meant to be called from git's post-receive hook. `git annex init`
+  automatically creates a pre-push hook using this.
+  
+  See [[git-annex-pre-push]](1) for details.
+
 * `lookupkey [file ...]`
 
   Looks up key used for file.

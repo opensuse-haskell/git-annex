@@ -55,5 +55,3 @@ that any fix to the main attack will also close off this one.)
   remotes?
   Perhaps this would best be avoided by not allowing enabling special
   remotes when there are other git-annex processes running.
-* Disable all git pushes (using git pre-push hook), to avoid
-  presence information leaking out.
