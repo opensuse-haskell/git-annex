@@ -43,15 +43,19 @@ configSet u cfg = do
 {- Map of remotes by uuid with their RemoteConfigs. Cached for speed.
  -
  - When the verified remote log has a RemoteConfig, it is used, otherwise
- - the value from the git-annex branch is used. This ensures that, once a
- - user has verified a RemoteConfig, it does not change unexpectedly.
+ - the value from the git-annex branch log is used. This ensures that, once
+ - a user has verified a RemoteConfig, it does not change unexpectedly.
+ - 
+ - Fields that are not verifiable are always taken from the git-annex
+ - branch log.
  -}
 remoteConfigMap :: Annex (M.Map UUID RemoteConfig)
 remoteConfigMap = maybe load return =<< Annex.getState Annex.remoteconfigmap
   where
 	load = do
 		logged <- readRemoteLog
-		verified <- fromMaybe mempty
+		verified <- Logs.VerifiedRemote.addUnverifiableFields logged
+			. fromMaybe mempty
 			<$> Logs.VerifiedRemote.remoteConfigMap
 		let m = M.union verified logged
 		Annex.changeState $ \s ->

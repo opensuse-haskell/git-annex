@@ -1,8 +1,7 @@
 {- git-annex verified remote log
  - 
- - This contains the same information as the git-annex remote log,
- - but only remote configs that have been verified by the user to be safe
- - to use.
+ - This is similar to the git-annex remote log, but only remote configs
+ - that have been verified by the user to be safe to use.
  -
  - Copyright 2026 Joey Hess <id@joeyh.name>
  - 
@@ -16,6 +15,8 @@ module Logs.VerifiedRemote (
 	readRemoteLog,
 	configSet,
 	checkNeedReadOnly,
+	omitUnverifiableFields,
+	addUnverifiableFields,
 ) where
 
 import Annex.Common
@@ -42,8 +43,34 @@ configSet' ucfgs = do
 		<$> readLogFile logf lck
 	writeLogFile' logf $ \tmp -> F.writeFile tmp $
 		toLazyByteString $ buildRemoteConfigLog $
-			foldl' (\v (u, cfg) -> changeLog c u cfg v) old ucfgs
-	Annex.changeState $ \s -> s { Annex.verifiedremoteconfigmap = Nothing }
+			foldl' (accumchange c) old ucfgs
+	Annex.changeState $ \s ->
+		s { Annex.verifiedremoteconfigmap = Nothing }
+  where
+	accumchange c v (u, cfg) = 
+		changeLog c u (omitUnverifiableFields cfg) v
+
+{- Hidden encryption fields cannot be verified by the user, and in any
+ - case do not configure the location that the remote accesses, and so
+ - are omitted from this log file.
+ -}
+omitUnverifiableFields :: RemoteConfig -> RemoteConfig
+omitUnverifiableFields c = M.withoutKeys c hiddenEncryptionFields
+
+addUnverifiableFields
+	:: M.Map UUID RemoteConfig
+	-> M.Map UUID RemoteConfig
+	-> M.Map UUID RemoteConfig
+addUnverifiableFields unverifiedconfigs verifiedconfigs =
+	M.mapWithKey go verifiedconfigs
+  where
+	go u verifiedconfig = case M.lookup u unverifiedconfigs of
+		Just unverifiedconfig ->
+			let unverifiable = M.restrictKeys
+				unverifiedconfig
+				hiddenEncryptionFields
+			in M.union unverifiable verifiedconfig
+		Nothing -> verifiedconfig
 
 {- Map of remotes by uuid with their RemoteConfigs. Cached for speed.
  -

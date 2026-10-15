@@ -83,18 +83,13 @@ startVerify r si = do
 	showCustom "verifyremote" si $ do
 		remoteconfig <- getUnverifiedRemoteConfig (logUUID r)
 		verifiedremoteconfig <- getVerifiedRemoteConfig (logUUID r)
-		msg <- case remoteVerificationMessage' (Remote.name r) remoteconfig verifiedremoteconfig of
-			Just msg -> return msg
-			Nothing -> if verifiedremoteconfig == remoteconfig
-				then return "There have been no changes to the remote's configuration since it was last verified."
-				else do
-					-- Store new config as verified so that any
-					-- changes to the omitfields take effect.
-					Logs.VerifiedRemote.configSet (logUUID r) remoteconfig
-					return "No verification is necessary; updated the remote's configuration."			
+		let msg = fromMaybe nochanges $
+			remoteVerificationMessage' (Remote.name r) remoteconfig verifiedremoteconfig
 		showRaw (encodeBS msg)
 		return True
 	stop
+  where
+	nochanges = "There have been no changes to the remote's configuration since it was last verified."
 
 remoteVerificationMessage :: RemoteName -> UUID -> RemoteConfig -> Annex (Maybe String)
 remoteVerificationMessage remotename u remoteconfig = 
@@ -141,10 +136,12 @@ remoteVerificationMessage' remotename remoteconfig verifiedremoteconfig
 	cid = genRemoteConfigId remoteconfig
 	
 	visibleremoteconfig = visiblefields remoteconfig
-
-	visiblefields = flip M.withoutKeys omitfields
-
-	omitfields = hiddenEncryptionFields <> S.fromList
+	
+	visiblefields = Logs.VerifiedRemote.omitUnverifiableFields
+		. flip M.withoutKeys omitfields
+	
+	-- Fields that do not need to be verified.
+	omitfields = S.fromList
 		[ nameField
 		, sameasNameField
 		, sameasUUIDField
