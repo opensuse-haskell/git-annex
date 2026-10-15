@@ -257,7 +257,7 @@ cleanCruft :: KeySource -> Annex ()
 cleanCruft source = when (contentLocation source /= keyFilename source) $
 	liftIO $ removeWhenExistsWith removeFile $ contentLocation source
 
--- If a worktree file was was hard linked to an annex object before,
+-- If a worktree file was hard linked to an annex object before,
 -- modifying the file would have caused the object to have the wrong
 -- content. Clean up from that.
 cleanOldKeys :: OsPath -> Key -> Annex ()
