@@ -50,22 +50,9 @@ that any fix to the main attack will also close off this one.)
 
 ## fix checklist
 
-* implement verified remote log, and make RemoteConfig values from it be
-  preferred over git-annex branch remote.log (done)
-* initremote populate verified remote log (done)
-* implement git-annex verifyremote (done)
-* enableremote of a new remote should display remote configuration and
-  tell user to check it and run git-annex verifyremote (done)
-* enableremote of an existing remote should modify the (verified)
-  remote configuration as specified by the user, and save it as
-  the new verified configuration, and to the git-annex branch
-  (done)
-* handle upgrades (done)
-* When any enabled special remote does not have an entry in the verified
-  remote log, disable annex objects transfers to all remotes, to avoid
-  annex objects leaking out of it to other remotes. (done)
 * What to do about already running processes that could send annex objects
-  that get received from the special remote on to other remotes?
+  that get received from a just-enabled special remote on to other
+  remotes?
   Perhaps this would best be avoided by not allowing enabling special
   remotes when there are other git-annex processes running.
 * Disable all git pushes (using git pre-push hook), to avoid
@@ -74,7 +61,9 @@ that any fix to the main attack will also close off this one.)
   warn user that the configuration has changed and suggest running
   git-annex verifyremote. How to avoid warning too often or not often
   enough? Or, maybe this is not needed, and the user can decide
-  on their own when they want to verify the new configuration?
+  on their own when they want to verify the new configuration?  
+  Leaning toward letting the user decide. Now that updates are not needed
+  for encryption changes.
 * Maybe make verifyremote store the config that was shown to the user,
   avoiding the need to copy and paste the config hash.
   But, bear in mind that the current design is safe even if git-annex
