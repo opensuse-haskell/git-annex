@@ -200,7 +200,7 @@ warningVerifyUnsafe name True =
 	[ "Unfortunately, information may have leaked about the content"
 	, "of " ++ name ++ "."
 	, ""
-	, "Either it has already been verified as safe, or it was was"
+	, "Either it has already been verified as safe, or it was"
 	, "enabled by a previous version of git-annex that did not verify"
 	, "the location of special remotes. So nothing prevented content"
 	, "from it being sent to other remotes."
