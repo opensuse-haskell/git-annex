@@ -12,12 +12,12 @@ module Command.VerifyRemote where
 import Command
 import qualified Logs.Remote
 import qualified Logs.VerifiedRemote
+import Logs.VerifiedRemote (VerifyingRemoteConfigId(..))
 import qualified Remote
 import qualified Types.Remote as Remote
 import Types.RemoteConfig
 import Types.ProposedAccepted
 import Annex.SpecialRemote.Config
-import Utility.Hash
 
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -33,10 +33,7 @@ data VerifyRemoteOptions = VerifyRemoteOptions
 	, safeunsafe :: Maybe SafeUnsafe
 	}
 
-data SafeUnsafe = Safe RemoteConfigId | Unsafe
-
-data RemoteConfigId = RemoteConfigId { fromRemoteConfigId :: String }
-	deriving (Eq)
+data SafeUnsafe = Safe VerifyingRemoteConfigId | Unsafe
 
 optParser :: CmdParamsDesc -> Parser VerifyRemoteOptions
 optParser _ = VerifyRemoteOptions
@@ -52,7 +49,7 @@ optParser _ = VerifyRemoteOptions
 safeUnsafeParser :: Parser SafeUnsafe
 safeUnsafeParser = safe <|> unsafe
   where
-	safe = option (Safe . RemoteConfigId <$> str)
+	safe = option (Safe . VerifyingRemoteConfigId <$> maybeReader readish)
 		( long "safe" <> metavar "ID"
 		<> help "special remote configuration is safe"
 		)
@@ -82,9 +79,10 @@ startVerify :: Remote -> SeekInput -> CommandStart
 startVerify r si = do
 	showCustom "verifyremote" si $ do
 		remoteconfig <- getUnverifiedRemoteConfig (logUUID r)
+		cid <- Logs.VerifiedRemote.storeVerifyingRemoteLog remoteconfig
 		verifiedremoteconfig <- getVerifiedRemoteConfig (logUUID r)
 		let msg = fromMaybe nochanges $
-			remoteVerificationMessage' (Remote.name r) remoteconfig verifiedremoteconfig
+			remoteVerificationMessage' (Remote.name r) remoteconfig cid verifiedremoteconfig
 		showRaw (encodeBS msg)
 		return True
 	stop
@@ -94,10 +92,11 @@ startVerify r si = do
 remoteVerificationMessage :: RemoteName -> UUID -> RemoteConfig -> Annex (Maybe String)
 remoteVerificationMessage remotename u remoteconfig = 
 	remoteVerificationMessage' remotename remoteconfig
-		<$> getVerifiedRemoteConfig u
+		<$> Logs.VerifiedRemote.storeVerifyingRemoteLog remoteconfig
+		<*> getVerifiedRemoteConfig u
 
-remoteVerificationMessage' :: RemoteName -> RemoteConfig -> RemoteConfig -> Maybe String
-remoteVerificationMessage' remotename remoteconfig verifiedremoteconfig
+remoteVerificationMessage' :: RemoteName -> RemoteConfig -> VerifyingRemoteConfigId -> RemoteConfig -> Maybe String
+remoteVerificationMessage' remotename remoteconfig cid verifiedremoteconfig
 	| visiblefields verifiedremoteconfig == visibleremoteconfig = Nothing
 	| otherwise = Just $
 		if verifiedremoteconfig /= mempty
@@ -128,12 +127,10 @@ remoteVerificationMessage' remotename remoteconfig verifiedremoteconfig
 
 	verifysafecommand = "git-annex verifyremote "
 		 ++ remotename ++ " --safe "
-		 ++ fromRemoteConfigId cid
+		 ++ show (fromVerifyingRemoteConfigId cid)
 
 	verifyunsafecommand = "git-annex verifyremote "
 		++ remotename ++ " --unsafe"
-
-	cid = genRemoteConfigId remoteconfig
 	
 	visibleremoteconfig = visiblefields remoteconfig
 	
@@ -147,14 +144,17 @@ remoteVerificationMessage' remotename remoteconfig verifiedremoteconfig
 		, sameasUUIDField
 		]
 
-performVerifySafe :: RemoteConfigId -> Remote -> CommandPerform
+performVerifySafe :: VerifyingRemoteConfigId -> Remote -> CommandPerform
 performVerifySafe cid r = do
 	remoteconfig <- getUnverifiedRemoteConfig (logUUID r)
-	if genRemoteConfigId remoteconfig == cid
-		then do
-			Logs.VerifiedRemote.configSet (logUUID r) remoteconfig
-			next $ return True
-		else do
+	m <- Logs.VerifiedRemote.readVerifyingRemoteLog
+	case M.lookup cid m of
+		Just rc
+			| rc == Logs.VerifiedRemote.omitUnverifiableFields remoteconfig -> do
+				Logs.VerifiedRemote.configSet (logUUID r) remoteconfig
+				Logs.VerifiedRemote.removeVerifyingLog cid
+				next $ return True
+		_ -> do
 			warning "invalid ID"
 			next $ return False
 
@@ -217,25 +217,6 @@ getVerifiedRemoteConfig u = do
 logUUID :: Remote -> UUID
 logUUID r = fromMaybe (Remote.uuid r) $
 	remoteAnnexConfigUUID (Remote.gitconfig r)
-
-{- The RemoteConfig is hashed to generate the RemoteConfigId. This
- - ensures that the config does not change between the verification
- - display and marking the config as safe.
- -}
-genRemoteConfigId :: RemoteConfig -> RemoteConfigId
-genRemoteConfigId = RemoteConfigId
-	. decodeBS
-	. hashByteString
-	. digestToHash
-	. sha2_224 
-	. encodeBL
-	. concat
-	. concatMap go
-	. sort
-	. M.toList
-	. Logs.VerifiedRemote.omitUnverifiableFields
-  where
-	go (f, v) = [fromProposedAccepted f, fromProposedAccepted v]
 
 displayRemoteConfig :: RemoteConfig -> String
 displayRemoteConfig = intercalate " " . map display . sortBy order . M.toList

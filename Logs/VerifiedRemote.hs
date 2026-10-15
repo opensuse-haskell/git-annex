@@ -18,11 +18,16 @@ module Logs.VerifiedRemote (
 	checkNeedReadOnly,
 	omitUnverifiableFields,
 	addUnverifiableFields,
+	VerifyingRemoteConfigId(..),
+	readVerifyingRemoteLog,
+	storeVerifyingRemoteLog,
+	removeVerifyingLog
 ) where
 
 import Annex.Common
 import qualified Annex
 import Types.Remote
+import Types.VectorClock
 import Logs.File
 import Logs.UUIDBased
 import Logs.Remote.Pure
@@ -31,6 +36,8 @@ import Annex.SpecialRemote.Config
 import qualified Utility.FileIO as F
 
 import qualified Data.Map as M
+import qualified Data.ByteString.Lazy as L
+import qualified Data.Attoparsec.ByteString.Char8 as A8
 import Data.ByteString.Builder
 
 configSet :: UUID -> RemoteConfig -> Annex ()
@@ -155,3 +162,58 @@ checkNeedReadOnly rs configmap = remoteConfigMap >>= \case
 		(getcu u gc, ) <$> M.lookup u m
 	
 	getcu u gc = fromMaybe u (remoteAnnexConfigUUID gc)
+
+data VerifyingRemoteConfigId = VerifyingRemoteConfigId
+	{ fromVerifyingRemoteConfigId :: Integer }
+	deriving (Eq, Ord)
+
+readVerifyingRemoteLog :: Annex (M.Map VerifyingRemoteConfigId RemoteConfig)
+readVerifyingRemoteLog = do
+	logf <- fromRepo gitAnnexVerifyingRemoteLog
+	lck <- fromRepo gitAnnexVerifyingRemoteLock
+	simpleMap . parseVerifyingRemoteLog . fromMaybe mempty
+		<$> readLogFile logf lck
+
+storeVerifyingRemoteLog :: RemoteConfig -> Annex VerifyingRemoteConfigId
+storeVerifyingRemoteLog cfg =
+	modifyVerifyingRemoteLog $ \c n ->
+		changeMapLog c n (omitUnverifiableFields cfg)
+
+removeVerifyingLog :: VerifyingRemoteConfigId -> Annex ()
+removeVerifyingLog n =
+	void $ modifyVerifyingRemoteLog
+		(\_ _ (MapLog m) -> MapLog (M.delete n m))
+
+modifyVerifyingRemoteLog
+	 :: (CandidateVectorClock -> VerifyingRemoteConfigId -> MapLog VerifyingRemoteConfigId RemoteConfig -> MapLog VerifyingRemoteConfigId RemoteConfig)
+	 -> Annex VerifyingRemoteConfigId
+modifyVerifyingRemoteLog f = do
+	c <- currentVectorClock
+	logf <- fromRepo gitAnnexVerifyingRemoteLog
+	lck <- fromRepo gitAnnexVerifyingRemoteLock
+	old <- parseVerifyingRemoteLog . fromMaybe mempty
+		<$> readLogFile logf lck
+	let nextcid = VerifyingRemoteConfigId $ succ $
+		maybe 0 fromVerifyingRemoteConfigId $
+		headMaybe $ reverse $ M.keys $ simpleMap old
+	writeLogFile' logf $ \tmp -> F.writeFile tmp $
+		toLazyByteString $ buildVerifyingRemoteLog (f c nextcid old)
+	return nextcid
+
+parseVerifyingRemoteLog
+	:: L.ByteString
+	-> MapLog VerifyingRemoteConfigId RemoteConfig
+parseVerifyingRemoteLog =
+	parseMapLog parseVerifyingRemoteConfigId remoteConfigParser
+
+buildVerifyingRemoteLog
+	:: MapLog VerifyingRemoteConfigId RemoteConfig
+	-> Builder
+buildVerifyingRemoteLog = 
+	buildMapLog buildVerifyingRemoteConfigId buildRemoteConfig
+
+parseVerifyingRemoteConfigId :: A8.Parser VerifyingRemoteConfigId
+parseVerifyingRemoteConfigId = VerifyingRemoteConfigId <$> A8.decimal
+
+buildVerifyingRemoteConfigId :: VerifyingRemoteConfigId -> Builder
+buildVerifyingRemoteConfigId = integerDec . fromVerifyingRemoteConfigId
