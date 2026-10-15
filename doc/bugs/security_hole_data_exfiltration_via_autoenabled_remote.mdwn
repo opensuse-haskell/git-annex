@@ -57,10 +57,3 @@ that any fix to the main attack will also close off this one.)
   remotes when there are other git-annex processes running.
 * Disable all git pushes (using git pre-push hook), to avoid
   presence information leaking out.
-* when using a remote and remote.log has a changed RemoteConfig,
-  warn user that the configuration has changed and suggest running
-  git-annex verifyremote. How to avoid warning too often or not often
-  enough? Or, maybe this is not needed, and the user can decide
-  on their own when they want to verify the new configuration?  
-  Leaning toward letting the user decide. Now that updates are not needed
-  for encryption changes.
