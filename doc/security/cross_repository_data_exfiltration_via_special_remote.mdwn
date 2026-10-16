@@ -33,10 +33,16 @@ from their special remote and sent to the attacker's git-annex repository.
 
 ## git-annex security fixes
 
-To avoid these attacks, after a new special remote is enabled, git-annex
-will refuse to send annexed files to all remotes, and will also block git
-pushes, until the user verifies that the configuration of the special
-remote is safe.
+`git-annex enableremote` now displays the configuration of a special remote
+to the user and requires that they verify it's safe before it can be used.
+
+When a repository has an autoenabled special remote, it can be used
+before verification, but git-annex will refuse to send annexed files
+to any remote until the user verifies that the configuration of the
+autoenabled special remote is safe.
+
+git-annex also installs a git pre-push hook, which blocks git pushes
+when there is an unverified special remote.
 
 Additionally, changes to the configuration of already enabled 
 special remotes, that are received via the git-annex branch,

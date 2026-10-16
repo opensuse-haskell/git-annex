@@ -15,10 +15,11 @@ module Logs.VerifiedRemote (
 	readRemoteLog,
 	configSet,
 	configUpdate,
-	checkNeedReadOnly,
 	omitUnverifiableFields,
 	addUnverifiableFields,
 	VerifyingRemoteConfigId(..),
+	UnverifiedRemoteAmelioration(..),
+	unverifiedRemoteAmelioration,
 	readVerifyingRemoteLog,
 	storeVerifyingRemoteLog,
 	removeVerifyingLog
@@ -114,32 +115,39 @@ readRemoteLog = do
 	lck <- fromRepo gitAnnexVerifiedRemoteLock
 	fmap calcRemoteConfigMap <$> readLogFile logf lck
 
+data UnverifiedRemoteAmelioration = UnverifiedRemoteAmelioration
+	{ preventGitPush :: Maybe String
+	-- ^ Prevent git push to all remotes.
+	, preventAnnexWrite :: Maybe String
+	-- ^ Prevent any git-annex object modification of all remotes.
+	, preventAnnexAccess :: UUID -> Maybe String
+	-- ^ Prevent any git-annex object access to remotes whose UUID
+	-- the function selects. The returned message explains why.
+	}
+
 {- Given a list of UUIDs of all currently enabled remotes, check if any of
- - them are not in the verified remote log, in which case all remotes need
- - to be made read-only.
- -
- - This is to prevent exfiltration of data from an unverified remote
- - that accesses a resource that the user did not expect, to an
- - attacker controlled remote.
- - 
- - When remotes need to be made read-only, a message is returned which
- - explains this to the user.
+ - them are not in the verified remote log, and depending on their
+ - remote.name.annex-unverified configuration, returns the necessary
+ - amelioration to prevent exfiltation of data from an unverified remote
+ - to an attacker controlled remote.
  -}
-checkNeedReadOnly
+unverifiedRemoteAmelioration
 	:: [(UUID, RemoteGitConfig, Maybe RemoteName)]
 	-> (M.Map UUID RemoteConfig)
 	-- ^ Logs.Remote.remoteConfigMap
-	-> String
-	-> Annex (Maybe String)
-checkNeedReadOnly rs configmap action = remoteConfigMap >>= \case
+	-> Annex (Maybe UnverifiedRemoteAmelioration)
+unverifiedRemoteAmelioration rs configmap = remoteConfigMap >>= \case
 	Just m -> return $ case mapMaybe (notinmap m) rs of
 		[] -> Nothing
-		(remotename:_) -> Just $ unwords
-			[ action
-			, "prevented due to an unverified special"
-			, "remote. Run this command to verify it:"
-			, "git-annex verifyremote " ++ remotename
-			]
+		l -> Just $ UnverifiedRemoteAmelioration
+			{ preventGitPush = 
+				checkprevented pushblocker l "Push"
+			, preventAnnexWrite =
+				checkprevented writeblocker l "Write"
+			, preventAnnexAccess =
+				accessblocker l
+			}
+
 	-- The log file does not exist yet. This is either a newly
 	-- initialized repository, or git-annex has been upgraded from a
 	-- version that did not use this log.
@@ -153,10 +161,54 @@ checkNeedReadOnly rs configmap action = remoteConfigMap >>= \case
 		configSetMulti $ mapMaybe (copyfromconfigmap configmap) rs
 		return Nothing
   where
-	notinmap m (u, gc, remotename)
+	-- Any special remote that is unverified prevents git push to all
+	-- remotes.
+	pushblocker (_, gc, remotename)
+		| remoteAnnexUnverified gc /= RemoteConfigVerified = remotename
+		| otherwise = Nothing
+
+	-- Any autoenabled special remote that is unverified prevents
+	-- annex object write to all remotes.
+	writeblocker (_, gc, remotename)
+		| remoteAnnexUnverified gc == RemoteConfigUnverifiedAutoEnabled = remotename
+		| otherwise = Nothing
+
+	-- Prevent annex object access to any special remote that was
+	-- enabled manually but is not yet verified.
+	accessblocker l u = case filter (\(u',_, _) -> u' == u) l of
+		((_, gc, Just remotename):_)
+			| remoteAnnexUnverified gc == RemoteConfigUnverifiedManualEnabled ->
+				preventedunverified remotename
+		_ -> Nothing
+	
+	prevented remotename msg = Just $ unwords
+		[ msg
+		, "Run this command to verify it:"
+		, "git-annex verifyremote"
+		, remotename
+		]
+
+	preventdueto remotetoverify action =
+		prevented remotetoverify $ unwords
+			[ action
+			, "prevented due to an unverified special"
+			, "remote."
+			]
+	
+	preventedunverified remotename = 
+		prevented remotename $
+			"This special remote cannot be used since " ++ 
+				"it's not verified."
+
+	checkprevented blocker l action =
+		case mapMaybe blocker l of
+			[] -> Nothing
+			(remotename:_) -> preventdueto remotename action
+	
+	notinmap m i@(u, gc, _)
 		| M.notMember u' configmap = Nothing
 		| M.member u' m = Nothing
-		| otherwise = remotename
+		| otherwise = Just i
 	  where
 		u' = getcu u gc
 

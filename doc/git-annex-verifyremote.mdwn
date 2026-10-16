@@ -9,14 +9,18 @@ git annex verifyremote `name` [--safe ID|--unsafe]
 # DESCRIPTION
 
 When a special remote was created by someone else, it's important to
-verify that the repository it uses is in the location you expect.
-Otherwise, you risk information leaking out from the special remote to
-other remotes.
+verify that the repository it's configured to use is in the location
+you expect. Otherwise, you risk information leaking out from the
+special remote to other remotes.
 
-To prevent such data leakage, after a special remote is enabled,
-either by `git-annex enableremote` or automatically,
-git-annex will prevent sending annexed files, or git pushes to any
-remote, until this command is used to verify that it's safe.
+To prevent such data leakage, `git-annex enableremote` will display
+the configuration of the special remote, and prompt you to run this
+command. Until the special remote is verified, it cannot be used.
+
+When a special remote is autoenabled by `git-annex init`,
+it can be used before it is verified. But, git-annex will prevent sending
+annexed files or git pushes to any remote, until this command is used
+to verify the autoenabled special remote.
 
 This command can also be used when the configuration of a special remote
 has changed. The old configuration will continue to be used until 

@@ -136,6 +136,7 @@ cleanup t u name c o = do
 			setRemoteConfigUUID c cu
 			Logs.Remote.configSet cu c
 			Logs.VerifiedRemote.configSet cu c
+	setRemoteConfigVerification name RemoteConfigVerified
 	when (withUrl o) $
 		setAnnexUrl c
 	unless (Remote.gitSyncableRemoteType t || withUrl o) $

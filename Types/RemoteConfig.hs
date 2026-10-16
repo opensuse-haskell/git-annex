@@ -72,3 +72,25 @@ addRemoteConfigParser l rpc = rpc
   where
 	s = S.fromList (map parserForField (remoteConfigFieldParsers rpc))
 	isnew p = not (S.member (parserForField p) s)
+
+{- Has a RemoteConfig been verified to use the location that the user
+ - expected? -}
+data RemoteConfigVerification
+	= RemoteConfigVerified
+	| RemoteConfigUnverifiedManualEnabled
+	| RemoteConfigUnverifiedAutoEnabled
+	deriving (Eq)
+
+parseRemoteConfigVerification :: Maybe String -> RemoteConfigVerification
+parseRemoteConfigVerification (Just "manual") =
+	RemoteConfigUnverifiedManualEnabled
+parseRemoteConfigVerification (Just "automatic") =
+	RemoteConfigUnverifiedAutoEnabled
+parseRemoteConfigVerification _ = RemoteConfigVerified
+
+formatRemoteConfigVerification :: RemoteConfigVerification -> Maybe String
+formatRemoteConfigVerification RemoteConfigUnverifiedManualEnabled =
+	Just "manual"
+formatRemoteConfigVerification RemoteConfigUnverifiedAutoEnabled =
+	Just "automatic"
+formatRemoteConfigVerification RemoteConfigVerified = Nothing

@@ -1923,6 +1923,20 @@ Remotes are configured using these settings in `.git/config`.
   Can be used to tell git-annex if a remote is a bare repository
   or not. Normally, git-annex determines this automatically.
 
+* `remote.<name>.annex-unverified`
+
+  Set by git-annex when a special remote has not yet been verified
+  using `git-annex verify`.
+
+  There are two values, "manual" indicates that `git-annex enableremote`
+  was used to set up the special remote, while "automatic" is used
+  when the special remote was autoenabled.
+
+  While unsetting this config can be used to bypass needing to
+  run `git-annex verify`, that is not recommended. The verification
+  step avoids potential exposure of the contents of a special remote.
+  Only change this if you understand the security consequences.
+
 * `remote.<name>.annex-availability`
 
   This configuration setting is no longer used.

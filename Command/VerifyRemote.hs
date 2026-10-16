@@ -17,6 +17,7 @@ import qualified Remote
 import qualified Types.Remote as Remote
 import Types.RemoteConfig
 import Types.ProposedAccepted
+import Config
 import Annex.SpecialRemote.Config
 
 import qualified Data.Map as M
@@ -80,6 +81,7 @@ startVerify r si = do
 	showCustom "verifyremote" si $ do
 		remoteconfig <- getUnverifiedRemoteConfig (logUUID r)
 		cid <- Logs.VerifiedRemote.storeVerifyingRemoteLog remoteconfig
+		setRemoteConfigVerification r RemoteConfigVerified
 		verifiedremoteconfig <- getVerifiedRemoteConfig (logUUID r)
 		let msg = fromMaybe nochanges $
 			remoteVerificationMessage' (Remote.name r) remoteconfig cid verifiedremoteconfig
@@ -165,23 +167,30 @@ performVerifyUnsafe r = do
 	m <- fromMaybe mempty <$> Logs.VerifiedRemote.readRemoteLog
 	let hasverifiedconfig = M.member (logUUID r) m
 	warning $ UnquotedString $ unlines $ 
-		warningVerifyUnsafe (Remote.name r) hasverifiedconfig
+		warningVerifyUnsafe
+			(Remote.name r)
+			hasverifiedconfig
+			(remoteAnnexUnverified (Remote.gitconfig r))
 	next $ return False
 
-warningVerifyUnsafe :: RemoteName -> Bool -> [String]
-warningVerifyUnsafe name False =
-	[ "So the remote " ++ name ++ " is in a location you did"
-	, "not expect to be using. You may be under attack."
+warningVerifyUnsafe :: RemoteName -> Bool -> RemoteConfigVerification -> [String]
+warningVerifyUnsafe name False RemoteConfigUnverifiedAutoEnabled =
+	[ "So the autoenabled remote " ++ name ++ " is in a location"
+	, "you did not expect to be using. You may be under attack."
 	, ""
 	, "No annexed files have been sent to that remote or any other"
-	, "remote since it was enabled, and git pushes have also been"
-	, "prevented."
+	, "remote since it was enabled, and git pushes to all remotes"
+	, "have also been prevented since that time."
 	, ""
 	, "But, annexed files may have been copied from that remote into"
 	, "the local repository. There is a risk that those files could"
 	, "be sent on to other remotes, or that information in the git-annex"
-	, "branch could be pushed, leaking information about the content"
-	, "of " ++ name ++ "."
+	, "branch could be pushed later, leaking information about the"
+	, "content of " ++ name ++ "."
+	, ""
+	, "Also, if the remote supports git pulls, branches may have been"
+	, "pulled from it into this repository, which may leak data"
+	, "to it when pushed elsewhere."
 	, ""
 	, "Your options for dealing with this include:"
 	, "* Identify who caused " ++ name ++ " to be configured this way,"
@@ -196,14 +205,32 @@ warningVerifyUnsafe name False =
 	, "with this attack, you can unblock by running:"
 	, "\tgit remote remove " ++ name
 	]
-warningVerifyUnsafe name True =
-	[ "Unfortunately, information may have leaked about the content"
-	, "of " ++ name ++ "."
+warningVerifyUnsafe name False RemoteConfigUnverifiedManualEnabled =
+	[ "So the remote " ++ name ++ " is in a location you did not expect"
+	, "to be using. You may be under attack."
+	, ""
+	, "No annexed files have been sent to or retrieved from the"
+	, "remote since it was enabled."
+	, ""
+	, "But, if the remote supports git fetch, branches may have been"
+	, "pulled from it into this repository. If you determine that"
+	, "git has fetched information from the remote, you may need to"
+	, "clean up those branches to avoid leaking information from the"
+	, "remote. Bear in mind that the git-annex branch could be amoung"
+	, "them."
+	, ""
+	, "Git pushes to all remotes have been blocked since remote"
+	, name ++ " was enabled, and will stay blocked as long as it exists."
+	, "Once you have dealt with this attack, you can unblock by running:"
+	, "\tgit remote remove " ++ name
+	]
+warningVerifyUnsafe name _ _ =
+	[ "Unfortunately, information may have leaked from " ++ name ++ "."
 	, ""
 	, "Either it has already been verified as safe, or it was"
 	, "enabled by a previous version of git-annex that did not verify"
-	, "the location of special remotes. So nothing prevented content"
-	, "from it being sent to other remotes."
+	, "the location of special remotes. So nothing prevented"
+	, "information from it being sent to other remotes."
 	]
 
 getUnverifiedRemoteConfig :: UUID -> Annex RemoteConfig

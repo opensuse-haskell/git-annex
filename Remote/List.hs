@@ -12,7 +12,7 @@ import qualified Data.Map as M
 import Annex.Common
 import qualified Annex
 import qualified Logs.Remote
-import qualified Logs.VerifiedRemote
+import Logs.VerifiedRemote
 import Types.Remote
 import Types.RemoteState
 import Annex.UUID
@@ -85,8 +85,8 @@ remoteList' autoinit = do
 	l <- concat <$> mapM enumerate' remoteTypes
 
 	let usnames = map (\(u, g, gc, _) -> (u, gc, Git.remoteName g)) l
-	adjustremote <- maybe adjustReadOnly forceReadOnly
-		<$> Logs.VerifiedRemote.checkNeedReadOnly usnames m "Write"
+	adjustremote <- mkadjustremote
+		<$> unverifiedRemoteAmelioration usnames m
 	
 	rs <- catMaybes <$> mapM (generate' adjustremote m) l
 	Annex.changeState $ \s -> s
@@ -104,6 +104,43 @@ remoteList' autoinit = do
 
 	generate' adjustremote m (u, g, gc, t) = 
 		remoteGen adjustremote m t g gc u
+	
+	mkadjustremote Nothing = adjustReadOnly
+	mkadjustremote (Just amelioration) = \r ->
+		case preventAnnexAccess amelioration (uuid r) of
+			Just msg -> preventaccess r msg
+			Nothing -> 
+				case preventAnnexWrite amelioration of
+					Just msg -> forceReadOnly msg r
+					Nothing -> adjustReadOnly r
+
+	preventaccess r msg = 
+		let ro = forceReadOnly msg r
+		in ro
+			{ retrieveKeyFile = giveup msg
+			, retrieveKeyFileCheap = Nothing
+			, lockContent = Nothing
+			, checkPresent = giveup msg
+			, exportActions = (exportActions ro)
+				{ retrieveExport = giveup msg
+				, checkPresentExport = giveup msg
+				}
+			, importActions =  (importActions ro)
+				{ listImportableContents = giveup msg
+				, importKey = giveup msg
+				, retrieveImport = giveup msg
+				, checkPresentImport = giveup msg
+				}
+			, exportImportActions = (exportImportActions ro)
+				{ listImportableOrExportedContents = giveup msg
+				, importKeyWithContentIdentifier = giveup msg
+				, retrieveExportWithContentIdentifier = giveup msg
+				, checkPresentExportWithContentIdentifier = giveup msg
+				}
+			, repairKey = Nothing
+			, claimUrl = Nothing
+			, checkUrl = Nothing
+			}
 
 {- Generates a Remote. -}
 remoteGen

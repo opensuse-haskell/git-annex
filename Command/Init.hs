@@ -1,6 +1,6 @@
 {- git-annex command
  -
- - Copyright 2010-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -14,6 +14,7 @@ import Annex.Init
 import Annex.Version
 import Annex.Startup
 import Types.RepoVersion
+import qualified Annex
 import qualified Annex.SpecialRemote
 
 import Control.Monad.Fail as Fail (MonadFail(..))
@@ -72,20 +73,23 @@ start os
 
 perform :: InitOptions -> CommandPerform
 perform os = do
+	startversion <- getVersion
 	case initVersion os of
 		Nothing -> noop
-		Just wantversion -> getVersion >>= \case
+		Just wantversion -> case startversion of
 			Just v | v /= wantversion ->
 				giveup $ "This repository is already a initialized with version " ++ show (fromRepoVersion v) ++ ", not changing to requested version."
 			_ -> noop
 	initialize startupAnnex
 		(if null (initDesc os) then Nothing else Just (initDesc os))
 		(initVersion os)
-	unless (noAutoEnable os)
+	unless (noAutoEnable os || isJust startversion) $
 		Annex.SpecialRemote.autoEnable
 	next $ return True
 
 performAutoEnableOnly :: CommandPerform
 performAutoEnableOnly = do
+	unlessM (Annex.getRead Annex.force) $
+		giveup "It is not safe to autoenable new special remotes if any other git-annex processes may be running. Pass --force if you are sure you want to do this."
 	Annex.SpecialRemote.autoEnable
 	next $ return True

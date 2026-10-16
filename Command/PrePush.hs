@@ -11,7 +11,7 @@ import Command
 import Remote.List
 import Types.Remote
 import qualified Logs.Remote
-import qualified Logs.VerifiedRemote
+import Logs.VerifiedRemote
 
 cmd :: Command
 cmd = noCommit $ command "pre-push" SectionPlumbing
@@ -23,5 +23,8 @@ seek :: CmdParams -> CommandSeek
 seek _ = do
 	rs <- map (\r -> (uuid r, gitconfig r, Just (name r))) <$> remoteList
 	m <- Logs.Remote.remoteConfigMap
-	maybe noop giveup
-		=<< Logs.VerifiedRemote.checkNeedReadOnly rs m "Push"
+	unverifiedRemoteAmelioration rs m >>= \case
+		Nothing -> noop
+		Just amelioration ->
+			maybe noop giveup $
+				preventGitPush amelioration

@@ -540,7 +540,7 @@ autoEnableSpecialRemotes remotelist = do
 	_ <- remotelist
 	rp <- fromRepo Git.repoPath
 	withNullHandle $ \nullh -> gitAnnexChildProcess "init"
-		[ Param "--autoenable" ]
+		[ Param "--autoenable", Param "--force" ]
 		(\p -> p
 			{ std_out = UseHandle nullh
 			, std_err = UseHandle nullh

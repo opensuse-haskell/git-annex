@@ -75,7 +75,8 @@ autoEnable = do
 				dummycfg <- liftIO dummyRemoteGitConfig
 				tryNonAsync (setup t (AutoEnable c) (Just u) name Nothing c dummycfg) >>= \case
 					Left e -> warning (UnquotedString (show e))
-					Right (_c, _u) ->
+					Right (_c, _u) -> do
+						setRemoteConfigVerification name Remote.RemoteConfigUnverifiedAutoEnabled
 						when (cu /= u) $
 							setRemoteConfigUUID c cu
 			_ -> return ()

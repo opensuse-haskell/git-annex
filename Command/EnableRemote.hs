@@ -25,6 +25,7 @@ import Annex.Hook
 import Config
 import Config.DynamicConfig
 import Types.GitConfig
+import Types.RemoteConfig
 import Types.ProposedAccepted
 import Command.VerifyRemote (remoteVerificationMessage)
 
@@ -128,11 +129,15 @@ performSpecialRemote o t u name oldc c gc mcu = do
 	enablePrePushHook >>= \case
 		Nothing -> noop
 		Just msg -> giveup $ "Cannot enable this special remote because " ++ msg
+	let reenabling = isJust prevrmt
+	let wasautoenabled = 
+		(remoteAnnexUnverified . R.gitconfig <$> prevrmt)
+			== Just RemoteConfigUnverifiedAutoEnabled
 	(c', u') <- R.setup t (R.Enable oldc) (Just u) name Nothing c gc
-	next $ cleanupSpecialRemote o t u' c' mcu prevrmt name
+	next $ cleanupSpecialRemote o t u' c' mcu reenabling wasautoenabled name
 
-cleanupSpecialRemote :: EnableRemoteOptions -> RemoteType -> UUID -> R.RemoteConfig -> Maybe (SpecialRemote.ConfigFrom UUID) -> Maybe Remote -> RemoteName -> CommandCleanup
-cleanupSpecialRemote o t u c mcu prevrmt name = do
+cleanupSpecialRemote :: EnableRemoteOptions -> RemoteType -> UUID -> R.RemoteConfig -> Maybe (SpecialRemote.ConfigFrom UUID) -> Bool -> Bool -> RemoteName -> CommandCleanup
+cleanupSpecialRemote o t u c mcu reenabling wasautoenabled name = do
 	cu <- case mcu of
 		Nothing -> do
 			Logs.Remote.configSet u c
@@ -141,8 +146,10 @@ cleanupSpecialRemote o t u c mcu prevrmt name = do
 			setRemoteConfigUUID c cu
 			Logs.Remote.configSet cu c
 			return cu
-	when (isJust prevrmt) $
+	when reenabling $
 		Logs.VerifiedRemote.configUpdate cu c
+	unless (reenabling && not wasautoenabled) $
+		setRemoteConfigVerification name RemoteConfigUnverifiedManualEnabled
 	remoteVerificationMessage name cu c >>= \case
 		Just msg -> showLongNote (UnquotedString msg)
 		Nothing -> noop

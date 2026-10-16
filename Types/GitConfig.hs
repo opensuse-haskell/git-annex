@@ -52,6 +52,7 @@ import Types.StallDetection
 import Types.View
 import Types.Cluster
 import Types.Group
+import Types.RemoteConfig
 import Config.DynamicConfig
 import Utility.HumanTime
 import Utility.Gpg (GpgCmd, mkGpgCmd)
@@ -410,6 +411,7 @@ data RemoteGitConfig = RemoteGitConfig
 	, remoteAnnexPull :: Bool
 	, remoteAnnexPush :: Bool
 	, remoteAnnexReadOnly :: Bool
+	, remoteAnnexUnverified :: RemoteConfigVerification
 	, remoteAnnexVerify :: Bool
 	, remoteAnnexFastCopy :: Bool
 	, remoteAnnexCheckUUID :: Bool
@@ -492,6 +494,8 @@ extractRemoteGitConfig r remotename = do
 		, remoteAnnexPull = getbool PullField True
 		, remoteAnnexPush = getbool PushField True
 		, remoteAnnexReadOnly = getbool ReadOnlyField False
+		, remoteAnnexUnverified = parseRemoteConfigVerification $
+			getmaybe UnverifiedField
 		, remoteAnnexCheckUUID = getbool CheckUUIDField True
 		, remoteAnnexVerify = getbool VerifyField True
 		, remoteAnnexFastCopy = getbool FastCopyField False
@@ -604,6 +608,7 @@ data RemoteGitConfigField
 	| PullField
 	| PushField
 	| ReadOnlyField
+	| UnverifiedField
 	| CheckUUIDField
 	| VerifyField
 	| FastCopyField
@@ -678,6 +683,7 @@ remoteGitConfigField = \case
 	PullField -> inherited True "pull"
 	PushField -> inherited True "push"
 	ReadOnlyField -> inherited True "readonly"
+	UnverifiedField -> inherited True "unverified"
 	CheckUUIDField -> uninherited True "checkuuid"
 	VerifyField -> inherited True "verify"
 	FastCopyField -> inherited True "fastcopy"
