@@ -2222,18 +2222,15 @@ test_enableremote_encryption_changes = intmpclonerepo $ do
 
 test_autoenable_verifyremote :: Assertion
 test_autoenable_verifyremote = 
-	withtmpclonerepo $ \r1 ->
-		withtmpclonerepo $ \r2 -> do
-			withtmpclonerepo $ \r3 -> do
-				pair r1 r2
-				intopdir r1 $ do
-					disconnectOrigin
+	withtmpclonerepo $ \r1 -> do
+		withtmpclonerepo $ \r3 -> do
+			intopdir r1 $ do
+					git_annex "get" [] "get"
 					git_annex "pre-push" [""] "pre-push succeeds normally"
 					git_annex "initremote" ["baz", "type=git", "autoenable=true", "location=../"++r3] "initremote"
 					git_annex "pre-push" [""] "pre-push succeeds after initremote"
-					git_annex "sync" ["--no-content"] "sync"
+			withtmpcloneof r1 $ \r2 -> do
 				intopdir r2 $ do
-					git_annex "init" ["--autoenable", "--force"] "autoenable remote"
 					git_annex_shouldfail "move" ["--from=origin"]
 						"annex write is prevented by unverified autoenabled remote"
 					git_annex_shouldfail "pre-push" [""]

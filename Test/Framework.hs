@@ -198,11 +198,18 @@ intmpsharedclonerepo a = withtmpclonerepo' (newCloneRepoConfig { sharedClone = T
 withtmpclonerepo :: (FilePath -> Assertion) -> Assertion
 withtmpclonerepo = withtmpclonerepo' newCloneRepoConfig
 
+withtmpcloneof :: FilePath -> (FilePath -> Assertion) -> Assertion
+withtmpcloneof = withtmpclonerepo'' newCloneRepoConfig
+
 withtmpclonerepo' :: CloneRepoConfig -> (FilePath -> Assertion) -> Assertion
 withtmpclonerepo' cfg a = do
+	origindir <- mainrepodir
+	withtmpclonerepo'' cfg origindir a
+
+withtmpclonerepo'' :: CloneRepoConfig -> FilePath -> (FilePath -> Assertion) -> Assertion
+withtmpclonerepo'' cfg origindir a = do
 	dir <- tmprepodir
-	maindir <- mainrepodir
-	clone <- clonerepo maindir dir cfg
+	clone <- clonerepo origindir dir cfg
 	r <- tryNonAsync (a clone)
 	case r of
 		Right () -> return ()

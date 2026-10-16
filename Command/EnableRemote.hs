@@ -130,14 +130,11 @@ performSpecialRemote o t u name oldc c gc mcu = do
 		Nothing -> noop
 		Just msg -> giveup $ "Cannot enable this special remote because " ++ msg
 	let reenabling = isJust prevrmt
-	let wasautoenabled = 
-		(remoteAnnexVerified . R.gitconfig <$> prevrmt)
-			== Just RemoteConfigUnverifiedAutoEnabled
 	(c', u') <- R.setup t (R.Enable oldc) (Just u) name Nothing c gc
-	next $ cleanupSpecialRemote o t u' c' mcu reenabling wasautoenabled name
+	next $ cleanupSpecialRemote o t u' c' mcu reenabling name
 
-cleanupSpecialRemote :: EnableRemoteOptions -> RemoteType -> UUID -> R.RemoteConfig -> Maybe (SpecialRemote.ConfigFrom UUID) -> Bool -> Bool -> RemoteName -> CommandCleanup
-cleanupSpecialRemote o t u c mcu reenabling wasautoenabled name = do
+cleanupSpecialRemote :: EnableRemoteOptions -> RemoteType -> UUID -> R.RemoteConfig -> Maybe (SpecialRemote.ConfigFrom UUID) -> Bool -> RemoteName -> CommandCleanup
+cleanupSpecialRemote o t u c mcu reenabling name = do
 	cu <- case mcu of
 		Nothing -> do
 			Logs.Remote.configSet u c
@@ -146,10 +143,9 @@ cleanupSpecialRemote o t u c mcu reenabling wasautoenabled name = do
 			setRemoteConfigUUID c cu
 			Logs.Remote.configSet cu c
 			return cu
-	when reenabling $
-		Logs.VerifiedRemote.configUpdate cu c
-	unless (reenabling && not wasautoenabled) $
-		setRemoteConfigVerification name RemoteConfigUnverifiedManualEnabled
+	if reenabling
+		then Logs.VerifiedRemote.configUpdate cu c
+		else setRemoteConfigVerification name RemoteConfigUnverifiedManualEnabled
 	remoteVerificationMessage name cu c >>= \case
 		Just msg -> showLongNote (UnquotedString msg)
 		Nothing -> noop
