@@ -2233,7 +2233,7 @@ test_autoenable_verifyremote =
 					git_annex "pre-push" [""] "pre-push succeeds after initremote"
 					git_annex "sync" ["--no-content"] "sync"
 				intopdir r2 $ do
-					git_annex "init" [] "init"
+					git_annex "init" ["--autoenable", "--force"] "autoenable remote"
 					git_annex_shouldfail "move" ["--from=origin"]
 						"annex write is prevented by unverified autoenabled remote"
 					git_annex_shouldfail "pre-push" [""]
