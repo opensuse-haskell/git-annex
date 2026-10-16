@@ -103,7 +103,7 @@ setRemoteConfigVerification :: RemoteNameable r => r -> RemoteConfigVerification
 setRemoteConfigVerification r = 
 	maybe (unsetConfig c) (setConfig c) . formatRemoteConfigVerification
   where
-	c = remoteAnnexConfig r "unverified"
+	c = remoteAnnexConfig r "verified"
 
 isBareRepo :: Annex Bool
 isBareRepo = fromRepo Git.repoIsLocalBare

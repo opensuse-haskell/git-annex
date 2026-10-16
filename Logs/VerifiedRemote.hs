@@ -127,7 +127,7 @@ data UnverifiedRemoteAmelioration = UnverifiedRemoteAmelioration
 
 {- Given a list of UUIDs of all currently enabled remotes, check if any of
  - them are not in the verified remote log, and depending on their
- - remote.name.annex-unverified configuration, returns the necessary
+ - remote.name.unverified configuration, returns the necessary
  - amelioration to prevent exfiltation of data from an unverified remote
  - to an attacker controlled remote.
  -}
@@ -137,9 +137,9 @@ unverifiedRemoteAmelioration
 	-- ^ Logs.Remote.remoteConfigMap
 	-> Annex (Maybe UnverifiedRemoteAmelioration)
 unverifiedRemoteAmelioration rs configmap = remoteConfigMap >>= \case
-	Just m -> return $ case mapMaybe (notinmap m) rs of
-		[] -> Nothing
-		l -> Just $ UnverifiedRemoteAmelioration
+	Just m -> return $ 
+		let l = mapMaybe (notinmap m) rs
+		in Just $ UnverifiedRemoteAmelioration
 			{ preventGitPush = 
 				checkprevented pushblocker l "Push"
 			, preventAnnexWrite =
@@ -164,20 +164,23 @@ unverifiedRemoteAmelioration rs configmap = remoteConfigMap >>= \case
 	-- Any special remote that is unverified prevents git push to all
 	-- remotes.
 	pushblocker (_, gc, remotename)
-		| remoteAnnexUnverified gc /= RemoteConfigVerified = remotename
+		| remoteAnnexVerified gc /= RemoteConfigVerified = remotename
 		| otherwise = Nothing
 
 	-- Any autoenabled special remote that is unverified prevents
 	-- annex object write to all remotes.
 	writeblocker (_, gc, remotename)
-		| remoteAnnexUnverified gc == RemoteConfigUnverifiedAutoEnabled = remotename
+		| remoteAnnexVerified gc == RemoteConfigUnverifiedAutoEnabled = remotename
+		| remoteAnnexVerified gc == RemoteConfigUnverified = remotename
 		| otherwise = Nothing
 
 	-- Prevent annex object access to any special remote that was
 	-- enabled manually but is not yet verified.
 	accessblocker l u = case filter (\(u',_, _) -> u' == u) l of
 		((_, gc, Just remotename):_)
-			| remoteAnnexUnverified gc == RemoteConfigUnverifiedManualEnabled ->
+			| remoteAnnexVerified gc == RemoteConfigUnverifiedManualEnabled ->
+				preventedunverified remotename
+			| remoteAnnexVerified gc == RemoteConfigUnverified ->
 				preventedunverified remotename
 		_ -> Nothing
 	

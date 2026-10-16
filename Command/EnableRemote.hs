@@ -131,7 +131,7 @@ performSpecialRemote o t u name oldc c gc mcu = do
 		Just msg -> giveup $ "Cannot enable this special remote because " ++ msg
 	let reenabling = isJust prevrmt
 	let wasautoenabled = 
-		(remoteAnnexUnverified . R.gitconfig <$> prevrmt)
+		(remoteAnnexVerified . R.gitconfig <$> prevrmt)
 			== Just RemoteConfigUnverifiedAutoEnabled
 	(c', u') <- R.setup t (R.Enable oldc) (Just u) name Nothing c gc
 	next $ cleanupSpecialRemote o t u' c' mcu reenabling wasautoenabled name

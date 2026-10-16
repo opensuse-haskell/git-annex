@@ -22,7 +22,7 @@ git-annex (10.20261026) UNRELEASED; urgency=high
     them could leak out via other git-annex processes running in the
     repository.
   * init --autoenable: Refuse to perform probably unsafe action unless forced.
-  * Added remote.name.annex-unverified git config.
+  * Added remote.name.annex-verified git config.
 
  -- Joey Hess <id@joeyh.name>  Fri, 16 Oct 2026 09:29:27 -0400
 

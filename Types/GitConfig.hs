@@ -411,7 +411,7 @@ data RemoteGitConfig = RemoteGitConfig
 	, remoteAnnexPull :: Bool
 	, remoteAnnexPush :: Bool
 	, remoteAnnexReadOnly :: Bool
-	, remoteAnnexUnverified :: RemoteConfigVerification
+	, remoteAnnexVerified :: RemoteConfigVerification
 	, remoteAnnexVerify :: Bool
 	, remoteAnnexFastCopy :: Bool
 	, remoteAnnexCheckUUID :: Bool
@@ -494,8 +494,8 @@ extractRemoteGitConfig r remotename = do
 		, remoteAnnexPull = getbool PullField True
 		, remoteAnnexPush = getbool PushField True
 		, remoteAnnexReadOnly = getbool ReadOnlyField False
-		, remoteAnnexUnverified = parseRemoteConfigVerification $
-			getmaybe UnverifiedField
+		, remoteAnnexVerified = parseRemoteConfigVerification $
+			getmaybe VerifiedField
 		, remoteAnnexCheckUUID = getbool CheckUUIDField True
 		, remoteAnnexVerify = getbool VerifyField True
 		, remoteAnnexFastCopy = getbool FastCopyField False
@@ -608,7 +608,7 @@ data RemoteGitConfigField
 	| PullField
 	| PushField
 	| ReadOnlyField
-	| UnverifiedField
+	| VerifiedField
 	| CheckUUIDField
 	| VerifyField
 	| FastCopyField
@@ -683,7 +683,7 @@ remoteGitConfigField = \case
 	PullField -> inherited True "pull"
 	PushField -> inherited True "push"
 	ReadOnlyField -> inherited True "readonly"
-	UnverifiedField -> inherited True "unverified"
+	VerifiedField -> inherited True "verified"
 	CheckUUIDField -> uninherited True "checkuuid"
 	VerifyField -> inherited True "verify"
 	FastCopyField -> inherited True "fastcopy"

@@ -81,7 +81,6 @@ startVerify r si = do
 	showCustom "verifyremote" si $ do
 		remoteconfig <- getUnverifiedRemoteConfig (logUUID r)
 		cid <- Logs.VerifiedRemote.storeVerifyingRemoteLog remoteconfig
-		setRemoteConfigVerification r RemoteConfigVerified
 		verifiedremoteconfig <- getVerifiedRemoteConfig (logUUID r)
 		let msg = fromMaybe nochanges $
 			remoteVerificationMessage' (Remote.name r) remoteconfig cid verifiedremoteconfig
@@ -156,6 +155,7 @@ performVerifySafe cid r = do
 		Just rc
 			| rc == Logs.VerifiedRemote.omitUnverifiableFields remoteconfig -> do
 				Logs.VerifiedRemote.configSet (logUUID r) remoteconfig
+				setRemoteConfigVerification r RemoteConfigVerified
 				Logs.VerifiedRemote.removeVerifyingLog cid
 				next $ return True
 		_ -> do
@@ -170,7 +170,7 @@ performVerifyUnsafe r = do
 		warningVerifyUnsafe
 			(Remote.name r)
 			hasverifiedconfig
-			(remoteAnnexUnverified (Remote.gitconfig r))
+			(remoteAnnexVerified (Remote.gitconfig r))
 	next $ return False
 
 warningVerifyUnsafe :: RemoteName -> Bool -> RemoteConfigVerification -> [String]
