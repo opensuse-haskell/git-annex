@@ -27,6 +27,7 @@ import qualified Annex.BranchState
 import qualified Annex.Url as Url
 import qualified Types.Remote as Remote
 import qualified Logs.Remote
+import qualified Logs.VerifiedRemote
 import qualified Remote.External
 import Remote.Helper.Encryptable (parseEncryptionMethod)
 import Annex.Transfer
@@ -614,7 +615,9 @@ withSpecialRemote cfg@(SpecialRemoteConfig {}) sab a = case specialRemoteName cf
 				-- This change will never be committed to the
 				-- git-annex branch.
 				Logs.Remote.configSet cu c'
+				Logs.VerifiedRemote.configSet cu c
 			Nothing -> noop
+		setRemoteConfigVerification remotename RemoteConfigVerified
 		remotesChanged
 		getEnabledSpecialRemoteByName remotename >>= \case
 			Just rmt -> return rmt
