@@ -301,7 +301,7 @@ updateTo' pairs = do
 					else do
 						config <- Annex.getGitConfig
 						trustmap <- calcTrustMap <$> getStaged trustLog
-						remoteconfigmap <- calcRemoteConfigMapInherited <$> getStaged remoteLog
+						remoteconfigmap <- calcRemoteConfigMap <$> getStaged remoteLog
 						return $ map (\c -> c trustmap remoteconfigmap config) tcs
 		return $ UpdateFailedPermissions 
 			{ refsUnmerged = refs
@@ -875,7 +875,7 @@ performTransitionsLocked jl ts neednewlocalbranch transitionedrefs = do
 	run changers = do
 		config <- Annex.getGitConfig
 		trustmap <- calcTrustMap <$> getStaged trustLog
-		remoteconfigmap <- calcRemoteConfigMapInherited <$> getStaged remoteLog
+		remoteconfigmap <- calcRemoteConfigMap <$> getStaged remoteLog
 		-- partially apply, improves performance
 		let changers' = map (\c -> c trustmap remoteconfigmap config) changers
 		(fs, cleanup) <- branchFiles

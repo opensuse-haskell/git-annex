@@ -113,7 +113,7 @@ readRemoteLog :: Annex (Maybe (M.Map UUID RemoteConfig))
 readRemoteLog = do
 	logf <- fromRepo gitAnnexVerifiedRemoteLog
 	lck <- fromRepo gitAnnexVerifiedRemoteLock
-	fmap calcRemoteConfigMap <$> readLogFile logf lck
+	fmap calcRemoteConfigMapBase <$> readLogFile logf lck
 
 data UnverifiedRemoteAmelioration = UnverifiedRemoteAmelioration
 	{ preventGitPush :: Maybe String
