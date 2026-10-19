@@ -1,8 +1,8 @@
-(FIXME: CVE number assignment)
-git-annex was vulnerable to a private data exfiltration attack. Joey Hess
-discovered this attack.
+CVE-2026-112818: git-annex was vulnerable to a private data exfiltration attack.
 
-This security hole was fixed in git-annex (FIXME: version)
+Joey Hess discovered this attack.
+
+This security hole was fixed in git-annex 
 
 ## attack descriptions
 

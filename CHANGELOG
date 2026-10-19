@@ -1,7 +1,8 @@
 git-annex (10.20261026) UNRELEASED; urgency=high
 
   * This releases fixes a security hole that allowed private data 
-    exfiltration from special remotes.
+    exfiltration from special remotes. (CVE-2026-112818)
+    https://git-annex.branchable.com/security/cross_repository_data_exfiltration_via_special_remote/
   * verifyremote: New command, used to verify the configuration of special
     remotes is safe.
   * enableremote: Display configuration and prompt for verifyremote to be
