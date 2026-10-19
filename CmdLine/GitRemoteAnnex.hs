@@ -615,7 +615,7 @@ withSpecialRemote cfg@(SpecialRemoteConfig {}) sab a = case specialRemoteName cf
 				-- This change will never be committed to the
 				-- git-annex branch.
 				Logs.Remote.configSet cu c'
-				Logs.VerifiedRemote.configSet cu c
+				Logs.VerifiedRemote.configSet cu c'
 			Nothing -> noop
 		setRemoteConfigVerification remotename RemoteConfigVerified
 		remotesChanged
