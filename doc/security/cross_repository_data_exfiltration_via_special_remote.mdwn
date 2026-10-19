@@ -8,28 +8,40 @@ This security hole was fixed in git-annex (FIXME: version)
 
 To perform these attacks, the attacker needs to have control over one of
 the remotes of the victim's git-annex repository. For example, they may
-provide a git-annex repository that the victim clones.
+provide a git-annex repository that the victim clones. 
 
-The attacker also needs to have information about another git-annex 
-repository owned by the victim. This could be a published git repository,
-with annexed file contents that the victim is keeping private.
+The attacker also needs to have a certian amount of information about the
+victim's private repository that they have obtained in some way. For
+example, the victim may have published a git repository but be keeping the
+annexed files private.
 
 In the simplest form of the attack, the attacker provides a git-annex
-repository that the victim clones. When git-annex is initialized in the
-victim's clone, it autoenables a special remote that the attacker has
-configured to access the victim's other, private git-annex repository.
-When the victim runs a command such as `git-annex sync --content`,
-their private files are retrieved from the special remote and sent to the
-attacker's git-annex repository.
+repository that includes in its tree annexed files that the attacker knows
+are present in the victim's private git-annex repository. When git-annex is
+initialized in the victim's clone, git-annex autoenables a special remote
+that the attacker has configured to access the victim's private git-annex
+repository. When the victim runs a command such as `git-annex sync
+--content`, their private files are retrieved from the special remote and
+sent to the attacker.
 
 In another form of the attack, autoenable of special remotes is not needed.
 Instead, the attacker provides a special remote (eg a S3 bucket) along with
 their git-annex repository. The attacker waits for the victim to clone the
-repository and manually enable and use their special remote. Then they update
-the configuration of the special remote, retargeting it to access the victim's
-own special remote (eg the victim's private S3 bucket). When the victim runs a
-command such as `git-annex sync --content`, their private files are retrieved
-from their special remote and sent to the attacker's git-annex repository.
+repository and manually enable and use their special remote. Then they
+update the configuration of the special remote, retargeting it to access
+the victim's own special remote (eg the victim's private S3 bucket). When
+the victim runs a command such as `git-annex sync --content`, their private
+files are retrieved from their special remote and sent to the attacker.
+
+A third form of the attack only requires that the attacker knows the
+location of the victim's private git repository. The attacker provides a
+git-annex repository that the victim clones. When git-annex is initialized
+in the victim's clone, it autoenables a git remote pointing to the victim's
+private git repository. The first time the victim runs a command such as
+`git-annex sync --content`, the attacker learns what git-annex keys are
+used by annexed files in the private git repository, and adds them to the
+tree. The second time the victim runs such a command, their private files
+are retrieved from their private git repository and sent to the attacker.
 
 ## git-annex security fixes
 
