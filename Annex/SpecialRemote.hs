@@ -100,7 +100,7 @@ autoEnable = do
 						"there is another remote with the same name."
 				_ -> enablePrePushHook >>= \case
 					Nothing -> cont
-					Just msg -> warning $ UnquotedString msg
+					Just msg -> cannotenable name msg
 	cannotenable name msg = warning $
 		UnquotedString $ "Cannot auto enable special remote "
 			++ name ++ " because " ++ msg
