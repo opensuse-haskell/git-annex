@@ -12,3 +12,6 @@ worth doing a build just for old android phones any longer. --[[Joey]]
 > If ca-certificates won't be updated for the EMudhra Intermediate CA Compromise,
 > it would be best to either drop the build or release a new build that
 > does not bundle any certs. --[[Joey]]
+
+> > Temporarily dealt with that by manually removing the affected cert from
+> > the arm64ancient build chroot. --[[Joey]]
