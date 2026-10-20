@@ -8,3 +8,7 @@ may not work with that kernel.
 
 It may be that, since termux now includes a git-annex package, it's not
 worth doing a build just for old android phones any longer. --[[Joey]]
+
+> If ca-certificates won't be updated for the EMudhra Intermediate CA Compromise,
+> it would be best to either drop the build or release a new build that
+> does not bundle any certs. --[[Joey]]
