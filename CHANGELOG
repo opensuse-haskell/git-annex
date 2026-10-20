@@ -24,8 +24,6 @@ git-annex (10.20261026) UNRELEASED; urgency=high
     repository.
   * init --autoenable: Refuse to perform probably unsafe action unless forced.
   * Added remote.name.annex-verified git config.
-  * Linux standalone builds bundled CA certs updated for
-    EMudhra Intermediate CA Compromise.
 
  -- Joey Hess <id@joeyh.name>  Fri, 16 Oct 2026 09:29:27 -0400
 
