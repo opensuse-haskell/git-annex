@@ -1,0 +1,8 @@
+git-annex 10.20261020 released with [[!toggle text="these changes"]]
+[[!toggleable text="""  * adjust --hide-unwanted: New option to make an adjusted branch
+    containing only wanted files.
+  * push: Force push to remote git-annex branch when it has been
+    supersceded by a transition.
+  * Fix handling of --sameas special remotes with onlyencryptcreds=yes.
+  * Linux standalone builds bundled CA certs updated for
+    EMudhra Intermediate CA Compromise."""]]
