@@ -1,12 +1,14 @@
-git-annex (10.20261007) UNRELEASED; urgency=medium
+git-annex (10.20261020) upstream; urgency=medium
 
   * adjust --hide-unwanted: New option to make an adjusted branch
     containing only wanted files.
   * push: Force push to remote git-annex branch when it has been
     supersceded by a transition.
   * Fix handling of --sameas special remotes with onlyencryptcreds=yes.
+  * Linux standalone builds bundled CA certs updated for
+    EMudhra Intermediate CA Compromise.
 
- -- Joey Hess <id@joeyh.name>  Tue, 06 Oct 2026 11:03:57 -0400
+ -- Joey Hess <id@joeyh.name>  Tue, 20 Oct 2026 16:45:06 -0400
 
 git-annex (10.20261006) upstream; urgency=medium
 
