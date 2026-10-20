@@ -15,3 +15,7 @@ worth doing a build just for old android phones any longer. --[[Joey]]
 
 > > Temporarily dealt with that by manually removing the affected cert from
 > > the arm64ancient build chroot. --[[Joey]]
+
+> > > I made a `remove-arm64ancient` branch for this. Waiting to merge it
+> > > until after one last security update release with the ca-certificates.
+> > > --[[Joey]]
