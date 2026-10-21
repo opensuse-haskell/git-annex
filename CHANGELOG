@@ -1,3 +1,10 @@
+git-annex (10.20261021) UNRELEASED; urgency=medium
+
+  * git-annex.cabal: Added Memory build flag to support building with
+    older versions of crypton that don't use ram.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 21 Oct 2026 10:38:20 -0400
+
 git-annex (10.20261020) upstream; urgency=medium
 
   * adjust --hide-unwanted: New option to make an adjusted branch
