@@ -8,7 +8,7 @@ package repository, so installation is easy:
 Just run "git-annex webapp" inside Termux.
 A browser window will open with the git-annex interface.
 
-[[!img webapp.png alt="git-annex webapp"]]
+[[!img android/webapp.png alt="git-annex webapp"]]
 
 ## Closing and reopening the webapp
 

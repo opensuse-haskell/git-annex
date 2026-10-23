@@ -49,3 +49,5 @@ Still, while this seems too hard to be a viable attack, it seems likely
 that any fix to the main attack will also close off this one.) 
 
 --[[Joey]]
+
+[fixed|done]]

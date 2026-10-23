@@ -140,7 +140,7 @@ calcLogFileUnsafe f start update = bracket setup cleanup go
 -- streamed. It is run even if the log file does not exist. If the
 -- finalizer throws an exception, the log file is left unchanged.
 -- 
--- Locking is used to prevent writes to to the log file while this
+-- Locking is used to prevent writes to the log file while this
 -- is running.
 streamLogFile :: OsPath -> OsPath -> Annex () -> (String -> Annex ()) -> Annex ()
 streamLogFile f lck finalizer processor = 

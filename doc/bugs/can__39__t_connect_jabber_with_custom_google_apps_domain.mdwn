@@ -19,3 +19,5 @@ The issue is because git-annex is trying to connect to @domain.com as the jabber
 """]]
 
 [[!tag moreinfo]]
+
+> [[done]]; git-annex removed xmpp support in 6.20170101 --[[Joey]]

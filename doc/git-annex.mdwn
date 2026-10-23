@@ -1632,7 +1632,7 @@ Remotes are configured using these settings in `.git/config`.
   If set to `true`, prevents git-annex from making changes to a remote.
   This prevents `git-annex sync` and `git-annex assist` from pushing
   changes to a git repository. And it prevents storing or removing
-  files from read-only remote.
+  files.
 
 * `remote.<name>.annex-verify`, `annex.verify`
 

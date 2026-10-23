@@ -24,3 +24,5 @@ git-annex: interrupted
 [[!tag confirmed forwarded]]
 
 [[!meta title="OSX xmpp crash with jabber.de"]]
+
+> [[done]]; git-annex removed xmpp support in 6.20170101 --[[Joey]]

@@ -198,6 +198,9 @@ Flag TastyTap
   Description: Use tasty-tap to support git-annex test TAP output
   Default: True
 
+Flag Memory
+  Description: Build with memory rather than ram
+
 source-repository head
   type: git
   location: https://git.joeyh.name/git/git-annex.git/
@@ -270,7 +273,6 @@ Executable git-annex
    socks (>= 0.6.0),
    stm-chans,
    crypto-api,
-   memory,
    deepseq,
    split,
    attoparsec (>= 0.13.2.2),
@@ -319,8 +321,12 @@ Executable git-annex
      base (>= 4.18.2.1 && < 5),
      persistent (>= 2.13.3),
      crypton,
-     ram,
      tls
+
+  if flag(Memory)
+    Build-Depends: memory, crypton (< 1.1.0)
+  else
+    Build-Depends: ram, crypton (>= 1.1.0)
 
   -- Fully optimize for production.
   if flag(Production)

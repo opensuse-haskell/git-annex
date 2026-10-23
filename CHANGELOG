@@ -1,4 +1,4 @@
-git-annex (10.20261026) UNRELEASED; urgency=high
+git-annex (10.20261026) upstream; urgency=high
 
   * This releases fixes a security hole that allowed private data 
     exfiltration from special remotes. (CVE-2026-112818)
@@ -24,17 +24,22 @@ git-annex (10.20261026) UNRELEASED; urgency=high
     repository.
   * init --autoenable: Refuse to perform probably unsafe action unless forced.
   * Added remote.name.annex-verified git config.
+  * git-annex.cabal: Added Memory build flag to support building with
+    older versions of crypton that don't use ram.
 
- -- Joey Hess <id@joeyh.name>  Fri, 16 Oct 2026 09:29:27 -0400
+ -- Joey Hess <id@joeyh.name>  Fri, 23 Oct 2026 12:49:52 -0400
 
-git-annex (10.20261007) UNRELEASED; urgency=medium
+git-annex (10.20261020) upstream; urgency=medium
 
   * adjust --hide-unwanted: New option to make an adjusted branch
     containing only wanted files.
   * push: Force push to remote git-annex branch when it has been
     supersceded by a transition.
+  * Fix handling of --sameas special remotes with onlyencryptcreds=yes.
+  * Linux standalone builds bundled CA certs updated for
+    EMudhra Intermediate CA Compromise.
 
- -- Joey Hess <id@joeyh.name>  Tue, 06 Oct 2026 11:03:57 -0400
+ -- Joey Hess <id@joeyh.name>  Tue, 20 Oct 2026 16:45:06 -0400
 
 git-annex (10.20261006) upstream; urgency=medium
 

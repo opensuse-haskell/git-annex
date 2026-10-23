@@ -24,3 +24,5 @@ There is no logoutput to add... I'm sorry.
 [[!meta title="XMPP does not work with jabber.ccc.de"]]
 
 [[!tag moreinfo]]
+
+> [[done]]; git-annex removed xmpp support in 6.20170101 --[[Joey]]

@@ -11,6 +11,7 @@ Build-Depends:
 	libghc-hslogger-dev,
 	libghc-crypton-dev,
 	libghc-crypton-connection-dev,
+	libghc-crypton-x509-store-dev,
 	libghc-memory-dev,
 	libghc-deepseq-dev,
 	libghc-attoparsec-dev,
