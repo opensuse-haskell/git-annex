@@ -376,8 +376,8 @@ repoTests note numparts = map mk $ sep
 	, testCase "addurl" test_addurl
 	, testCase "repair" test_repair
 	, testCase "enableremote encryption changes" test_enableremote_encryption_changes
-	, testCase "autoenable verifyremote" test_autoenable_verifyremote
-	--, testCase "enableremote verifyremote" test_enableremote_verifyremote
+	, testCase "autoenable verifyremote" (test_verifyremote True)
+	, testCase "enableremote verifyremote" (test_verifyremote False)
 	]
   where
 	mk l = inOrderTestGroup groupname (initTests : map adddep l)
@@ -2221,8 +2221,8 @@ test_enableremote_encryption_changes = intmpclonerepo $ do
 			"enableremote enabling already enabled onlyencryptcreds"
 #endif
 
-test_autoenable_verifyremote :: Assertion
-test_autoenable_verifyremote = 
+test_verifyremote :: Bool -> Assertion
+test_verifyremote autoenable = 
 	withtmpclonerepo $ \r1 -> do
 		withtmpclonerepo $ \sr -> do
 			intopdir r1 (r1_tests sr)
@@ -2233,25 +2233,58 @@ test_autoenable_verifyremote =
 	r1_tests sr = do
 		git_annex "get" [] "get"
 		git_annex "pre-push" [""] "pre-push succeeds normally"
-		git_annex "initremote" [srname, "type=git", "autoenable=true", "location=../"++sr] "initremote"
+		let initoptions = catMaybes
+			[ Just srname
+			, Just "type=git"
+			, if autoenable then Just "autoenable=true" else Nothing
+			, Just ("location=../"++sr)
+			]
+		git_annex "initremote" initoptions "initremote"
 		git_annex "pre-push" [""] "pre-push succeeds after initremote"
+		git_annex "copy" ["--to", srname] "copy"
 	r2_tests sr = do
-		git_annex_shouldfail "move" ["--from=origin"]
-			"annex write is prevented by unverified autoenabled remote"
+		unless autoenable $
+			git_annex "enableremote" [srname] "enableremote"
+		annexaccesstests
 		git_annex_shouldfail "pre-push" [""]
-			"pre-push blocks with unverified autoenabled remote"
+			"pre-push blocks with unverified remote"
 		git_shouldfail "push" ["origin", "git-annex:git-annex-new"]
-			"git push is prevented by unverified autoenabled remote"
+			"git push is prevented by unverified remote"
 		git_annex "enableremote" [srname, "location=../"++sr]
 			"enableremote"
-		git_annex_shouldfail "move" ["--from=origin"]
-			"annex write is prevented by unverified autoenabled remote after it was manually enabled too"
+		annexaccesstests -- not changed by second enableremote
+		git_annex_shouldfail "pre-push" [""]
+			"pre-push blocks with unverified remote after second enableremote"
+		git_shouldfail "push" ["origin", "git-annex:git-annex-new"]
+			"git push is prevented by unverified remote after second enableremote"
 		git_annex "verifyremote" [srname, "--safe", "1"]
 			"verifyremote --safe"
 		git_annex "move" ["--from=origin"]
+			"annex write to other remotes after verifyremote"
+		git_annex "move" ["--to", srname]
 			"annex write after verifyremote"
 		git_annex "pre-push" [""]
 			"pre-push succeeds after verifyremote"
 		git "push" ["origin", "git-annex:git-annex-new"]
 			"git push after verifyremote"
-
+	annexaccesstests
+		| autoenable = do
+			git_annex_shouldfail "move" ["--from=origin"]
+				"annex write to other remotes is prevented by unverified autoenabled remote"
+			git_annex_shouldfail "move" ["--from", srname]
+				"annex write prevented to autoenabled unverified remote"
+			git_annex "get" ["--from", srname]
+				"annex read allowed from autoenabled unverified remote"
+			git_annex "drop" [] "drop"
+			git_annex "get" ["--from=origin"]
+				"annex read allowed from other remote with autoenabled unverified remote"
+			git_annex "drop" [] "drop"
+		| otherwise = do
+			git_annex "move" ["--from=origin"]
+				"annex write to other remotes is allowed with unverified remote"
+			git_annex "move" ["--to=origin"]
+				"annex write to other remotes is allowed with unverified remote"
+			git_annex_shouldfail "move" ["--from", srname]
+				"annex write access not allowed to manually enabled unverified remote"
+			git_annex_shouldfail "get" ["--from", srname]
+				"annex read access not allowed to manually enabled unverified remote"
