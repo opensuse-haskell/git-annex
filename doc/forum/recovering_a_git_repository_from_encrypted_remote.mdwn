@@ -1,0 +1,13 @@
+The manual warns against pushing into encrypted remote because:
+
+>> it is impossible to git clone from an encrypted special remote, since it needs encryption keys stored in the remote.
+
+However am I correct that if store "uuid" "cipher" and all relevant info from the remote log, I can recover a git repository by:
+
+1. `git init`
+2. create a git-annex branch with one entry in the remote.log
+3. `git-annex init`
+4. `git annex enableremote --with-url myremote`
+4. and then pull?
+
+I tried it locally and it works but I was wondering if I'm missing something that would make it dangerous to rely on this process.
