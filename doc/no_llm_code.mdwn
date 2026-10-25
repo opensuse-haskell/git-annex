@@ -128,7 +128,8 @@ implementations of crypto functions in haskell. This is no longer
 that, and as such, does not seem like a trustworthly package to use.
 
 git-annex supports being built with older versions. The botan build flag
-makes git-annex use botan rather than crypton.
+makes git-annex use botan rather than crypton for hashing (except for skein
+and blake2 hashes).
 
 Unfortunately, crypton is a dependency of several other packages,
 including `tls`. 
