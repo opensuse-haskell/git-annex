@@ -12,22 +12,23 @@ git-annex (10.20261026) upstream; urgency=high
     verification, but prevent sending annexed files or git pushes to any
     remote until it is verified.
   * After upgrading git-annex, existing special remotes will continue to work
-    as before. If a special remote could have been configured by a third party,
-    you should verify its configuration using the `git-annex verifyremote`
-    command.
+    as before. If a special remote could have been configured by a third
+    party, you should verify its configuration using the 
+    `git-annex verifyremote` command.
   * Changes to special remote configuration received in the git-annex
-    branch no longer take effect until git-annex verifyremote is run to review
-    and verify the new configuration.
+    branch no longer take effect until git-annex verifyremote is run to
+    review and verify the new configuration.
   * init: When run in an already initialized repository, avoid 
     autoenabling new special remotes, since files received from
     them could leak out via other git-annex processes running in the
     repository.
-  * init --autoenable: Refuse to perform probably unsafe action unless forced.
+  * init --autoenable: Refuse to perform probably unsafe action unless
+    forced.
   * Added remote.name.annex-verified git config.
   * git-annex.cabal: Added Memory build flag to support building with
     older versions of crypton that don't use ram.
 
- -- Joey Hess <id@joeyh.name>  Fri, 23 Oct 2026 12:49:52 -0400
+ -- Joey Hess <id@joeyh.name>  Mon, 26 Oct 2026 14:00:00 -0400
 
 git-annex (10.20261020) upstream; urgency=medium
 
