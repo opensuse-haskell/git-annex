@@ -13,8 +13,10 @@ module Annex.Magic (
 	MimeType,
 	MimeEncoding,
 	initMagicMime,
+	getMagicMime,
 	getMagicMimeType,
 	getMagicMimeEncoding,
+	parseMagicMime,
 ) where
 
 import Common
@@ -23,7 +25,9 @@ import Control.Monad.IO.Class
 #ifdef WITH_MAGICMIME
 import Magic
 import Utility.Env
+import Data.Char
 import qualified Data.List.NonEmpty as NE
+import qualified Data.ByteString as B
 #else
 type Magic = ()
 #endif
@@ -45,17 +49,17 @@ initMagicMime = return Nothing
 
 getMagicMime :: Magic -> OsPath -> IO (Maybe (MimeType, MimeEncoding))
 #ifdef WITH_MAGICMIME
-getMagicMime m f = Just . parse . decodeBS <$> magicFile m f
-  where
-	parse s = 
-		let (mimetype, rest) = separate (== ';') s
-		in case rest of
-			(' ':'c':'h':'a':'r':'s':'e':'t':'=':mimeencoding) -> 
-				(mimetype, mimeencoding)
-			_ -> (mimetype, "")
+getMagicMime m f = Just . parseMagicMime <$> magicFile m f
 #else
 getMagicMime _ _ = return Nothing
 #endif
+
+parseMagicMime :: B.ByteString -> (MimeType, MimeEncoding)
+parseMagicMime b = (decodeBS mimetype, decodeBS mimeencoding)
+  where
+	(mimetype, rest) = B.break (== semicolon) b
+	mimeencoding = fromMaybe mempty (B.stripPrefix "; charset=" rest)
+	semicolon = fromIntegral (ord ';')
 
 getMagicMimeType :: MonadIO m => Magic -> OsPath -> m (Maybe MimeType)
 getMagicMimeType m f = liftIO $ fmap fst <$> getMagicMime m f
