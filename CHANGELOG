@@ -2,6 +2,7 @@ git-annex (10.20261021) UNRELEASED; urgency=medium
 
   * git-annex.cabal: Added Memory build flag to support building with
     older versions of crypton that don't use ram.
+  * git-annex.cabal: Switch from magic to libmagic.
 
  -- Joey Hess <id@joeyh.name>  Wed, 21 Oct 2026 10:38:20 -0400
 

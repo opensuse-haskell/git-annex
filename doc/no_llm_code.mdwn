@@ -95,17 +95,6 @@ and 10,000+ lines of changes.
 
 (See [[todo/ditch_yesod]])
 
-### magic
-
-[magic](https://hackage.haskell.org/package/magic) since 1.1.1
-
-[First disclosed LLM generated code](https://github.com/philippedev101/magic-haskell/commit/f52a3628626644d68e1cd1d2c36e98f78693bda5)
-
-The person who took over magic from its long-time maintainer has not
-disclosed their earlier LLM use, but it is apparent, including in their
-communications to [[Joey]] about incorrect LLM-generated statements in the
-changelog.
-
 ### crypton
 
 [crypton](https://hackage.haskell.org/package/crypton) since 1.1.0
@@ -169,3 +158,22 @@ is a way that makes them not be a potential license problem.
 which was merged into gitk upstream of git and so avoided git's policy.
 
 git-annex supports git back to 2.22.
+
+## previous dependencies that contained LLM generated code
+
+[[!toc startlevel=3]]
+
+### magic
+
+[magic](https://hackage.haskell.org/package/magic) since 1.1.1
+
+[First disclosed LLM generated code](https://github.com/philippedev101/magic-haskell/commit/f52a3628626644d68e1cd1d2c36e98f78693bda5)
+
+The person who took over magic from its long-time maintainer has not
+disclosed their earlier LLM use, but it is apparent, including in their
+communications to [[Joey]] about incorrect LLM-generated statements in the
+changelog.
+
+This resulted in the package being forked to 
+[libmagic](https://hackage.haskell.org/package/libmagic),
+which git-annex now uses instead.
