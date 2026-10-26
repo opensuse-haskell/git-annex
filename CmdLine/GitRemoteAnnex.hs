@@ -27,6 +27,7 @@ import qualified Annex.BranchState
 import qualified Annex.Url as Url
 import qualified Types.Remote as Remote
 import qualified Logs.Remote
+import qualified Logs.VerifiedRemote
 import qualified Remote.External
 import Remote.Helper.Encryptable (parseEncryptionMethod)
 import Annex.Transfer
@@ -52,6 +53,7 @@ import Annex.Tmp
 import Annex.SpecialRemote.Config
 import Remote.List
 import Remote.List.Util
+import Remote.Helper.ReadOnly
 import Utility.Tmp
 import Utility.Tmp.Dir
 import Utility.Env
@@ -613,7 +615,9 @@ withSpecialRemote cfg@(SpecialRemoteConfig {}) sab a = case specialRemoteName cf
 				-- This change will never be committed to the
 				-- git-annex branch.
 				Logs.Remote.configSet cu c'
+				Logs.VerifiedRemote.configSet cu c'
 			Nothing -> noop
+		setRemoteConfigVerification remotename RemoteConfigVerified
 		remotesChanged
 		getEnabledSpecialRemoteByName remotename >>= \case
 			Just rmt -> return rmt
@@ -684,7 +688,9 @@ importTreeWorkAround rmt
 	| otherwise = do
 		m <- Logs.Remote.remoteConfigMap
 		r <- Remote.getRepo rmt
-		remoteGen' adjustconfig m (Remote.remotetype rmt) r >>= \case
+		u <- getRepoUUID r
+		gc <- Annex.getRemoteGitConfig r
+		remoteGen' adjustconfig adjustReadOnly m (Remote.remotetype rmt) r gc u >>= \case
 			Just rmt' -> return rmt'
 			Nothing -> giveup "Failed to use importtree=yes remote."
   where

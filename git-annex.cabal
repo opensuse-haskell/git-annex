@@ -1,5 +1,5 @@
 Name: git-annex
-Version: 10.20261020
+Version: 10.20261026
 Cabal-Version: 1.12
 License: AGPL-3
 Maintainer: Joey Hess <id@joeyh.name>
@@ -767,6 +767,7 @@ Executable git-annex
     Command.P2PStdIO
     Command.PostReceive
     Command.PreCommit
+    Command.PrePush
     Command.Pull
     Command.Push
     Command.Put
@@ -815,6 +816,7 @@ Executable git-annex
     Command.VCycle
     Command.VFilter
     Command.VPop
+    Command.VerifyRemote
     Command.Version
     Command.Vicfg
     Command.View
@@ -950,6 +952,7 @@ Executable git-annex
     Logs.UUIDBased
     Logs.Unused
     Logs.Upgrade
+    Logs.VerifiedRemote
     Logs.View
     Logs.Web
     Messages

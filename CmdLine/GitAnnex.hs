@@ -56,6 +56,7 @@ import qualified Command.Init
 import qualified Command.Describe
 import qualified Command.InitRemote
 import qualified Command.EnableRemote
+import qualified Command.VerifyRemote
 import qualified Command.ConfigRemote
 import qualified Command.RenameRemote
 import qualified Command.DisableRemote
@@ -69,6 +70,7 @@ import qualified Command.AddUnused
 import qualified Command.Unlock
 import qualified Command.Lock
 import qualified Command.PreCommit
+import qualified Command.PrePush
 import qualified Command.PostReceive
 import qualified Command.FilterBranch
 import qualified Command.Find
@@ -174,6 +176,7 @@ cmds testoptparser testrunner mkbenchmarkgenerator = map addGitAnnexCommonOption
 	, Command.Describe.cmd
 	, Command.InitRemote.cmd
 	, Command.EnableRemote.cmd
+	, Command.VerifyRemote.cmd
 	, Command.ConfigRemote.cmd
 	, Command.RenameRemote.cmd
 	, Command.DisableRemote.cmd
@@ -184,6 +187,7 @@ cmds testoptparser testrunner mkbenchmarkgenerator = map addGitAnnexCommonOption
 	, Command.Uninit.cmd
 	, Command.Reinit.cmd
 	, Command.PreCommit.cmd
+	, Command.PrePush.cmd
 	, Command.PostReceive.cmd
 	, Command.NumCopies.cmd
 	, Command.MinCopies.cmd

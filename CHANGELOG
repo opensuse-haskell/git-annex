@@ -1,9 +1,33 @@
-git-annex (10.20261021) UNRELEASED; urgency=medium
+git-annex (10.20261026) upstream; urgency=high
 
+  * This releases fixes a security hole that allowed private data 
+    exfiltration from special remotes. (CVE-2026-112818)
+    https://git-annex.branchable.com/security/cross_repository_data_exfiltration_via_special_remote/
+  * verifyremote: New command, used to verify the configuration of special
+    remotes is safe.
+  * enableremote: Display configuration and prompt for verifyremote to be
+    run. Until it is verified, the special remote cannot be used,
+    and git pushes to all remotes will be prevented.
+  * When a special remote has been autoenabled, allow it to be used without
+    verification, but prevent sending annexed files or git pushes to any
+    remote until it is verified.
+  * After upgrading git-annex, existing special remotes will continue to work
+    as before. If a special remote could have been configured by a third party,
+    you should verify its configuration using the `git-annex verifyremote`
+    command.
+  * Changes to special remote configuration received in the git-annex
+    branch no longer take effect until git-annex verifyremote is run to review
+    and verify the new configuration.
+  * init: When run in an already initialized repository, avoid 
+    autoenabling new special remotes, since files received from
+    them could leak out via other git-annex processes running in the
+    repository.
+  * init --autoenable: Refuse to perform probably unsafe action unless forced.
+  * Added remote.name.annex-verified git config.
   * git-annex.cabal: Added Memory build flag to support building with
     older versions of crypton that don't use ram.
 
- -- Joey Hess <id@joeyh.name>  Wed, 21 Oct 2026 10:38:20 -0400
+ -- Joey Hess <id@joeyh.name>  Fri, 23 Oct 2026 12:49:52 -0400
 
 git-annex (10.20261020) upstream; urgency=medium
 

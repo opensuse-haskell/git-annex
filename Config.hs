@@ -99,6 +99,12 @@ setRemotePrivate r b = setConfig (remoteAnnexConfig r "private") (Git.Config.boo
 setRemoteSkipFetchAll :: RemoteNameable r => r -> Bool -> Annex ()
 setRemoteSkipFetchAll r b = setConfig (remoteConfig r "skipFetchAll") (Git.Config.boolConfig b)
 
+setRemoteConfigVerification :: RemoteNameable r => r -> RemoteConfigVerification -> Annex ()
+setRemoteConfigVerification r = 
+	maybe (unsetConfig c) (setConfig c) . formatRemoteConfigVerification
+  where
+	c = remoteAnnexConfig r "verified"
+
 isBareRepo :: Annex Bool
 isBareRepo = fromRepo Git.repoIsLocalBare
 

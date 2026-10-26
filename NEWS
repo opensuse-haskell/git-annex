@@ -1,3 +1,16 @@
+git-annex (10.20261026) upstream; urgency=high
+
+  A security fix has changed git-annex's behavior in several ways when
+  enabling special remotes. The new git-annex verify command needs to be
+  used to verify that the configuration of a special remote is safe. 
+  git-annex will prompt in situations where that is needed.
+
+  Also, changes to a special remote configuration received in the git-annex
+  branch no longer take effect until git-annex verifyremote is run to review
+  and verify the new configuration.
+
+ -- Joey Hess <id@joeyh.name>  Fri, 16 Oct 2026 09:29:27 -0400
+
 git-annex (10.20230626) upstream; urgency=medium
 
   Many commands now quote filenames that contain unusual characters the

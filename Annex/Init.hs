@@ -165,6 +165,7 @@ initialize' startupannex mversion _initallowed = do
 	unlessM isBareRepo $ do
 		hookWrite postCheckoutHook
 		hookWrite postMergeHook
+	hookWrite prePushHook
 
 	AdjustedBranch.checkAdjustedClone >>= \case
 		AdjustedBranch.InAdjustedClone -> return ()
@@ -193,6 +194,7 @@ uninitialize = do
 	hookUnWrite postReceiveHook
 	hookUnWrite postCheckoutHook
 	hookUnWrite postMergeHook
+	hookUnWrite prePushHook
 	deconfigureSmudgeFilter
 	removeRepoUUID
 	removeVersion
@@ -538,7 +540,7 @@ autoEnableSpecialRemotes remotelist = do
 	_ <- remotelist
 	rp <- fromRepo Git.repoPath
 	withNullHandle $ \nullh -> gitAnnexChildProcess "init"
-		[ Param "--autoenable" ]
+		[ Param "--autoenable", Param "--force" ]
 		(\p -> p
 			{ std_out = UseHandle nullh
 			, std_err = UseHandle nullh

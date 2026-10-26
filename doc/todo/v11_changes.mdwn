@@ -30,3 +30,8 @@ version.
   some amount of time (eg 1 year) after v11.
 
 * Remove .git/annex/keysdb.cache, which is no longer used.
+
+* unverifiedRemoteAmelioration currently reads the verified remote log
+  each time git-annex starts. That could be sped up by making the upgrade
+  populate the log. Then unverifiedRemoteAmelioration would only need to
+  read it when there are remotes with `remote.<name>.annex-unverified` set.

@@ -1,0 +1,19 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 1"""
+ date="2026-10-09T15:23:02Z"
+ content="""
+The obvious fixes for this are to not autoenable anything,
+or to somehow prompt the user to verify autoenabled special
+remotes before use.
+
+I know that autoenabled special remotes are broadly used in the datalad
+community, and losing them would probably break a great many repository
+workflows.
+
+Prompting the user is difficult because autoenabling can happen on the
+first git-annex use, which could be expected to legitimately get files from
+the autoenabled special remote.
+
+I'm struggling to think of other ways to fix this though.
+"""]]

@@ -277,6 +277,12 @@ content from the key-value store.
   
   See [[git-annex-enableremote]](1) for details.
 
+* `verifyremote name`
+
+  Verify if a special remote is safe to use.
+  
+  See [[git-annex-verifyremote]](1) for details.
+
 * `configremote name [param=value ...]`
 
   Changes configuration of an existing special remote.
@@ -674,6 +680,13 @@ content from the key-value store.
   automatically creates a post-receive hook using this.
   
   See [[git-annex-post-receive]](1) for details.
+
+* `pre-push`
+
+  This is meant to be called from git's post-receive hook. `git annex init`
+  automatically creates a pre-push hook using this.
+  
+  See [[git-annex-pre-push]](1) for details.
 
 * `lookupkey [file ...]`
 
@@ -1909,6 +1922,17 @@ Remotes are configured using these settings in `.git/config`.
 
   Can be used to tell git-annex if a remote is a bare repository
   or not. Normally, git-annex determines this automatically.
+
+* `remote.<name>.annex-verified`
+
+  When a special remote has been verified by eg `git-annex verify`,
+  this is set to "verified".
+
+  When a special remote has been autoenabled, but not yet verified,
+  this is set to "automatic".
+
+  When a special remote has been enabled by `git-annex initremote`
+  but not yet verified, this config is set to "manual".
 
 * `remote.<name>.annex-availability`
 

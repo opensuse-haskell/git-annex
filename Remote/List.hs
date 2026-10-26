@@ -1,6 +1,6 @@
 {- git-annex remote list
  -
- - Copyright 2011-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2011-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -11,7 +11,8 @@ import qualified Data.Map as M
 
 import Annex.Common
 import qualified Annex
-import Logs.Remote
+import qualified Logs.Remote
+import Logs.VerifiedRemote
 import Types.Remote
 import Types.RemoteState
 import Annex.UUID
@@ -80,44 +81,102 @@ remoteList = do
 
 remoteList' :: Bool -> Annex [Remote]
 remoteList' autoinit = do
-	m <- remoteConfigMap
-	rs <- concat <$> mapM (process m) remoteTypes
+	m <- Logs.Remote.remoteConfigMap
+	l <- concat <$> mapM enumerate' remoteTypes
+
+	let usnames = map (\(u, g, gc, _) -> (u, gc, Git.remoteName g)) l
+	adjustremote <- mkadjustremote
+		<$> unverifiedRemoteAmelioration usnames m
+	
+	rs <- catMaybes <$> mapM (generate' adjustremote m) l
 	Annex.changeState $ \s -> s
 		{ Annex.remotes = rs
 		, Annex.remotetypes = remoteTypes
 		}
 	return rs
   where
-	process m t = enumerate t autoinit 
-		>>= mapM (remoteGen m t) 
-		>>= return . catMaybes
+	enumerate' t = do
+		gs <- enumerate t autoinit
+		forM gs $ \g -> do
+			u <- getRepoUUID g
+			gc <- Annex.getRemoteGitConfig g
+			return (u, g, gc, t)
+
+	generate' adjustremote m (u, g, gc, t) = 
+		remoteGen adjustremote m t g gc u
+	
+	mkadjustremote Nothing = adjustReadOnly
+	mkadjustremote (Just amelioration) = \r ->
+		case preventAnnexAccess amelioration (uuid r) of
+			Just msg -> preventaccess r msg
+			Nothing -> 
+				case preventAnnexWrite amelioration of
+					Just msg -> forceReadOnly msg r
+					Nothing -> adjustReadOnly r
+
+	preventaccess r msg = 
+		let ro = forceReadOnly msg r
+		in ro
+			{ retrieveKeyFile = giveup msg
+			, retrieveKeyFileCheap = Nothing
+			, lockContent = Nothing
+			, checkPresent = giveup msg
+			, exportActions = (exportActions ro)
+				{ retrieveExport = giveup msg
+				, checkPresentExport = giveup msg
+				}
+			, importActions =  (importActions ro)
+				{ listImportableContents = giveup msg
+				, importKey = giveup msg
+				, retrieveImport = giveup msg
+				, checkPresentImport = giveup msg
+				}
+			, exportImportActions = (exportImportActions ro)
+				{ listImportableOrExportedContents = giveup msg
+				, importKeyWithContentIdentifier = giveup msg
+				, retrieveExportWithContentIdentifier = giveup msg
+				, checkPresentExportWithContentIdentifier = giveup msg
+				}
+			, repairKey = Nothing
+			, claimUrl = Nothing
+			, checkUrl = Nothing
+			}
 
 {- Generates a Remote. -}
-remoteGen :: M.Map UUID RemoteConfig -> RemoteType -> Git.Repo -> Annex (Maybe Remote)
+remoteGen
+	:: (Remote -> Remote)
+	-> M.Map UUID RemoteConfig
+	-> RemoteType
+	-> Git.Repo
+	-> RemoteGitConfig
+	-> UUID
+	-> Annex (Maybe Remote)
 remoteGen = remoteGen' id
 
 remoteGen'
 	:: (RemoteConfig -> RemoteConfig)
+	-> (Remote -> Remote)
 	-> M.Map UUID RemoteConfig
 	-> RemoteType
 	-> Git.Repo
+	-> RemoteGitConfig
+	-> UUID
 	-> Annex (Maybe Remote)
-remoteGen' adjustconfig m t g = do
-	u <- getRepoUUID g
-	gc <- Annex.getRemoteGitConfig g
+remoteGen' adjustconfig adjustremote m t g gc u = do
 	let cu = fromMaybe u $ remoteAnnexConfigUUID gc
 	let rs = RemoteStateHandle cu
 	let c = adjustconfig (fromMaybe M.empty $ M.lookup cu m)
 	generate t g u c gc rs >>= \case
 		Nothing -> return Nothing
-		Just r -> Just <$> adjustExportImport (adjustReadOnly (addHooks r)) rs
+		Just r -> Just <$> adjustExportImport (adjustremote (addHooks r)) rs
 
 {- Updates a local git Remote, re-reading its git config. -}
 updateRemote :: Remote -> Annex (Maybe Remote)
 updateRemote remote = do
-	m <- remoteConfigMap
-	remote' <- updaterepo =<< getRepo remote
-	remoteGen m (remotetype remote) remote'
+	m <- Logs.Remote.remoteConfigMap
+	g <- updaterepo =<< getRepo remote
+	gc <- Annex.getRemoteGitConfig g
+	remoteGen adjustReadOnly m (remotetype remote) g gc (uuid remote)
   where
 	updaterepo r
 		| Git.repoIsLocal r || Git.repoIsLocalUnknown r =

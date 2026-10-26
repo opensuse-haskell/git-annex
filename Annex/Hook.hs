@@ -4,7 +4,7 @@
  - git-annex not change, otherwise removing old hooks using an old
  - version of the script would fail.
  -
- - Copyright 2013-2025 Joey Hess <id@joeyh.name>
+ - Copyright 2013-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -26,13 +26,26 @@ preCommitHook = Git.Hook (literalOsPath "pre-commit")
 
 postReceiveHook :: Git.Hook
 postReceiveHook = Git.Hook (literalOsPath "post-receive")
-	-- Only run git-annex post-receive when git-annex supports it,
-	-- to avoid failing if the repository with this hook is used
-	-- with an older version of git-annex.
-	(mkHookScript "if git annex post-receive --help >/dev/null 2>&1; then git annex post-receive; fi")
+	(mkHookScript (runHookCommandWhenSupported "post-receive"))
 	-- This is an old version of the hook script.
 	[ mkHookScript "git annex post-receive"
 	]
+
+-- Only run a git-annex hook command when git-annex supports it, to avoid
+-- failing if the repository with a hook is used with an older version of
+-- git-annex.
+runHookCommandWhenSupported :: String -> String
+runHookCommandWhenSupported command = concat
+	[ "if git annex "
+	, command
+	, " --help >/dev/null 2>&1; then git annex "
+	, command
+	, "; fi"
+	]
+
+prePushHook :: Git.Hook
+prePushHook = Git.Hook (literalOsPath "pre-push")
+	(mkHookScript (runHookCommandWhenSupported "pre-push")) []
 
 postCheckoutHook :: Git.Hook
 postCheckoutHook = Git.Hook (literalOsPath "post-checkout") smudgeHook []
@@ -80,16 +93,21 @@ hookWrite :: Git.Hook -> Annex ()
 hookWrite h = unlessM (inRepo $ Git.hookWrite h) $
 	hookWarning h "already exists, not configuring"
 
+tryHookWrite :: Git.Hook -> Annex (Either SomeException Bool)
+tryHookWrite h = tryNonAsync (inRepo $ Git.hookWrite h)
+
 hookUnWrite :: Git.Hook -> Annex ()
 hookUnWrite h = unlessM (inRepo $ Git.hookUnWrite h) $
 	hookWarning h "contents modified; not deleting. Edit it to remove call to git annex."
 
 hookWarning :: Git.Hook -> String -> Annex ()
-hookWarning h msg = do
+hookWarning h msg = warning . UnquotedString =<< hookMessage h msg
+
+hookMessage :: Git.Hook -> String -> Annex String
+hookMessage h msg = do
 	r <- gitRepo
-	warning $ UnquotedString $
-		fromOsPath (Git.hookName h) ++ 
-			" hook (" ++ fromOsPath (Git.hookFile h r) ++ ") " ++ msg
+	return $ fromOsPath (Git.hookName h) ++ 
+		" hook (" ++ fromOsPath (Git.hookFile h r) ++ ") " ++ msg
 
 {- To avoid checking if the hook exists every time, the existing hooks
  - are cached. -}
@@ -170,3 +188,11 @@ outputOfAnnexHook hook commandcfg = ifM (doesAnnexHookExist hook)
 		Nothing -> return Nothing
 		Just command -> liftIO $ 
 			Just <$> readProcess "sh" ["-c", command]
+
+enablePrePushHook :: Annex (Maybe String)
+enablePrePushHook = tryHookWrite prePushHook >>= \case
+	Right True -> return Nothing
+	Right False -> Just <$> hookMessage prePushHook
+		"is not configured by git-annex."
+	Left _ex -> Just <$> hookMessage prePushHook
+		"does not exist and unable to write it."

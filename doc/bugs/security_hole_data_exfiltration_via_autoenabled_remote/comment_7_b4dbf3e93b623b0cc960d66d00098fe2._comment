@@ -1,0 +1,34 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 7"""
+ date="2026-10-14T14:24:27Z"
+ content="""
+How to handle upgrades?
+
+The choices seem to be:
+
+1. Do nothing. All special remotes will be unverified, and so all pushes
+   will be prevented until the user verifies them.
+2. Register existing special remotes as verified automatically on upgrade. 
+   Recommend that the user check the special remotes that they have already
+   enabled, which they can do with `git-annex verifyremote`.
+
+The big problem with #1 is that people have automated systems that are
+working. If upgrading git-annex requires a manual step to keep them
+working, and missing that causes existing data flows stop happening,
+it's entirely possible that it will lead to data loss. This makes me
+deeply uncomfortable with #1. A fairly low impact security hole should
+not lead to a high risk of data loss.
+
+And if someone discovered this security hole already and has been
+exploiting it, then they will have probably already obtained all the
+annexed objects in the special remote. So #1 feels like locking the door
+after the cows are out.
+
+If someone learns about this security hole from the advisory and starts trying
+to exploit it, it will be down to a race between them and when git-annex gets
+upgraded. But, if a user has just enabled a special remote and then
+learns about this security hole, they have an obvious thing to check.
+
+So, I think #2 is the best choice.
+"""]]

@@ -7,10 +7,13 @@
 
 module Logs.Remote.Pure (
 	calcRemoteConfigMap,
+	calcRemoteConfigMapBase,
 	parseRemoteConfigLog,
 	buildRemoteConfigLog,
+	remoteConfigParser,
         keyValToConfig,
         configToKeyVal,
+	buildRemoteConfig,
         showConfig,
 
         prop_isomorphic_configEscape,
@@ -32,17 +35,22 @@ import Data.ByteString.Builder
 
 calcRemoteConfigMap :: L.ByteString -> M.Map UUID RemoteConfig
 calcRemoteConfigMap = (\m -> M.map (addSameasInherited m) m)
-	. simpleMap
-	. parseRemoteConfigLog
+	. calcRemoteConfigMapBase
+
+calcRemoteConfigMapBase :: L.ByteString -> M.Map UUID RemoteConfig
+calcRemoteConfigMapBase = simpleMap . parseRemoteConfigLog
 
 parseRemoteConfigLog :: L.ByteString -> Log RemoteConfig
 parseRemoteConfigLog = parseLogOld remoteConfigParser
 
 buildRemoteConfigLog :: Log RemoteConfig -> Builder
-buildRemoteConfigLog = buildLogOld (byteString . encodeBS . showConfig)
+buildRemoteConfigLog = buildLogOld buildRemoteConfig
 
 remoteConfigParser :: A.Parser RemoteConfig
 remoteConfigParser = keyValToConfig Accepted . words . decodeBS <$> A.takeByteString
+
+buildRemoteConfig :: RemoteConfig -> Builder
+buildRemoteConfig = byteString . encodeBS . showConfig
 
 showConfig :: RemoteConfig -> String
 showConfig = unwords . configToKeyVal

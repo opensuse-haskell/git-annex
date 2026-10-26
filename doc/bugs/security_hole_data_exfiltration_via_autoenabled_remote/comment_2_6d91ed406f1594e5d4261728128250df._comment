@@ -1,0 +1,34 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 2"""
+ date="2026-10-09T16:36:22Z"
+ content="""
+A way to fix this while keeping autoenable could be to make git-annex
+refuse to push annexed files to remotes by default after autoenabling a
+special remote. 
+
+The UI for this could look something like:
+
+	> git-annex sync
+	[...]
+	(autoenabling special remote "foo")
+	[...]
+	get somefile (from foo) ok
+	copy somefile (to origin)
+	git-annex: Error, sending files to all remotes is disabled because
+	the recently autoenabled special remote "foo" has not been verified
+	to be safe. Please run "git-annex verifyremote foo" to do that.
+	push origin ok
+
+	> git-annex verifyremote foo
+	This is an automatically enabled special remote, with
+	this configuration:
+		type=S3 bucket=foo
+	Is this remote repository one you expected to be using?
+	If so, run:  git-annex verifyremote foo --safe
+	If not, run: git-annex verifyremote foo --unsafe
+
+What should verifyremote --unsafe do? At that point files can
+have already been gotten from it. Deleting the whole local repository
+might be a good move. It would need to advise the user about what to do.
+"""]]

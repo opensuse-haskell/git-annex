@@ -1,15 +1,17 @@
 {- Adds readonly support to remotes.
  -
- - Copyright 2013-2019 Joey Hess <id@joeyh.name>
+ - Copyright 2013-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
 module Remote.Helper.ReadOnly
 	( adjustReadOnly
+	, forceReadOnly
 	, readonlyStoreKey
 	, readonlyStorer
 	, readonlyRemoveKey
+	, readonlyWarning
 	) where
 
 import Annex.Common
@@ -26,50 +28,60 @@ import Utility.Metered
  -}
 adjustReadOnly :: Remote -> Remote
 adjustReadOnly r
-	| remoteAnnexReadOnly (gitconfig r) = r
-		{ storeKey = readonlyStoreKey
-		, removeKey = readonlyRemoveKey
-		, repairRepo = Nothing
-		, exportActions = (exportActions r)
-			{ storeExport = readonlyStoreExport
-			, removeExport = readonlyRemoveExport
-			, removeExportDirectory = Just readonlyRemoveExportDirectory
-			, renameExport = Nothing
-			}
-		, exportImportActions = (exportImportActions r)
-			{ storeExportWithContentIdentifier = readonlyStoreExportWithContentIdentifier
-			, removeExportWithContentIdentifier = readonlyRemoveExportWithContentIdentifier
-			, removeExportDirectoryWhenEmpty = Just readonlyRemoveExportDirectory
-			}
-		}
+	| remoteAnnexReadOnly (gitconfig r) = makeReadOnly readonlyWarning r
 	| otherwise = r
 
-readonlyStoreKey :: Key -> AssociatedFile -> Maybe OsPath -> MeterUpdate -> Annex ()
-readonlyStoreKey _ _ _ _ = readonlyFail
+{- Force a remote that would not usually be read-only to be read-only,
+ - with a message explaining why. -}
+forceReadOnly :: String -> Remote -> Remote
+forceReadOnly msg r
+	| remoteAnnexReadOnly (gitconfig r) = makeReadOnly readonlyWarning r
+	| otherwise = makeReadOnly msg r
 
-readonlyRemoveKey :: Maybe SafeDropProof -> Key -> Annex ()
-readonlyRemoveKey _ _ = readonlyFail
+makeReadOnly :: String -> Remote -> Remote
+makeReadOnly msg r = r
+	{ storeKey = readonlyStoreKey msg
+	, removeKey = readonlyRemoveKey msg
+	, repairRepo = Nothing
+	, exportActions = (exportActions r)
+		{ storeExport = readonlyStoreExport msg
+		, removeExport = readonlyRemoveExport msg
+		, removeExportDirectory = Just (readonlyRemoveExportDirectory msg)
+		, renameExport = Nothing
+		}
+	, exportImportActions = (exportImportActions r)
+		{ storeExportWithContentIdentifier = readonlyStoreExportWithContentIdentifier msg
+		, removeExportWithContentIdentifier = readonlyRemoveExportWithContentIdentifier msg
+		, removeExportDirectoryWhenEmpty = Just (readonlyRemoveExportDirectory msg)
+		}
+	}
 
-readonlyStorer :: Storer
-readonlyStorer _ _ _ = readonlyFail
+readonlyStoreKey :: String -> Key -> AssociatedFile -> Maybe OsPath -> MeterUpdate -> Annex ()
+readonlyStoreKey msg _ _ _ _ = readonlyFail msg
 
-readonlyStoreExport :: OsPath -> Key -> ExportLocation -> MeterUpdate -> Annex ()
-readonlyStoreExport _ _ _ _ = readonlyFail
+readonlyRemoveKey :: String -> Maybe SafeDropProof -> Key -> Annex ()
+readonlyRemoveKey msg _ _ = readonlyFail msg
 
-readonlyRemoveExport :: Key -> ExportLocation -> Annex ()
-readonlyRemoveExport _ _ = readonlyFail
+readonlyStorer :: String -> Storer
+readonlyStorer msg _ _ _ = readonlyFail msg
 
-readonlyRemoveExportDirectory :: ExportDirectory -> Annex ()
-readonlyRemoveExportDirectory _ = readonlyFail
+readonlyStoreExport :: String -> OsPath -> Key -> ExportLocation -> MeterUpdate -> Annex ()
+readonlyStoreExport msg _ _ _ _ = readonlyFail msg
 
-readonlyStoreExportWithContentIdentifier :: OsPath -> Key -> ExportLocation -> [ContentIdentifier] -> MeterUpdate -> Annex ContentIdentifier
-readonlyStoreExportWithContentIdentifier _ _ _ _ _ = readonlyFail
+readonlyRemoveExport :: String -> Key -> ExportLocation -> Annex ()
+readonlyRemoveExport msg _ _ = readonlyFail msg
 
-readonlyRemoveExportWithContentIdentifier :: Key -> ExportLocation -> [ContentIdentifier] -> Annex ()
-readonlyRemoveExportWithContentIdentifier _ _ _ = readonlyFail
+readonlyRemoveExportDirectory :: String -> ExportDirectory -> Annex ()
+readonlyRemoveExportDirectory msg _ = readonlyFail msg
 
-readonlyFail :: Annex a
-readonlyFail = giveup readonlyWarning
+readonlyStoreExportWithContentIdentifier :: String -> OsPath -> Key -> ExportLocation -> [ContentIdentifier] -> MeterUpdate -> Annex ContentIdentifier
+readonlyStoreExportWithContentIdentifier msg _ _ _ _ _ = readonlyFail msg
+
+readonlyRemoveExportWithContentIdentifier :: String -> Key -> ExportLocation -> [ContentIdentifier] -> Annex ()
+readonlyRemoveExportWithContentIdentifier msg _ _ _ = readonlyFail msg
+
+readonlyFail :: String -> Annex a
+readonlyFail = giveup
 
 readonlyWarning :: String
 readonlyWarning = "this remote is readonly"

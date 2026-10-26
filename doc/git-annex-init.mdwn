@@ -21,8 +21,10 @@ this will also attempt to enable them. See [[git-annex-initremote]](1).
 To prevent that, re-enable a remote with "autoenable=false", or
 mark it as dead (see [[git-annex-dead]](1)).
 
-This command is entirely safe, although usually pointless, to run inside an
-already initialized git-annex repository.
+This command is entirely safe, although usually pointless, to run
+inside an already initialized git-annex repository. It avoids overwriting
+things like the uuid of the repository. It also avoids autoenabling any
+more special remotes, since it is not safe to do so.
   
 A top-level `.noannex` file will prevent git-annex init from being used
 in a repository. This is useful for repositories that have a policy

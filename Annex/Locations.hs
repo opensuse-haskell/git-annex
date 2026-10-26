@@ -61,6 +61,10 @@ module Annex.Locations (
 	gitAnnexRestageLog,
 	gitAnnexRestageLogOld,
 	gitAnnexRestageLock,
+	gitAnnexVerifiedRemoteLog,
+	gitAnnexVerifiedRemoteLock,
+	gitAnnexVerifyingRemoteLog,
+	gitAnnexVerifyingRemoteLock,
 	gitAnnexAdjustedBranchUpdateLog,
 	gitAnnexAdjustedBranchUpdateLock,
 	gitAnnexMigrateLog,
@@ -486,6 +490,23 @@ gitAnnexRestageLogOld r = gitAnnexDir r </> literalOsPath "restage.old"
 
 gitAnnexRestageLock :: Git.Repo -> OsPath
 gitAnnexRestageLock r = gitAnnexDir r </> literalOsPath "restage.lck"
+
+{- .git/annex/verified-remote.log is used to store the verified configs
+ - of remotes. The git-annex branch remote.log may have newer versions,
+ - which will not be used until after they have been verified. -}
+gitAnnexVerifiedRemoteLog :: Git.Repo -> OsPath
+gitAnnexVerifiedRemoteLog r = gitAnnexDir r </> literalOsPath "verified-remote.log"
+
+gitAnnexVerifiedRemoteLock :: Git.Repo -> OsPath
+gitAnnexVerifiedRemoteLock r = gitAnnexDir r </> literalOsPath "verified-remote.lck"
+
+{- git/annex/verifying-remote.log is used by git-annex verify to record
+ - the config that a user is in the process of verifying. -}
+gitAnnexVerifyingRemoteLog :: Git.Repo -> OsPath
+gitAnnexVerifyingRemoteLog r = gitAnnexDir r </> literalOsPath "verifying-remote.log"
+
+gitAnnexVerifyingRemoteLock :: Git.Repo -> OsPath
+gitAnnexVerifyingRemoteLock r = gitAnnexDir r </> literalOsPath "verifying-remote.lck"
 
 {- .git/annex/adjust.log is used to log when the adjusted branch needs to
  - be updated. -}

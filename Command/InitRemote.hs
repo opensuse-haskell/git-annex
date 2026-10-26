@@ -16,7 +16,8 @@ import qualified Types.Remote as R
 import Types.RemoteConfig
 import Annex.UUID
 import Logs.UUID
-import Logs.Remote
+import qualified Logs.Remote
+import qualified Logs.VerifiedRemote
 import Types.GitConfig
 import Types.ProposedAccepted
 import Config
@@ -96,7 +97,7 @@ start o (name:ws) = do
 			(sameas o) 
 		c <- newConfig name sameasuuid
 			(Logs.Remote.keyValToConfig Proposed ws)
-			<$> remoteConfigMap
+			<$> Logs.Remote.remoteConfigMap
 		t <- either giveup return (findType c)
 		a c t
 	
@@ -129,10 +130,13 @@ cleanup t u name c o = do
 			describeUUID u (toUUIDDesc name)
 			propigateInitGitConfigs u
 			Logs.Remote.configSet u c
+			Logs.VerifiedRemote.configSet u c
 		Just _ -> do
 			cu <- liftIO genUUID
 			setRemoteConfigUUID c cu
 			Logs.Remote.configSet cu c
+			Logs.VerifiedRemote.configSet cu c
+	setRemoteConfigVerification name RemoteConfigVerified
 	when (withUrl o) $
 		setAnnexUrl c
 	unless (Remote.gitSyncableRemoteType t || withUrl o) $

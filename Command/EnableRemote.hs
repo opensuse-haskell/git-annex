@@ -1,6 +1,6 @@
 {- git-annex command
  -
- - Copyright 2013-2024 Joey Hess <id@joeyh.name>
+ - Copyright 2013-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -12,6 +12,7 @@ module Command.EnableRemote where
 import Command
 import qualified Annex
 import qualified Logs.Remote
+import qualified Logs.VerifiedRemote
 import qualified Types.Remote as R
 import qualified Git
 import qualified Annex.SpecialRemote as SpecialRemote
@@ -20,10 +21,13 @@ import qualified Remote.Git
 import qualified Command.InitRemote
 import Logs.UUID
 import Annex.UUID
+import Annex.Hook
 import Config
 import Config.DynamicConfig
 import Types.GitConfig
+import Types.RemoteConfig
 import Types.ProposedAccepted
+import Command.VerifyRemote (remoteVerificationMessage)
 
 import qualified Data.Map as M
 
@@ -116,23 +120,35 @@ startSpecialRemote' _ _ _ _ _ =
 
 performSpecialRemote :: EnableRemoteOptions -> PerformSpecialRemote
 performSpecialRemote o t u name oldc c gc mcu = do
-	-- Avoid enabling a special remote if there is another remote
-	-- with the same name.
 	rs <- Remote.remoteList
-	case filter (\rmt -> Remote.name rmt == name) rs of
-		(rmt:_) | Remote.uuid rmt /= u ->
-			giveup $ "Not overwriting currently configured git remote named \"" ++ name ++ "\""
-		_ -> noop
+	prevrmt <- case filter (\rmt -> Remote.name rmt == name) rs of
+		(rmt:_) -> return (Just rmt)
+		_ -> return Nothing
+	unless (maybe u Remote.uuid prevrmt == u) $
+		giveup $ "Not overwriting currently configured git remote named \"" ++ name ++ "\""
+	enablePrePushHook >>= \case
+		Nothing -> noop
+		Just msg -> giveup $ "Cannot enable this special remote because " ++ msg
+	let reenabling = isJust prevrmt
 	(c', u') <- R.setup t (R.Enable oldc) (Just u) name Nothing c gc
-	next $ cleanupSpecialRemote o t u' c' mcu
+	next $ cleanupSpecialRemote o t u' c' mcu reenabling name
 
-cleanupSpecialRemote :: EnableRemoteOptions -> RemoteType -> UUID -> R.RemoteConfig -> Maybe (SpecialRemote.ConfigFrom UUID) -> CommandCleanup
-cleanupSpecialRemote o t u c mcu = do
-	case mcu of
-		Nothing -> Logs.Remote.configSet u c
+cleanupSpecialRemote :: EnableRemoteOptions -> RemoteType -> UUID -> R.RemoteConfig -> Maybe (SpecialRemote.ConfigFrom UUID) -> Bool -> RemoteName -> CommandCleanup
+cleanupSpecialRemote o t u c mcu reenabling name = do
+	cu <- case mcu of
+		Nothing -> do
+			Logs.Remote.configSet u c
+			return u
 		Just (SpecialRemote.ConfigFrom cu) -> do
 			setRemoteConfigUUID c cu
 			Logs.Remote.configSet cu c
+			return cu
+	if reenabling
+		then Logs.VerifiedRemote.configUpdate cu c
+		else setRemoteConfigVerification name RemoteConfigUnverifiedManualEnabled
+	remoteVerificationMessage name cu c >>= \case
+		Just msg -> showLongNote (UnquotedString msg)
+		Nothing -> noop
 	Remote.byUUID u >>= \case
 		Nothing -> noop
 		Just r -> do

@@ -208,6 +208,7 @@ data AnnexState = AnnexState
 	, preferredcontentmap :: Maybe (FileMatcherMap Annex)
 	, requiredcontentmap :: Maybe (FileMatcherMap Annex)
 	, remoteconfigmap :: Maybe (M.Map UUID RemoteConfig)
+	, verifiedremoteconfigmap :: Maybe (Maybe (M.Map UUID RemoteConfig))
 	, clusters :: Maybe (Annex Clusters)
 	, maxsizes :: Maybe (M.Map UUID MaxSize)
 	, forcetrust :: TrustMap
@@ -268,6 +269,7 @@ newAnnexState c r = do
 		, preferredcontentmap = Nothing
 		, requiredcontentmap = Nothing
 		, remoteconfigmap = Nothing
+		, verifiedremoteconfigmap = Nothing
 		, clusters = Nothing
 		, maxsizes = Nothing
 		, forcetrust = M.empty

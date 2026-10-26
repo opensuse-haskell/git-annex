@@ -99,9 +99,9 @@ gen rt externalprogram r u rc gc rs
 			exportUnsupported
 			importUnsupported
 		return $ Just $ specialRemote c
-			readonlyStorer
+			(readonlyStorer readonlyWarning)
 			(retrieveUrlReadOnly gc)
-			readonlyRemoveKey
+			(readonlyRemoveKey readonlyWarning)
 			(checkKeyUrlReadOnly gc)
 			rmt
 	| otherwise = do
