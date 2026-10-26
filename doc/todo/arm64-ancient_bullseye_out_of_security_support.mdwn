@@ -18,4 +18,8 @@ worth doing a build just for old android phones any longer. --[[Joey]]
 
 > > > I made a `remove-arm64ancient` branch for this. Waiting to merge it
 > > > until after one last security update release with the ca-certificates.
+> > > 
+> > > Update: And with that out of the way, I think waiting 1 more release
+> > > makes sense, so documented that it is end of life but didn't remove
+> > > yet.
 > > > --[[Joey]]
