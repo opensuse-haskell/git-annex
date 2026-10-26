@@ -142,15 +142,6 @@ including `tls`.
 
 git-annex supports being built with older versions.
 
-tls is used by http-client-tls and warp-tls, both of which git-annex
-depends on. It would be possible to switch to http-client-openssl
-and warp-s2n-tls to avoid tls as well as crypton. Note that openssl
-itself contains LLM generated code, as does warp-s2n-tls.
-This still may be worth doing though, to get away from crypton.
-
-But aws and DAV also use http-client-tls, so that wouldn't get away from it
-entirely.
-
 ### Cabal
 
 [First LLM generated code](https://github.com/haskell/cabal/commit/da8b314563feb15a3df7bc1baeef4b7aa08f7578)
