@@ -28,6 +28,11 @@ Note that if a security hole is only fixed by a newer version of a
 dependency, the `NoLLMDependencies` build flag will still build with the
 older, insecure version.
 
+As the review has progressed, it has became clear that LLM generated code
+in dependencies also needs to be viewed as a potential supply chain attack.
+While the risk varies, review has found some very serious problems,
+including a confirmed license violation, and security risks.
+
 Additional work needs to be done on an ongoing basis to review
 git-annex's dependencies to detect the addition of LLM generated code.
 
