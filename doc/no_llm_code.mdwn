@@ -52,18 +52,15 @@ guaranteed to never change to depend on LLM generated code, because cutting
 it off from all future Haskell language improvements may be worse than the
 alternative.
 
-### ram and its reverse dependencies
+### ram
 
 [ram](https://hackage.haskell.org/package/ram) since 0.21.0.
-  
+
 Note particularly [large LLM generated code churn](https://github.com/jappeace/ram/commit/3a0c034648f1cb7e60e96a681fd74066ff5944fe)
 with apparently broken (how?) changes in 0.21.0 being reverted in
 0.21.1.
 
-Rather than use ram, git-annex continues to use the unmaintained
-[memory](//hackage.haskell.org/package/memory) that ram was forked from.
-
-But ram is an dependency of other dependencies, and these in particular
+ram is an dependency of other dependencies, and these in particular
 depend on 0.21.0 or newer:
 
 * tls since 2.3.1
@@ -131,7 +128,8 @@ implementations of crypto functions in haskell. This is no longer
 that, and as such, does not seem like a trustworthly package to use.
 
 git-annex supports being built with older versions. The botan build flag
-makes git-annex use botan rather than crypton.
+makes git-annex use botan rather than crypton for hashing (except for skein
+and blake2 hashes).
 
 Unfortunately, crypton is a dependency of several other packages,
 including `tls`. 

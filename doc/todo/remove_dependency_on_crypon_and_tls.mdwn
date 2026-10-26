@@ -1,0 +1,37 @@
+The current developer (not the original author) of crypton and tls
+[states](https://kazu-yamamoto.hatenablog.jp/entry/2026/09/25/110313)
+that "I am not a cryptography expert, so I cannot write code that is
+both correct and performant." This begs the question: Does anyone
+understand and has anyone reviewed the LLM generated code that they are
+pouring into these libraries?
+
+The point of cryptonite was to package up industry standard C
+implementations of crypto functions in haskell. This is no longer
+that, and as such, does not seem like a trustworthly package to use.
+
+The point of the tls library is well, to be secure. It seems doubtful that
+the haskell tls library is better than standard tls libraries like openssl
+at this point in time.
+
+I have lost confidence in the maintenance of these, and would like
+git-annex to migrate away from depending on them. --[[Joey]] 
+
+This is separate, though obviously not entirely disconnected from
+[[/no_LLM_code]].
+
+-----
+
+Here is a plan:
+
+* Switch git-annex to botan for hash functions. There is already a build
+  flag, but it would be easier if botan bundled the C library in the
+  haskell package. Which they have considered doing.
+* botan lacks skein and blake2, so would need to get those hashes another
+  way
+* Switch from http-client-tls to http-client-openssl.
+* Switch from warp-tls to warp-s2n-tls? Alternatively, warp-tls is only used by
+  the webapp and p2phttp; the webapp is mostly used on localhost and
+  p2phttp is often used behind a server (eg forgejo) that can handle the
+  https if it only supported http.
+* Make aws somehow able to use http-client-openssl (eg, by parameterizing it)
+* Make DAV somehow able to use http-client-openssl (eg, by parameterizing it)
