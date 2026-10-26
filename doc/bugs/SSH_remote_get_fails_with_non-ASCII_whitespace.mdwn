@@ -1,0 +1,71 @@
+### Please describe the problem in your own words.
+
+Trying to "git annex get" from a SSH remote can fail when filenames contain some Unicode characters such as U+3000 IDEOGRAPHIC SPACE, which is the default whitespace character when inputting Japanese text.
+
+### What steps will reproduce the problem?
+
+```
+export GIT_AUTHOR_EMAIL=test@example.com GIT_COMMITTER_EMAIL=test@example.com
+git init a; cd a; git annex init
+echo x > 'foo　bar'   # U+3000 between foo and bar
+git annex add; git commit -m add; cd ..
+git clone ssh://localhost$PWD/a b; cd b; git annex init
+git annex get .
+```
+
+The last command will fail with
+
+```
+get "foo\343\200\200bar" (from origin...)
+
+  Transfer failed
+
+  Unable to access these remotes: origin
+
+  No other repository is known to contain the file.
+failed
+get: 1 failed
+```
+
+### What version of git-annex are you using? On what operating system?
+
+git-annex version: 10.20260421 on NixOS/Linux.
+
+### Please provide any additional information below.
+
+Claude produced this patch, which I don't understand, but when running "git annex get" with this patch succeeds, so maybe it is useful.
+
+```patch
+--- a/P2P/Protocol.hs	2026-10-26 12:16:18.311257773 +0100
++++ b/P2P/Protocol.hs	2026-10-26 12:16:29.446642504 +0100
+@@ -221,14 +221,17 @@
+ -- unlikely to care about spaces vs tabs or control characters.
+ instance Proto.Serializable ProtoAssociatedFile where
+ 	serialize (ProtoAssociatedFile (AssociatedFile Nothing)) = ""
+-	serialize (ProtoAssociatedFile (AssociatedFile (Just af))) = 
+-		fromOsPath $ toInternalGitPath $
+-			OS.concat $ map esc $ OS.unpack af
++	serialize (ProtoAssociatedFile (AssociatedFile (Just af))) =
++		-- Escape after decoding to unicode, not per byte. The peer
++		-- splits the line with a unicode isSpace, so multibyte
++		-- whitespace (eg U+3000) must be escaped, while utf-8
++		-- continuation bytes (eg 0xA0, 0x85) must not be.
++		concatMap esc (fromOsPath (toInternalGitPath af) :: String)
+ 	  where
+-	  	esc c = case OS.toChar c of
+-			'%' -> literalOsPath "%%"
+-			c' | isSpace c' -> literalOsPath "%"
+-			_ -> OS.singleton c
++	  	esc '%' = "%%"
++		esc c
++			| isSpace c = "%"
++			| otherwise = [c]
+ 	
+ 	deserialize s = case fromInternalGitPath $ toOsPath $ deesc [] s of
+ 		f
+```
+
+### Have you had any luck using git-annex before? (Sometimes we get tired of reading bug reports all day and a lil' positive end note does wonders)
+
+I've spend the last few days migrating *everything* to git annex, it's wonderful!
+
