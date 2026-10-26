@@ -1,0 +1,139 @@
+### Please describe the problem in your own words.
+
+In a `sizebalanced` group, `git annex sync --content --rebalance` does not
+stop at an even split. It keeps moving files off the fullest repository
+until that repository is almost empty, and the next run moves nearly
+everything back.
+
+
+### What steps will reproduce the problem?
+
+Two repos in group `bal`, 20 files of 1 MB, all starting in `a`:
+
+[[!format sh """
+#!/bin/sh
+set -e
+git init -q a && cd a && git annex init -q a
+for i in $(seq -w 1 20); do head -c 1000000 /dev/urandom > f$i; done
+git annex add -q . && git commit -qm add
+cd .. && git clone -q a b && (cd b && git annex init -q b)
+cd a
+git remote add b ../b
+for r in here b; do
+	git annex group $r bal
+	git annex wanted $r groupwanted
+	git annex maxsize $r 100MB
+done
+git annex groupwanted bal sizebalanced=bal
+git annex sync --content --rebalance
+echo "files in a: $(git annex find --in here | wc -l), in b: $(git annex find --in b | wc -l)"
+"""]]
+
+Output ends with `files in a: 0, in b: 20`. Expected about 10 in each.
+
+
+### What version of git-annex are you using? On what operating system?
+
+git-annex 10.20261020 (Arch Linux package 10.20261020-2), Linux 7.2.9.
+
+### Please provide any additional information below.
+
+[[!format sh """
+# If you can, paste a complete transcript of the problem occurring here.
+# If the problem is with the git-annex assistant, paste in .git/annex/daemon.log
+
+# Output of the script above:
+$ sh repro.sh
+group here ok
+(recording state in git...)
+wanted here ok
+(recording state in git...)
+maxsize here ok
+(recording state in git...)
+group b ok
+(recording state in git...)
+wanted b ok
+(recording state in git...)
+maxsize b ok
+(recording state in git...)
+groupwanted bal ok
+(recording state in git...)
+commit
+On branch master
+nothing to commit, working tree clean
+ok
+pull b
+From ../b
+ * [new branch]      git-annex  -> b/git-annex
+ * [new branch]      master     -> b/master
+ok
+(merging b/git-annex into git-annex...)
+(recording state in git...)
+(calculating repository sizes...)
+put f01 (to b...) ok
+drop f01 ok
+put f02 (to b...) ok
+drop f02 ok
+put f03 (to b...) ok
+drop f03 ok
+put f04 (to b...) ok
+drop f04 ok
+put f05 (to b...) ok
+drop f05 ok
+put f06 (to b...) ok
+drop f06 ok
+put f07 (to b...) ok
+drop f07 ok
+put f08 (to b...) ok
+drop f08 ok
+put f09 (to b...) ok
+drop f09 ok
+put f10 (to b...) ok
+drop f10 ok
+put f11 (to b...) ok
+drop f11 ok
+put f12 (to b...) ok
+drop f12 ok
+put f13 (to b...) ok
+drop f13 ok
+put f14 (to b...) ok
+drop f14 ok
+put f15 (to b...) ok
+drop f15 ok
+put f16 (to b...) ok
+drop f16 ok
+put f17 (to b...) ok
+drop f17 ok
+put f18 (to b...) ok
+drop f18 ok
+put f19 (to b...) ok
+drop f19 ok
+put f20 (to b...) ok
+drop f20 ok
+pull b
+ok
+(recording state in git...)
+push b
+Everything up-to-date
+remote: (merging synced/git-annex into git-annex...)
+remote: (recording state in git...)
+To ../b
+ * [new branch]      git-annex -> synced/git-annex
+ok
+files in a: 0, in b: 20
+
+# End of transcript or log.
+"""]]
+
+I hit this with five USB drives in a sizebalanced group.
+
+
+### Have you had any luck using git-annex before? (Sometimes we get tired of reading bug reports all day and a lil' positive end note does wonders)
+
+Yes, it manages a few TB across six drives here. I like that I can see all my
+files on my computer without having all the external drives attached, or having
+to remember which drive a file is on. I also like that it takes care of my
+backups at the same time, with the numcopies setting. Lately I've been testing
+the new balanced preferred content on my USB drives, which is how I found this.
+
+
