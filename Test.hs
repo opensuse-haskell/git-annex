@@ -1,11 +1,12 @@
 {- git-annex test suite
  -
- - Copyright 2010-2024 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE CPP #-}
 
 module Test where
@@ -27,6 +28,7 @@ import Control.Concurrent.STM hiding (check)
 import qualified Utility.RawFilePath as R
 import qualified Data.List.NonEmpty as NE
 import Data.String
+import System.OsString (osstr)
 
 import Common
 import CmdLine.GitAnnex.Options
@@ -564,16 +566,24 @@ test_magic = intmpclonerepo $ do
 #ifdef WITH_MAGICMIME
 	git "config" ["annex.largefiles", "mimeencoding=binary"]
 		"git config annex.largefiles"
-	writeFileString (literalOsPath "binary") "\127"
+	writeFileString (literalOsPath "binary") binarycontent
 	writeFileString (literalOsPath "text") "test\n" 
-	git_annex "add" ["binary", "text"]
+	writeFileString unicodefn binarycontent
+	git_annex "add" []
 		"git-annex add with mimeencoding in largefiles"
 	git_annex "sync" ["--no-content"]
 		"git-annex sync"
-	(isJust <$> annexeval (Annex.CatFile.catKeyFile (literalOsPath "binary")))
+	addedannex (literalOsPath "binary")
 		@? "binary file not added to annex despite mimeencoding config"
-	(isNothing <$> annexeval (Annex.CatFile.catKeyFile (literalOsPath "text")))
+	(not <$> addedannex (literalOsPath "text"))
 		@? "non-binary file got added to annex despite mimeencoding config"
+	addedannex unicodefn
+		@? "binary file with unicode name not added to annex despite mimeencoding config"
+  where
+	binarycontent = "\127"
+	-- quasiquoted because fromString for OsString mangles unicode
+	unicodefn = [osstr|fo¡oüঊ|]
+	addedannex f = isJust <$> annexeval (Annex.CatFile.catKeyFile f)
 #else
 	return ()
 #endif
