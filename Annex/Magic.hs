@@ -22,12 +22,14 @@ module Annex.Magic (
 import Common
 import Types.Mime
 import Control.Monad.IO.Class
+import Data.Char
+import qualified Data.ByteString as B
 #ifdef WITH_MAGICMIME
 import Magic
-import Utility.Env
-import Data.Char
 import qualified Data.List.NonEmpty as NE
-import qualified Data.ByteString as B
+import GHC.IO.Handle.FD (handleToFd)
+import Utility.Env
+import qualified Utility.FileIO as F
 #else
 type Magic = ()
 #endif
@@ -49,7 +51,12 @@ initMagicMime = return Nothing
 
 getMagicMime :: Magic -> OsPath -> IO (Maybe (MimeType, MimeEncoding))
 #ifdef WITH_MAGICMIME
-getMagicMime m f = Just . parseMagicMime <$> magicFile m f
+getMagicMime m f =
+	-- Open the file rather than passing it to magicFile to avoid
+	-- issues with filename encoding on Windows.
+	F.withFile f ReadMode $ \h -> do
+		fd <- handleToFd h
+		Just . parseMagicMime <$> magicFD m fd
 #else
 getMagicMime _ _ = return Nothing
 #endif
