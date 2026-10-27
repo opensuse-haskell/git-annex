@@ -1,0 +1,19 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 4"""
+ date="2026-10-27T14:33:54Z"
+ content="""
+The git-annex test suite got a test for this in 
+[[!commit 7fe5823d1747f7c2c1315dcc358cc600b096d58e]] and indeed it fails on
+windows. It also fails on linux with LANG=C.
+
+I think that the haskell magic package (pre 2.0.0) is not applying the
+filesystem encoding to the FilePath when passing it to the FFI, since
+it uses `withCString`. (I have my doubts about version 2.0.0 of that
+package, which has some very dodgy LLM generated code around filesystem
+encodings. I have not tested it.)
+
+git-annex has now switched to the haskell libmagic package. That fixes
+the problem on linux with LANG=C. The problem still exists on windows
+though. I think it needs fixing in libmagic probably.
+"""]]
