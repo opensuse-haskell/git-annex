@@ -5,3 +5,6 @@ through git-annex to C libmagic correctly. Particularly on Windows
 with filenames that end up containing wide characters.
 There is some possibility of new problems, due to the change to OsPath.
 Seems low, but not tested yet. --[[Joey]]
+
+> Update: Added the test case, waiting to see if it works on windows with
+> magic before switching over. --[[Joey]]
