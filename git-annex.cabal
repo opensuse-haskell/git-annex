@@ -550,7 +550,7 @@ Executable git-annex
     CPP-Options: -DWITH_TORRENTPARSER
 
   if flag(MagicMime)
-    Build-Depends: libmagic (>= 1.3)
+    Build-Depends: libmagic (>= 1.3.1)
     CPP-Options: -DWITH_MAGICMIME
 
   if flag(Benchmark)
