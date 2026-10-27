@@ -1,0 +1,10 @@
+The `libmagic` branch switches to a fork of the magic library.
+
+Before merging it, need a test case that filenames travel end to end
+through git-annex to C libmagic correctly. Particularly on Windows
+with filenames that end up containing wide characters.
+There is some possibility of new problems, due to the change to OsPath.
+Seems low, but not tested yet. 
+
+> Update: Added the test case, waiting to see if it works on windows with
+> magic before switching over. --[[Joey]]
