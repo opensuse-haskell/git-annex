@@ -8,3 +8,7 @@ Seems low, but not tested yet. --[[Joey]]
 
 > Update: Added the test case, waiting to see if it works on windows with
 > magic before switching over. --[[Joey]]
+
+> > Update: The test case fails on windows with magic. Merged libmagic,
+> > will see if that fixes it on windows. In any case, libmagic can't make 
+> > the situation worse. --[[Joey]]
