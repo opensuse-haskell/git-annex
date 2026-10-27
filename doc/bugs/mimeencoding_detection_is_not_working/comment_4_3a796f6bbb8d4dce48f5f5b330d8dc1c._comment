@@ -14,6 +14,14 @@ package, which has some very dodgy LLM generated code around filesystem
 encodings. I have not tested it.)
 
 git-annex has now switched to the haskell libmagic package. That fixes
-the problem on linux with LANG=C. The problem still exists on windows
-though. I think it needs fixing in libmagic probably.
+the problem on linux with LANG=C. 
+
+The problem still exists on windows though. I think it needs fixing in
+libmagic probably. Also libmagic caused a reversion, even plain ascii
+filenames now don't get handled right on windows. The test suite catches
+that too:
+
+	 magic:                              FAIL (10.51s)
+	      Test.hs:577:
+	      binary file not added to annex despite mimeencoding config
 """]]
