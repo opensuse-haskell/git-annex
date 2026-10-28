@@ -77,7 +77,6 @@ Build-Depends:
 	libghc-unbounded-delays-dev,
 	libghc-disk-free-space-dev,
 	libghc-mountpoints-dev,
-	libghc-libmagic-dev,
 	libghc-socks-dev,
 	libghc-vector-dev,
 	libghc-unliftio-core-dev,
@@ -89,6 +88,8 @@ Build-Depends:
 	libghc-servant-server-dev,
 	libghc-servant-client-dev,
 	libghc-servant-client-core-dev,
+# not yet in Debian
+#	libghc-libmagic-dev,
 	lsof [linux-any],
 	ikiwiki,
 	libimage-magick-perl,
