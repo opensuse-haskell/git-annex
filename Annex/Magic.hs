@@ -1,6 +1,6 @@
 {- Interface to libmagic
  -
- - Copyright 2019-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2019-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -13,8 +13,10 @@ module Annex.Magic (
 	MimeType,
 	MimeEncoding,
 	initMagicMime,
+	getMagicMime,
 	getMagicMimeType,
 	getMagicMimeEncoding,
+	parseMagicMime,
 ) where
 
 import Common
@@ -23,8 +25,9 @@ import Control.Monad.IO.Class
 #ifdef WITH_MAGICMIME
 import Magic
 import Utility.Env
-import Control.Concurrent
-import System.IO.Unsafe (unsafePerformIO)
+import Data.Char
+import qualified Data.List.NonEmpty as NE
+import qualified Data.ByteString as B
 #else
 type Magic = ()
 #endif
@@ -35,7 +38,7 @@ initMagicMime = catchMaybeIO $ do
 	m <- magicOpen [MagicMime]
 	liftIO $ getEnv "GIT_ANNEX_DIR" >>= \case
 		Nothing -> magicLoadDefault m
-		Just d -> magicLoad m $ fromOsPath $
+		Just d -> magicLoad m $ NE.singleton $
 			toOsPath d
 				</> literalOsPath "magic"
 				</> literalOsPath "magic.mgc"
@@ -46,32 +49,20 @@ initMagicMime = return Nothing
 
 getMagicMime :: Magic -> OsPath -> IO (Maybe (MimeType, MimeEncoding))
 #ifdef WITH_MAGICMIME
-getMagicMime m f = Just . parse <$> magicConcurrentSafe (magicFile m (fromOsPath f))
-  where
-	parse s = 
-		let (mimetype, rest) = separate (== ';') s
-		in case rest of
-			(' ':'c':'h':'a':'r':'s':'e':'t':'=':mimeencoding) -> 
-				(mimetype, mimeencoding)
-			_ -> (mimetype, "")
+getMagicMime m f = Just . parseMagicMime <$> magicFile m f
 #else
 getMagicMime _ _ = return Nothing
 #endif
+
+parseMagicMime :: B.ByteString -> (MimeType, MimeEncoding)
+parseMagicMime b = (decodeBS mimetype, decodeBS mimeencoding)
+  where
+	(mimetype, rest) = B.break (== semicolon) b
+	mimeencoding = fromMaybe mempty (B.stripPrefix "; charset=" rest)
+	semicolon = fromIntegral (ord ';')
 
 getMagicMimeType :: MonadIO m => Magic -> OsPath -> m (Maybe MimeType)
 getMagicMimeType m f = liftIO $ fmap fst <$> getMagicMime m f
 
 getMagicMimeEncoding :: MonadIO m => Magic -> OsPath -> m(Maybe MimeEncoding)
 getMagicMimeEncoding m f = liftIO $ fmap snd <$> getMagicMime m f
-
-#ifdef WITH_MAGICMIME
-{-# NOINLINE mutex #-}
-mutex :: MVar ()
-mutex = unsafePerformIO $ newMVar ()
-
--- Work around a bug, the library is not concurrency safe and will
--- sometimes access the wrong memory if multiple ones are called at the
--- same time.
-magicConcurrentSafe :: IO a -> IO a
-magicConcurrentSafe = bracket_ (takeMVar mutex) (putMVar mutex ())
-#endif
