@@ -1,6 +1,6 @@
 {- Bundled programs
  -
- - Copyright 2013 Joey Hess <id@joeyh.name>
+ - Copyright 2013-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -92,4 +92,11 @@ magicShare :: [FilePath]
 magicShare = ["magic.mgc"]
 #else
 magicShare = []
+#endif
+
+botanDLL :: FilePath
+#ifdef mingw32_HOST_OS
+botanDLL = ["libbotan-3.dll"]
+#else
+botanDLL = []
 #endif
