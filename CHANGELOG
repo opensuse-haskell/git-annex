@@ -3,7 +3,6 @@ git-annex (10.20261027) UNRELEASED; urgency=medium
   * The Linux arm64-ancient build has reached end of security support 
     and will be removed after this release. Android users are recommended
     to switch to running `pkg install git-annex` inside termux.
-  * git-annex.cabal: Switch from magic to libmagic.
 
  -- Joey Hess <id@joeyh.name>  Mon, 26 Oct 2026 18:34:32 -0400
 
