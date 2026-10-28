@@ -1,0 +1,64 @@
+### Please describe the problem in your own words.
+
+Currently the command `git annex info` fails   when run inside a submodule that is checked out in a linked Git worktree. The error it provides is:
+
+`changeWorkingDirectory: does not exist `
+
+Ordinary Git commands recognize the worktree correctly, and the same annex command succeeds when `GIT_DIR` and `GIT_WORK_TREE` are explicitly set to absolute paths. 
+
+I think it should work without those overrides.
+
+### What steps will reproduce the problem?
+
+
+This bash script should reproduce the problem on most systems:
+
+```
+#!/bin/sh
+set -eu
+
+workdir=$(mktemp -d)
+cd "$workdir"
+workdir=$(pwd -P)
+
+# Create a repository to use as a submodule.
+git init source
+git -C source commit --allow-empty -m "Initial commit"
+
+# Add it to a parent repository.
+git init main
+git -C main -c protocol.file.allow=always submodule add "$workdir/source" sub
+git -C main commit -m "Add submodule"
+
+# Check out the submodule in a linked worktree.
+git -C main worktree add -b linked ../linked
+git -C linked -c protocol.file.allow=always submodule update --init
+cd linked/sub
+git annex init repro
+
+# Ordinary Git recognizes the worktree.
+git rev-parse --show-toplevel
+git status
+
+# This fails with "changeWorkingDirectory: does not exist".
+# Continue so we can also demonstrate the workaround.
+git annex info || true
+
+# Explicit absolute paths make the same command succeed.
+GIT_DIR=$(git rev-parse --absolute-git-dir) \
+GIT_WORK_TREE=$(pwd -P) \
+git annex info
+```
+
+### What version of git-annex are you using? On what operating system?
+
+I have tried it across a range of versions.
+
+### Please provide any additional information below.
+
+[[!tag projects/repronim]]
+
+### Have you had any luck using git-annex before?
+
+Yes, lots. It's been working well for me in keeping track of scientific analyses.
+
