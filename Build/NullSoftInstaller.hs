@@ -19,11 +19,7 @@
  - To build git-annex to use libmagic, it has to be built with the
  - magicmime build flag turned on.
  -
- - A build of botan will also be included in the installer, if its
- - files are found  in the current directory:
- -   libbotan-3.dll
- -
- - Copyright 2013-2026 Joey Hess <id@joeyh.name>
+ - Copyright 2013-2020 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -49,7 +45,6 @@ main = do
 		mustSucceed "ln" [File "git-annex.exe", File gitannex]
 		magicDLLs' <- installwhenpresent magicDLLs tmpdir
 		magicShare' <- installwhenpresent magicShare tmpdir
-		botanDLL' <- installwhenpresent [botanDLL] tmpdir
 		let license = fromOsPath $ tmpdir </> toOsPath licensefile
 		mustSucceed "sh" [Param "-c", Param $ "zcat standalone/licences.gz > '" ++ license ++ "'"]
 		webappscript <- vbsLauncher tmpdir "git-annex-webapp" "git annex webapp"
@@ -61,7 +56,7 @@ main = do
 		F.writeFileString (toOsPath nsifile) $ makeInstaller
 			gitannex (fromOsPath gitannexcmd) license
 			(fromOsPath htmlhelp)
-			(winPrograms ++ magicDLLs' ++ botanDLL')
+			(winPrograms ++ magicDLLs')
 			magicShare'
 			[ webappscript, autostartscript ]
 		mustSucceed "makensis" [File nsifile]
