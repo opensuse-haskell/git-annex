@@ -1,0 +1,14 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 5"""
+ date="2026-10-28T01:39:46Z"
+ content="""
+The problem still exists on windows though. I think it may not be
+fixable without modifying the C libmagic to use `_wfopen()` or something
+like that. It may not be able to open non-ascii files at all currently.
+
+I tried passing a FD to get around the problem, 
+but that also didn't work right on windows.
+
+For now I've disabled the failing test on windows.
+"""]]

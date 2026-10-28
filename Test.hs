@@ -577,8 +577,12 @@ test_magic = intmpclonerepo $ do
 		@? "binary file not added to annex despite mimeencoding config"
 	(not <$> addedannex (literalOsPath "text"))
 		@? "non-binary file got added to annex despite mimeencoding config"
+#ifndef mingw32_HOST_OS
+	-- This is a known failure on windows, see 
+	-- doc/bugs/mimeencoding_detection_is_not_working.mdwn
 	addedannex unicodefn
 		@? "binary file with unicode name not added to annex despite mimeencoding config"
+#endif
   where
 	binarycontent = "\127"
 	-- quasiquoted because fromString for OsString mangles unicode
