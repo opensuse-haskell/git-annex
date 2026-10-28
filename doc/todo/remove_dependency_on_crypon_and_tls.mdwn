@@ -33,5 +33,12 @@ Here is a plan:
   the webapp and p2phttp; the webapp is mostly used on localhost and
   p2phttp is often used behind a server (eg forgejo) that can handle the
   https if it only supported http.
-* Make aws somehow able to use http-client-openssl (eg, by parameterizing it)
-* Make DAV somehow able to use http-client-openssl (eg, by parameterizing it)
+* aws depends on http-client-tls, but only uses it in its test suite;
+  the library uses the Manager that the user passes in.
+  So it would be possible to depend on aws w/o getting http-client-tls as a
+  dependency, except it has a gratuitous dependency on it in the 
+  Library stanza of the cabal file. Easily fixed.
+* Avoid DAV depending on http-client-tls, by passing a Manager to
+  mkDAVContext. (The context can be updated after the fact to use a
+  http-client-tls manager, but it still uses http-client-tls first to make
+  one.)
