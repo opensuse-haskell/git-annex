@@ -1,8 +1,0 @@
-[[!comment format=mdwn
- username="joey"
- subject="""comment 1"""
- date="2026-10-29T15:37:53Z"
- content="""
-I have chosen to fix this on the server side. So the server will need to
-upgrade its git-annex-shell, and then this will work.
-"""]]

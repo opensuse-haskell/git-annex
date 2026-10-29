@@ -41,6 +41,7 @@ import System.Exit (ExitCode(..))
 import System.IO
 import qualified Data.ByteString.Lazy as L
 import qualified Data.Set as S
+import Data.Char
 import Data.Maybe
 import Data.Time.Clock.POSIX
 import Control.DeepSeq
@@ -228,20 +229,39 @@ instance Proto.Serializable Service where
 
 -- | Since ProtoAssociatedFile is not the last thing in a protocol line,
 -- its serialization cannot contain any whitespace. This is handled
--- by replacing whitespace with '%' (and '%' with '%%')
+-- by replacing ' ' with '%' (and '%' with '%%')
 --
 -- When deserializing an AssociatedFile from a peer, that escaping is
 -- reversed.
+--
+-- This does not currently round trip cleanly. That is done to avoid
+-- breaking backwards compatability with old versions of git-annex,
+-- where the P2P protocol split words on isSpace. Which is why this
+-- escapes '\t' and other spaces (including unicode spaces) to '%' as well.
+--
+-- Control characters are also sanitized. This sanitization is probably
+-- unncessary, since git-annex uses Utility.SafeOutput to avoid displaying
+-- control characters to the user.
+--
+-- Not roundtripping is ok because a ProtoAssociatedFile is normally
+-- only displayed to the user and so does not need to match a file on disk.
+-- (It may also be used in checking preferred content, which is very
+-- unlikely to care about spaces vs tabs or control characters.)
+--
+-- In the future, this could be made to round trip cleanly
+-- by only escaping ' ' and not sanitizing control characters.
+-- That should only be done once it's very unlikely that a peer
+-- will be running a version of git-annex older than 10.20261029.
 instance Proto.Serializable ProtoAssociatedFile where
 	serialize (ProtoAssociatedFile (AssociatedFile Nothing)) = ""
 	serialize (ProtoAssociatedFile (AssociatedFile (Just af))) = 
 		fromOsPath $ toInternalGitPath $
-			OS.concat $ map esc $ OS.unpack af
+			toOsPath $ concat $ map esc $ fromOsPath af
 	  where
-	  	esc c = case OS.toChar c of
-			'%' -> literalOsPath "%%"
-			' ' -> literalOsPath "%"
-			_ -> OS.singleton c
+	  	esc c
+			| c == '%' = "%%"
+			| isSpace c = "%"
+			| otherwise = [c]
 	
 	deserialize s = case fromInternalGitPath $ toOsPath $ deesc [] s of
 		f
@@ -254,7 +274,9 @@ instance Proto.Serializable ProtoAssociatedFile where
 	  	deesc b [] = reverse b
 		deesc b ('%':'%':cs) = deesc ('%':b) cs
 		deesc b ('%':cs) = deesc (' ':b) cs
-		deesc b (c:cs) = deesc (c:b) cs
+		deesc b (c:cs)
+			| isControl c = deesc ('_':b) cs
+			| otherwise = deesc (c:b) cs
 
 -- | Free monad for the protocol, combining net communication,
 -- and local actions.
