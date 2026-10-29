@@ -1,0 +1,43 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 1"""
+ date="2026-10-29T20:50:56Z"
+ content="""
+This has nothing to do with `git-annex info`, any git-annex command after
+the first initialization behaves this way.
+
+It seems that git-annex is seeing the git config
+of "core.worktree=../../../../../../linked/sub" and getting a little bit
+confused. 
+
+It constructs a Repo with a location of eg
+
+	Local {gitdir = "/home/joey/tmp/tmp.rQ1fokJzh0/linked/sub/.git", worktree = Just "/home/linked/sub"}
+
+That worktree is wrong. And since it's not being run in that worktree,
+it tries to chdir to it.
+
+core.worktree is supposed to be relative to the gitdir. And
+since `.git -> ../../main/.git/worktrees/linked/modules/sub/`,
+that's "../../main/.git/worktrees/linked/modules/sub/../../../../../../linked/sub"
+aka "../../linked/sub".
+
+The wrong worktree comes from Git.Config.updateLocation. It is using the
+gitdir seen above, rather than following the symlink to the git directory it points to.
+So it uses "/home/joey/tmp/tmp.rQ1fokJzh0/linked/sub/.git/../../../../../../linked/sub"
+which reduces to "/home/linked/sub".
+
+So either Git.Config.updateLocation needs to change to follow the gitdir symlink,
+or the symlink needs to be followed at an earlier point.
+
+It's worth noting that the first time git-annex runs, it 
+ends up with the correct location eg
+
+	Local {gitdir = "/home/joey/tmp/tmp.D2wQYPhq9O/main/.git/worktrees/linked/modules/sub", worktree = Just "/home/joey/tmp/tmp.D2wQYPhq9O/linked/sub"}
+
+So the trouble comes from the various fixups that git-annex init has to do
+to convert .git files to symlinks.
+
+I will need to refresh my memory about linked worktrees and gitdir symlinks to get
+any further.
+"""]]
