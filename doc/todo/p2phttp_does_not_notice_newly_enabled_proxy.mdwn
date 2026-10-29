@@ -1,0 +1,11 @@
+When a new proxy is configured in a repository, and p2phttp is serving that
+repository, it will not notice the new proxy, and so won't know how to
+serve its UUID, until it gets restarted.
+
+When serving a directory with multiple repositories, p2phttp is able to
+deal with a new repository being added. So maybe it also should be able to
+deal with a new proxy being configured? 
+
+This would entail making updateRepos scan for new proxies, basically.
+Then when a UUID that is not known is requested, it would rescan. Seems
+doable. --[[Joey]]
