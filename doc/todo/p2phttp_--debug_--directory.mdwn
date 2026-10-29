@@ -1,0 +1,5 @@
+When using p2phttp --directory, --debug and other such flags have no effect.
+
+This should be possible to solve, by making `cmdnorepo` be passed
+an AnnexSetter. Then p2phttp could apply the settings of --debug and other
+such flags to each Annex. --[[Joey]]
