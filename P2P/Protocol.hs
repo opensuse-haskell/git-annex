@@ -261,7 +261,7 @@ instance Proto.Serializable ProtoAssociatedFile where
 	  where
 	  	deesc b [] = reverse b
 		deesc b ('%':'%':cs) = deesc ('%':b) cs
-		deesc b ('%':cs) = deesc ('_':b) cs
+		deesc b ('%':cs) = deesc (' ':b) cs
 		deesc b (c:cs)
 			| isControl c = deesc ('_':b) cs
 			| otherwise = deesc (c:b) cs
