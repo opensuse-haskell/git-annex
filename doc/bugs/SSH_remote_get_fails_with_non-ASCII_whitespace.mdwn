@@ -43,3 +43,4 @@ Claude produced this patch, which I don't understand, but when running "git anne
 
 I've spend the last few days migrating *everything* to git annex, it's wonderful!
 
+> [[fixed|done]] --[[Joey]]

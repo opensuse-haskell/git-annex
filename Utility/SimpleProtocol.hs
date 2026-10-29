@@ -29,7 +29,6 @@ module Utility.SimpleProtocol (
 	getProtocolLine,
 ) where
 
-import Data.Char
 import GHC.IO.Handle
 import Text.Read
 
@@ -132,7 +131,7 @@ parse5 mk s = mk <$> deserialize p1 <*> deserialize p2 <*> deserialize p3 <*> de
 	(p4, p5) = splitWord rest''
 
 splitWord :: String -> (String, String)
-splitWord = separate isSpace
+splitWord = separate (== ' ')
 
 {- Only safe to use when the serialization does not include whitespace. -}
 parseList :: Serializable p => ([p] -> a) -> Parser a
