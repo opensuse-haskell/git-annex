@@ -136,6 +136,10 @@ including `tls`.
 
 git-annex supports being built with older versions.
 
+### http-semantics
+
+TODO
+
 ### Cabal
 
 [First LLM generated code](https://github.com/haskell/cabal/commit/da8b314563feb15a3df7bc1baeef4b7aa08f7578)
