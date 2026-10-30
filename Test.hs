@@ -590,8 +590,8 @@ test_magic = intmpclonerepo $ do
 #endif
 #endif
   where
-#ifdef WITH_OSPATH
 	binarycontent = "\127"
+#ifdef WITH_OSPATH
 	-- quasiquoted because fromString for OsString mangles unicode
 	unicodefn = [osstr|fo¡oüঊ|]
 #endif
