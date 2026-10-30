@@ -7,7 +7,7 @@
 
 {-# LANGUAGE CPP #-}
 
-import System.Environment (getArgs, getProgName)
+import System.Environment (getArgs)
 import System.FilePath
 import Network.Socket (withSocketsDo)
 import qualified Data.Map as M
@@ -36,7 +36,7 @@ main = sanitizeTopLevelExceptionMessages $ withSocketsDo $ do
 #ifdef mingw32_HOST_OS
 	winEnv
 #endif
-	run ps =<< getProgName
+	run ps =<< getCommandName
   where
 	run ps n = case M.lookup (takeFileName n) otherMulticallCommands of
 		Just GitAnnexShell -> CmdLine.GitAnnexShell.run ps
