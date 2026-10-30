@@ -26,7 +26,6 @@ import qualified Data.ByteString as B
 import Data.Char
 #ifdef WITH_MAGICMIME
 import Annex.Path
-import Utility.Env
 import Magic
 import qualified Data.List.NonEmpty as NE
 import qualified System.OsString.Internal as OS
@@ -34,17 +33,30 @@ import qualified System.OsString.Internal as OS
 type Magic = ()
 #endif
 
+magicFileLocation :: IO (Maybe OsPath)
+magicFileLocation = 
+	gitAnnexInstallDir >>= \case
+		Nothing -> 
+#ifndef mingw32_HOST_OS
+			pure Nothing
+#else
+			-- On windows, the magic file is in the same
+			-- directory as the program.
+			Just . takeDirectory <$> programPath
+#endif
+		Just d -> pure $ Just $
+			d
+				</> literalOsPath "magic"
+				</> literalOsPath "magic.mgc"
+
 initMagicMime :: IO (Maybe Magic)
 #ifdef WITH_MAGICMIME
 initMagicMime = catchMaybeIO $ do
 	m <- magicOpen [MagicMime]
-	gitAnnexInstallDir >>= \case
+	magicFileLocation >>= \case
 		Nothing -> magicLoadDefault m
 		Just d -> do
-			p <- OS.encodeFS $ fromOsPath $
-				toOsPath d
-					</> literalOsPath "magic"
-					</> literalOsPath "magic.mgc"
+			p <- OS.encodeFS $ fromOsPath d
 			magicLoad m $ NE.singleton p
 	return m
 #else
