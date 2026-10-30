@@ -26,11 +26,7 @@ Here is a plan:
 * Switch git-annex to botan for hash functions. There is already a build
   flag, but it would be easier if botan bundled the C library in the
   haskell package. Which they have considered doing.  
-  The `botan-default` branch makes the switch, but is blocked on
-  getting the windows build to work with botan. 
-  (I have wasted about 2 days on that so far, it seems
-  like a real toolchain nightmare. See gitannexbuilder github branch 
-  for the gory details.)
+  The `botan-default` branch makes the switch.
 * botan lacks skein and blake2, so would need to get those hashes another
   way
 * Switch from http-client-tls to http-client-openssl.
