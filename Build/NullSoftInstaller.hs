@@ -13,13 +13,7 @@
  -
  - stack ghc --no-haddock --package nsis Build/NullSoftInstaller.hs
  -
- - A build of libmagic will also be included in the installer, if its files
- - are found in the current directory: 
- -   ./magic.mgc ./libmagic-1.dll ./libgnurx-0.dll
- - To build git-annex to use libmagic, it has to be built with the
- - magicmime build flag turned on.
- -
- - Copyright 2013-2020 Joey Hess <id@joeyh.name>
+ - Copyright 2013-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -35,15 +29,28 @@ import Utility.Tmp.Dir
 import Utility.SafeCommand
 import Utility.SystemDirectory
 import Utility.OsPath
+import Utility.Directory
 import qualified Utility.FileIO as F
 import Build.BundledPrograms
+
+{- Magic file database will be included if this file is found in the
+ - current directory. -}
+magicShare :: [FilePath]
+magicShare = ["magic.mgc"]
+
+{- *.dll in the current directory will be included. -}
+findDLLs :: IO FilePath
+findDLLs = do
+	l <- dirContents "."
+	return $ filter (".dll" `isSuffixOf`) l
 
 main :: IO ()
 main = do
 	withTmpDir "nsis-build" $ \tmpdir -> do
 		let gitannex = fromOsPath $ tmpdir </> toOsPath gitannexprogram
 		mustSucceed "ln" [File "git-annex.exe", File gitannex]
-		magicDLLs' <- installwhenpresent magicDLLs tmpdir
+		dlls <- findDLLs
+		dlls' <- installwhenpresent dlls tmpdir
 		magicShare' <- installwhenpresent magicShare tmpdir
 		let license = fromOsPath $ tmpdir </> toOsPath licensefile
 		mustSucceed "sh" [Param "-c", Param $ "zcat standalone/licences.gz > '" ++ license ++ "'"]
@@ -56,7 +63,7 @@ main = do
 		F.writeFileString (toOsPath nsifile) $ makeInstaller
 			gitannex (fromOsPath gitannexcmd) license
 			(fromOsPath htmlhelp)
-			(winPrograms ++ magicDLLs')
+			(winPrograms ++ dlls')
 			magicShare'
 			[ webappscript, autostartscript ]
 		mustSucceed "makensis" [File nsifile]

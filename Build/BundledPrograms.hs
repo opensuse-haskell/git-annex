@@ -79,17 +79,3 @@ preferredBundledPrograms = catMaybes
 	-- we rely on the system's own version, which may better match
 	-- its kernel, and avoid using them if not available.
 	]
-
-magicDLLs :: [FilePath]
-#ifdef mingw32_HOST_OS
-magicDLLs = ["libmagic-1.dll", "libgnurx-0.dll"]
-#else
-magicDLLs = []
-#endif
-
-magicShare :: [FilePath]
-#ifdef mingw32_HOST_OS
-magicShare = ["magic.mgc"]
-#else
-magicShare = []
-#endif
