@@ -1,6 +1,6 @@
 {- git-annex program path
  -
- - Copyright 2013-2024 Joey Hess <id@joeyh.name>
+ - Copyright 2013-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -8,6 +8,7 @@
 module Annex.Path (
 	programPath,
 	readProgramFile,
+	gitAnnexInstallDir,
 	gitAnnexChildProcess,
 	gitAnnexChildProcessParams,
 	gitAnnexDaemonizeParams,
@@ -24,6 +25,11 @@ import qualified Annex
 import System.Environment (getExecutablePath, getArgs, getProgName)
 import qualified Data.Map as M
 
+{- The standalone build sets GIT_ANNEX_DIR to the location of the
+ - standalone build directory. -}
+gitAnnexInstallDir :: IO (Maybe OsPath)
+gitAnnexInstallDir = fmap toOsPath <$> getEnv "GIT_ANNEX_DIR"
+
 {- A fully qualified path to the currently running git-annex program.
  - 
  - getExecutablePath is used when possible. On OSs it supports
@@ -32,20 +38,19 @@ import qualified Data.Map as M
  - or searching for the command name in PATH.
  -
  - The standalone build runs git-annex via ld.so, and defeats
- - getExecutablePath. It sets GIT_ANNEX_DIR to the location of the
- - standalone build directory, and there are wrapper scripts for git-annex
- - and git-annex-shell in that directory.
+ - getExecutablePath. There are wrapper scripts for git-annex
+ - and git-annex-shell in the gitAnnexInstallDir.
  -
  - When the currently running program is not git-annex, but is instead eg
  - git-annex-shell or git-remote-annex, this finds a git-annex program
  - instead.
  -}
 programPath :: IO OsPath
-programPath = go =<< getEnv "GIT_ANNEX_DIR"
+programPath = go =<< gitAnnexInstallDir
   where
 	go (Just dir) = do
 		name <- reqgitannex <$> getProgName
-		return (toOsPath dir </> toOsPath name)
+		return (dir </> toOsPath name)
 	go Nothing = do
 		name <- getProgName
 		exe <- if isgitannex name

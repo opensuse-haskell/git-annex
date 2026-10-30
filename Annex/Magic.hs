@@ -25,8 +25,9 @@ import Control.Monad.IO.Class
 import qualified Data.ByteString as B
 import Data.Char
 #ifdef WITH_MAGICMIME
-import Magic
+import Annex.Path
 import Utility.Env
+import Magic
 import qualified Data.List.NonEmpty as NE
 import qualified System.OsString.Internal as OS
 #else
@@ -37,7 +38,7 @@ initMagicMime :: IO (Maybe Magic)
 #ifdef WITH_MAGICMIME
 initMagicMime = catchMaybeIO $ do
 	m <- magicOpen [MagicMime]
-	liftIO $ getEnv "GIT_ANNEX_DIR" >>= \case
+	gitAnnexInstallDir >>= \case
 		Nothing -> magicLoadDefault m
 		Just d -> do
 			p <- OS.encodeFS $ fromOsPath $
