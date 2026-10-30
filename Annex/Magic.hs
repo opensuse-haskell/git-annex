@@ -36,7 +36,7 @@ type Magic = ()
 magicFileLocation :: IO (Maybe OsPath)
 magicFileLocation = 
 	gitAnnexInstallDir >>= \case
-		Nothing -> 
+		Nothing -> do
 #ifndef mingw32_HOST_OS
 			pure Nothing
 #else
