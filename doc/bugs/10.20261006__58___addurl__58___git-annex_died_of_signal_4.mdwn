@@ -88,3 +88,5 @@ ewen@basadi:/annex/downloaded/apple/macos/macOS_13-Ventura$
 ### Have you had any luck using git-annex before? (Sometimes we get tired of reading bug reports all day and a lil' positive end note does wonders)
 
 Yes, git-annex was working fine for both "addurl" and "importfeed" on the September 2026 release, built in a similar manner (local build from Homebrew Formula).  Thanks, it's been very helpful.
+
+> [[done]], and see [[todo/remove_dependency_on_crypon_and_tls]]. --[[Joey]]
