@@ -28,7 +28,9 @@ import Control.Concurrent.STM hiding (check)
 import qualified Utility.RawFilePath as R
 import qualified Data.List.NonEmpty as NE
 import Data.String
+#ifdef WITH_OSPATH
 import System.OsString (osstr)
+#endif
 
 import Common
 import CmdLine.GitAnnex.Options
@@ -568,7 +570,9 @@ test_magic = intmpclonerepo $ do
 		"git config annex.largefiles"
 	writeFileString (literalOsPath "binary") binarycontent
 	writeFileString (literalOsPath "text") "test\n" 
+#ifdef WITH_OSPATH
 	writeFileString unicodefn binarycontent
+#endif
 	git_annex "add" []
 		"git-annex add with mimeencoding in largefiles"
 	git_annex "sync" ["--no-content"]
@@ -578,15 +582,19 @@ test_magic = intmpclonerepo $ do
 	(not <$> addedannex (literalOsPath "text"))
 		@? "non-binary file got added to annex despite mimeencoding config"
 #ifndef mingw32_HOST_OS
+#ifdef WITH_OSPATH
 	-- This is a known failure on windows, see 
 	-- doc/bugs/mimeencoding_detection_is_not_working.mdwn
 	addedannex unicodefn
 		@? "binary file with unicode name not added to annex despite mimeencoding config"
 #endif
+#endif
   where
+#ifdef WITH_OSPATH
 	binarycontent = "\127"
 	-- quasiquoted because fromString for OsString mangles unicode
 	unicodefn = [osstr|fo¡oüঊ|]
+#endif
 	addedannex f = isJust <$> annexeval (Annex.CatFile.catKeyFile f)
 #else
 	return ()
