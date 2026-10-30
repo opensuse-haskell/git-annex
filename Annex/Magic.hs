@@ -40,9 +40,16 @@ magicFileLocation =
 #ifndef mingw32_HOST_OS
 			pure Nothing
 #else
-			-- On windows, the magic file is in the same
-			-- directory as the program.
-			Just . takeDirectory <$> programPath
+			-- On windows, the magic file is
+			-- in ../share/misc/ relative
+			-- to the program.
+			pd <- takeDirectory <$> programPath
+			pure $ Just $
+				pd
+					</> literalOsPath ".."
+					</> literalOsPath "share"
+					</> literalOsPath "misc"
+					</> literalOsPath "magic.mgc"
 #endif
 		Just d -> pure $ Just $
 			d
