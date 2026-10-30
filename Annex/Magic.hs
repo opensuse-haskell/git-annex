@@ -28,6 +28,7 @@ import Data.Char
 import Magic
 import Utility.Env
 import qualified Data.List.NonEmpty as NE
+import qualified System.OsString.Internal as OS
 #else
 type Magic = ()
 #endif
@@ -38,10 +39,12 @@ initMagicMime = catchMaybeIO $ do
 	m <- magicOpen [MagicMime]
 	liftIO $ getEnv "GIT_ANNEX_DIR" >>= \case
 		Nothing -> magicLoadDefault m
-		Just d -> magicLoad m $ NE.singleton $
-			toOsPath d
-				</> literalOsPath "magic"
-				</> literalOsPath "magic.mgc"
+		Just d -> do
+			p <- OS.encodeFS $ fromOsPath $
+				toOsPath d
+					</> literalOsPath "magic"
+					</> literalOsPath "magic.mgc"
+			magicLoad m $ NE.singleton p
 	return m
 #else
 initMagicMime = return Nothing
@@ -49,7 +52,8 @@ initMagicMime = return Nothing
 
 getMagicMime :: Magic -> OsPath -> IO (Maybe (MimeType, MimeEncoding))
 #ifdef WITH_MAGICMIME
-getMagicMime m f = Just . parseMagicMime <$> magicFile m f
+getMagicMime m f = Just . parseMagicMime
+	<$> (magicFile m =<< OS.encodeFS (fromOsPath f))
 #else
 getMagicMime _ _ = return Nothing
 #endif
