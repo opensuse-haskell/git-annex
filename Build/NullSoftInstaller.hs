@@ -166,9 +166,6 @@ makeInstaller gitannex gitannexcmd license htmlhelp extrabins sharefiles launche
 		, Description "git-annex autostart"
 		]
 	_ <- section "cmd" [] $ do
-		-- Remove old files no longer installed in the cmd
-		-- directory.
-		removefilesFrom "$INSTDIR/cmd" (gitannex:extrabins)
 		-- Install everything to the same location git puts its
 		-- bins. This makes "git annex" work in the git bash
 		-- shell, since git expects to find the git-annex binary
@@ -202,7 +199,6 @@ makeInstaller gitannex gitannexcmd license htmlhelp extrabins sharefiles launche
 		removefilesFrom "$INSTDIR" [license, uninstaller]
   where
 	addfile f = file [] (str f)
-	removefilesFrom d = mapM_ (\f -> delete [RebootOK] $ fromString $ d ++ "/" ++ fromOsPath (takeFileName (toOsPath f)))
 
 winPrograms :: [FilePath]
 winPrograms = map (\p -> p ++ ".exe") bundledPrograms
