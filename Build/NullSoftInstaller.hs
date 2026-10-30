@@ -9,21 +9,32 @@
  - for that.
  - 
  - To build the installer, git-annex should already be built to
- - ./git-annex.exe, then run this program, using eg:
- -
- - stack ghc --no-haddock --package nsis Build/NullSoftInstaller.hs
+ - ./git-annex.exe, then run this program by eg:
+ - cp git-annex.exe nullsoft-installer.exe
+ - ./nullsoft-installer
  -
  - Copyright 2013-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings, FlexibleContexts #-}
+
+module Build.NullSoftInstaller (main) where
+
+#ifndef mingw32_HOST_OS
+
+main :: IO ()
+main = error "only supported on Windows"
+
+#else
 
 import Development.NSIS
 import Control.Monad
 import Data.String
 import Data.Maybe
+import Data.List (isSuffixOf)
 
 import Utility.Tmp.Dir
 import Utility.SafeCommand
@@ -39,14 +50,14 @@ magicShare :: [FilePath]
 magicShare = ["magic.mgc"]
 
 {- *.dll in the current directory will be included. -}
-findDLLs :: IO FilePath
+findDLLs :: IO [FilePath]
 findDLLs = do
-	l <- dirContents "."
-	return $ filter (".dll" `isSuffixOf`) l
+	l <- dirContents (literalOsPath ".")
+	return $ filter (".dll" `isSuffixOf`) $ map fromOsPath l
 
 main :: IO ()
 main = do
-	withTmpDir "nsis-build" $ \tmpdir -> do
+	withTmpDir (literalOsPath "nsis-build") $ \tmpdir -> do
 		let gitannex = fromOsPath $ tmpdir </> toOsPath gitannexprogram
 		mustSucceed "ln" [File "git-annex.exe", File gitannex]
 		dlls <- findDLLs
@@ -206,6 +217,7 @@ makeInstaller gitannex gitannexcmd license htmlhelp extrabins sharefiles launche
 		removefilesFrom "$INSTDIR" [license, uninstaller]
   where
 	addfile f = file [] (str f)
+	removefilesFrom d = mapM_ (\f -> delete [RebootOK] $ fromString $ d ++ "/" ++ fromOsPath (takeFileName (toOsPath f)))
 
 winPrograms :: [FilePath]
 winPrograms = map (\p -> p ++ ".exe") bundledPrograms
@@ -220,3 +232,5 @@ htmlHelpText = unlines
 	, "</body>"
 	, "</html"
 	]
+
+#endif

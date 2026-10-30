@@ -385,7 +385,8 @@ Executable git-annex
       Win32 (>= 2.13.4.0),
       setenv,
       process (>= 1.6.2.0),
-      silently (>= 1.2.5.1)
+      silently (>= 1.2.5.1),
+      nsis
   else
     Build-Depends: unix (>= 2.8.4)
 
@@ -674,6 +675,7 @@ Executable git-annex
     Build.Configure
     Build.DesktopFile
     Build.Mans
+    Build.NullSoftInstaller
     Build.TestConfig
     Build.Version
     BuildInfo

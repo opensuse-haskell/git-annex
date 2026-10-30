@@ -19,6 +19,7 @@ data OtherMultiCallCommand
 	| GitRemoteAnnex
 	| GitRemoteP2PAnnex
 	| GitRemoteTorAnnex
+	| NullSoftInstaller
 
 otherMulticallCommands :: M.Map String OtherMultiCallCommand
 otherMulticallCommands = M.fromList
@@ -26,5 +27,6 @@ otherMulticallCommands = M.fromList
 	, ("git-remote-annex", GitRemoteAnnex)
 	, ("git-remote-p2p-annex", GitRemoteP2PAnnex)
 	, ("git-remote-tor-annex", GitRemoteTorAnnex)
+	, ("nullsoft-installer", NullSoftInstaller)
 	]
 

@@ -27,6 +27,7 @@ import Utility.FileSystemEncoding
 import Utility.UserInfo
 import Utility.Env.Set
 #endif
+import qualified Build.NullSoftInstaller
 
 main :: IO ()
 main = sanitizeTopLevelExceptionMessages $ withSocketsDo $ do
@@ -42,6 +43,7 @@ main = sanitizeTopLevelExceptionMessages $ withSocketsDo $ do
 		Just GitRemoteAnnex -> CmdLine.GitRemoteAnnex.run ps
 		Just GitRemoteP2PAnnex -> CmdLine.GitRemoteP2PAnnex.run ps
 		Just GitRemoteTorAnnex -> CmdLine.GitRemoteTorAnnex.run ps
+		Just NullSoftInstaller -> Build.NullSoftInstaller.main
 		Nothing -> CmdLine.GitAnnex.run
 			Test.optParser
 			Test.runner
