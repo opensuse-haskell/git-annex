@@ -23,10 +23,10 @@ import Common
 import Types.Mime
 import Control.Monad.IO.Class
 import qualified Data.ByteString as B
+import Data.Char
 #ifdef WITH_MAGICMIME
 import Magic
 import Utility.Env
-import Data.Char
 import qualified Data.List.NonEmpty as NE
 #else
 type Magic = ()
