@@ -22,12 +22,12 @@ module Annex.Magic (
 import Common
 import Types.Mime
 import Control.Monad.IO.Class
+import qualified Data.ByteString as B
 #ifdef WITH_MAGICMIME
 import Magic
 import Utility.Env
 import Data.Char
 import qualified Data.List.NonEmpty as NE
-import qualified Data.ByteString as B
 #else
 type Magic = ()
 #endif
