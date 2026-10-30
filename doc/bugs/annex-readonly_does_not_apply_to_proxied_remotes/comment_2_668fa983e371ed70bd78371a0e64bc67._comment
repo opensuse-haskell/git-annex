@@ -1,0 +1,12 @@
+[[!comment format=mdwn
+ username="matrss"
+ avatar="http://cdn.libravatar.org/avatar/cd1c0b3be1af288012e49197918395f0"
+ subject="comment 2"
+ date="2026-10-30T10:00:06Z"
+ content="""
+> It does work for special remotes, but not for git remotes.
+
+Ah, well that explains why we saw different behavior :)
+
+Just for the record, I don't currently have a use-case for proxies, and the one I have in mind for the future would only involve a special remote that is read-only by itself already, so I don't see any urgency for this issue. Still, good to have it logged.
+"""]]
