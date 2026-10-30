@@ -1,0 +1,21 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 1"""
+ date="2026-10-30T06:33:34Z"
+ content="""
+It does work for special remotes, but not for git remotes.
+
+I think the reason for the difference is that Annex.Proxy has
+proxyGitRemoteSide and proxySpecialRemoteSide. The former opens a P2P
+connection to the proxied remote's git-annex-shell, and so it does not
+access the remote via a Remote object like the latter does. So the fact
+that the Remote has methods that have been made readonly has no effect.
+
+So probably proxySpecialRemoteSide needs to look at annex-readonly and then
+somehow limit the P2P connection to ServeReadOnly. But I don't think there
+is actually any way to do that, short of modifying git-annex-shell or
+somehow injecting `GIT_ANNEX_SHELL_READONLY` into its environment when
+running it. So supporting it might involve consuming the P2P protocol
+and filtering out writes before relaying it. Unfortunately, that would
+add copying of DATA, so could be a significant slowdown.
+"""]]
