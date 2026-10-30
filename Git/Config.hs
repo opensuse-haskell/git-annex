@@ -1,6 +1,6 @@
 {- git repository configuration handling
  -
- - Copyright 2010-2022 Joey Hess <id@joeyh.name>
+ - Copyright 2010-2026 Joey Hess <id@joeyh.name>
  -
  - Licensed under the GNU AGPL version 3 or higher.
  -}
@@ -24,6 +24,7 @@ import qualified Git.Construct
 import Utility.UserInfo
 import Utility.Process.Transcript
 import Utility.Debug
+import qualified Utility.RawFilePath as R
 
 {- Returns a single git config setting, or a fallback value if not set. -}
 get :: ConfigKey -> ConfigValue -> Repo -> ConfigValue
@@ -181,12 +182,20 @@ updateLocation' r l@(Local {}) = do
 	l' <- case getMaybe "core.worktree" r of
 		Nothing -> return l
 		Just (ConfigValue d) -> do
-			{- core.worktree is relative to the gitdir -}
-			top <- absPath (gitdir l)
+			top <- gitdirtop
 			let p = absPathFrom top (toOsPath d)
 			return $ l { worktree = Just p }
 		Just NoConfigValue -> return l
 	return $ r { location = l' }
+  where
+	{- core.worktree is relative to the gitdir. 
+	 - When the gitdir is a symlink, it's relative to the destination
+	 - of the symlink.
+	 -}
+	gitdirtop = catchMaybeIO (R.readSymbolicLink (fromOsPath (gitdir l))) >>= \case
+		Nothing -> absPath (gitdir l)
+		Just linktarget -> absPath $
+			takeDirectory (gitdir l) </> toOsPath linktarget
 updateLocation' r l = return r { location = l }
 
 data ConfigStyle = ConfigList | ConfigNullList

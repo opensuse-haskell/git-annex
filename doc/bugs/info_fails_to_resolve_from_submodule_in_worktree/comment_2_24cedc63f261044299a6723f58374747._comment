@@ -1,0 +1,19 @@
+[[!comment format=mdwn
+ username="joey"
+ subject="""comment 2"""
+ date="2026-10-30T14:34:26Z"
+ content="""
+As far as I can see, core.worktree is the only config setting that
+is relative to the path of the gitdir.
+
+Changing the gitdir to be where the symlink points to does not seem like a
+good idea, it would affect git-annex code that creates symlinks pointing
+into the gitdir.
+
+Also, `git rev-parse --git-dir` is just ".git" in this situation,
+so even git internally does not follow the symlink manually, except
+presumably when resolving core.worktree.
+
+So, I've fixed this only in the core.worktree handling code in
+updateLocation.
+"""]]
