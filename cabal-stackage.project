@@ -1,0 +1,10 @@
+-- cabal.project file that is equivilant to building with stack.yaml,
+-- with package versions from stackage.
+packages:
+  .
+jobs: $ncpus
+semaphore: True
+import: https://www.stackage.org/lts-24.52/cabal.config
+-- OsPath flag is currently off because stackage has a too old version
+-- of file-io
+flags: +Botan +MagicMime +Blake3 +XXH3 -OsPath +Dbus

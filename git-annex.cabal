@@ -38,6 +38,7 @@ Extra-Source-Files:
   stack-botan.yaml
   stack-NoLLMDependencies.yaml
   cabal.project
+  cabal-stackage.project
   README
   CHANGELOG
   NEWS
