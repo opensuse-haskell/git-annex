@@ -4,7 +4,6 @@ packages:
   .
 jobs: $ncpus
 semaphore: True
-import: https://www.stackage.org/lts-24.52/cabal.config
--- OsPath flag is currently off because stackage has a too old version
--- of file-io
-flags: +Botan +MagicMime +Blake3 +XXH3 -OsPath +Dbus
+import: cabal-stackage.config
+constraints: blake3 ==0.3, libmagic ==1.3.1, ram ==0.22.0
+flags: +Botan +MagicMime +Blake3 +XXH3 +OsPath +Dbus

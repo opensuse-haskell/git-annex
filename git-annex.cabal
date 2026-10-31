@@ -39,6 +39,7 @@ Extra-Source-Files:
   stack-NoLLMDependencies.yaml
   cabal.project
   cabal-stackage.project
+  cabal-stackage.config
   README
   CHANGELOG
   NEWS
